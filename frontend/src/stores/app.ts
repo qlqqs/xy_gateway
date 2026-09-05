@@ -16,8 +16,6 @@ export const useAppStore = defineStore('app', () => {
 
     // 功能模块开关
     const moduleBillingEnabled = ref(false);
-    const moduleApiPlaygroundEnabled = ref(false);
-    const moduleClientConfigEnabled = ref(false);
 
     function toggleSidebar() {
         sidebarCollapsed.value = !sidebarCollapsed.value;
@@ -39,8 +37,6 @@ export const useAppStore = defineStore('app', () => {
             version.value = data.system?.version || FALLBACK_VERSION;
             mode.value = data.mode || '';
             moduleBillingEnabled.value = data.modules?.billing ?? false;
-            moduleApiPlaygroundEnabled.value = data.modules?.api_playground ?? false;
-            moduleClientConfigEnabled.value = data.modules?.client_config ?? false;
             r2StorageAvailable.value = data.storage?.r2_available ?? false;
             r2StorageUnavailableReason.value = data.storage?.r2_unavailable_reason || '';
         } catch (error) {
@@ -56,8 +52,6 @@ export const useAppStore = defineStore('app', () => {
         r2StorageAvailable,
         r2StorageUnavailableReason,
         moduleBillingEnabled,
-        moduleApiPlaygroundEnabled,
-        moduleClientConfigEnabled,
         toggleSidebar,
         enableDeveloperMode,
         disableDeveloperMode,

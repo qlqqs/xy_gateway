@@ -22,32 +22,6 @@
                                 />
                             </div>
                         </div>
-                        <div class="setting-item">
-                            <div class="setting-info">
-                                <div class="setting-title">API 体验</div>
-                                <div class="setting-desc">启用后，侧边栏将显示 API 体验入口，可在线调试和测试接口</div>
-                            </div>
-                            <div class="setting-action">
-                                <a-switch
-                                    :checked="form.module_api_playground_enabled"
-                                    @change="form.module_api_playground_enabled = $event as boolean"
-                                    :disabled="saving"
-                                />
-                            </div>
-                        </div>
-                        <div class="setting-item">
-                            <div class="setting-info">
-                                <div class="setting-title">客户端管理</div>
-                                <div class="setting-desc">启用后，侧边栏将显示客户端管理入口，可管理各客户端的连接配置</div>
-                            </div>
-                            <div class="setting-action">
-                                <a-switch
-                                    :checked="form.module_client_config_enabled"
-                                    @change="form.module_client_config_enabled = $event as boolean"
-                                    :disabled="saving"
-                                />
-                            </div>
-                        </div>
                     </div>
                 </a-tab-pane>
 
@@ -317,8 +291,6 @@ const originalConfig = reactive({
     auto_update_enabled: true,
     telemetry_disabled: false,
     module_billing_enabled: false,
-    module_api_playground_enabled: false,
-    module_client_config_enabled: false,
 });
 
 const form = reactive({
@@ -331,8 +303,6 @@ const form = reactive({
     auto_update_enabled: true,
     telemetry_disabled: false,
     module_billing_enabled: false,
-    module_api_playground_enabled: false,
-    module_client_config_enabled: false,
 });
 
 const isDirty = computed(() => {
@@ -344,9 +314,7 @@ const isDirty = computed(() => {
            form.record_payload_storage !== originalConfig.record_payload_storage ||
            form.auto_update_enabled !== originalConfig.auto_update_enabled ||
            form.telemetry_disabled !== originalConfig.telemetry_disabled ||
-           form.module_billing_enabled !== originalConfig.module_billing_enabled ||
-           form.module_api_playground_enabled !== originalConfig.module_api_playground_enabled ||
-           form.module_client_config_enabled !== originalConfig.module_client_config_enabled;
+           form.module_billing_enabled !== originalConfig.module_billing_enabled;
 });
 
 onMounted(() => {
@@ -394,11 +362,6 @@ async function loadConfig(): Promise<void> {
         form.module_billing_enabled = config.module_billing_enabled === "true";
         originalConfig.module_billing_enabled = config.module_billing_enabled === "true";
 
-        form.module_api_playground_enabled = config.module_api_playground_enabled === "true";
-        originalConfig.module_api_playground_enabled = config.module_api_playground_enabled === "true";
-
-        form.module_client_config_enabled = config.module_client_config_enabled === "true";
-        originalConfig.module_client_config_enabled = config.module_client_config_enabled === "true";
     } finally {
         loading.value = false;
     }
@@ -414,8 +377,6 @@ function cancelChanges() {
     form.auto_update_enabled = originalConfig.auto_update_enabled;
     form.telemetry_disabled = originalConfig.telemetry_disabled;
     form.module_billing_enabled = originalConfig.module_billing_enabled;
-    form.module_api_playground_enabled = originalConfig.module_api_playground_enabled;
-    form.module_client_config_enabled = originalConfig.module_client_config_enabled;
 }
 
 async function doCheckUpdate() {
@@ -486,8 +447,6 @@ async function saveConfig() {
             auto_update_enabled: form.auto_update_enabled ? "true" : "false",
             telemetry_disabled: form.telemetry_disabled ? "true" : "false",
             module_billing_enabled: form.module_billing_enabled ? "true" : "false",
-            module_api_playground_enabled: form.module_api_playground_enabled ? "true" : "false",
-            module_client_config_enabled: form.module_client_config_enabled ? "true" : "false",
         });
         message.success('配置已保存');
         originalConfig.cch_rewrite_enabled = form.cch_rewrite_enabled;
@@ -499,13 +458,9 @@ async function saveConfig() {
         originalConfig.auto_update_enabled = form.auto_update_enabled;
         originalConfig.telemetry_disabled = form.telemetry_disabled;
         originalConfig.module_billing_enabled = form.module_billing_enabled;
-        originalConfig.module_api_playground_enabled = form.module_api_playground_enabled;
-        originalConfig.module_client_config_enabled = form.module_client_config_enabled;
 
         // 同步全局状态
         appStore.moduleBillingEnabled = form.module_billing_enabled;
-        appStore.moduleApiPlaygroundEnabled = form.module_api_playground_enabled;
-        appStore.moduleClientConfigEnabled = form.module_client_config_enabled;
 
         if ((window as any).posthog) {
             if (form.telemetry_disabled) {
