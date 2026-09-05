@@ -36,13 +36,13 @@ export const useAuthStore = defineStore('auth', () => {
         } catch (error: any) {
             // 只有明确的 401/403 认证失败才清 Token
             // 网络错误时保留 Token（例如后端还没启动）
-            const status = error?.response?.status;
+            const status = error?.status ?? error?.response?.status;
             const isAuthError = status === 401 || status === 403;
             if (isAuthError) {
                 clearToken();
             }
             const message = isAuthError
-                ? (error?.response?.data?.error || 'Token 验证失败')
+                ? (error?.data?.error || error?.response?.data?.error || 'Token 验证失败')
                 : '连接后端失败，请稍后重试';
             return { success: false, message };
         } finally {

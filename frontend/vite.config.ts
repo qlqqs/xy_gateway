@@ -61,7 +61,7 @@ export default defineConfig({
     server: {
         port: 8721,
         strictPort: true, // 如果 8721 被占用，直接报错退出，不再尝试下一个端口
-        host: '127.0.0.1',
+        host: '0.0.0.0',
         allowedHosts: true,
         proxy: {
             '/api': {
