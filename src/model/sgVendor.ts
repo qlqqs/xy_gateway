@@ -21,12 +21,28 @@ class SgVendorConfig extends CastsAttributes {
     /** 代理配置 */
     proxy?: { type: "http" | "socks5"; url: string } | null;
 
+    /** 新版供应商管理表单字段，保存在 config 中以兼容既有数据库结构 */
+    supplier_name?: string;
+    channel_code?: string;
+    api_type?: "openai" | "anthropic";
+    openai_protocol?: "chat_completions" | "responses";
+    status?: "active" | "disabled";
+    remark?: string;
+    available_models?: string[];
+
     constructor(data?: Partial<SgVendorConfig>) {
         super();
         if (data) {
             if (data.auth_mode !== undefined) this.auth_mode = data.auth_mode;
             if (data.skip_tls_verify !== undefined) this.skip_tls_verify = data.skip_tls_verify;
             if (data.proxy !== undefined) this.proxy = data.proxy;
+            if (data.supplier_name !== undefined) this.supplier_name = data.supplier_name;
+            if (data.channel_code !== undefined) this.channel_code = data.channel_code;
+            if (data.api_type !== undefined) this.api_type = data.api_type;
+            if (data.openai_protocol !== undefined) this.openai_protocol = data.openai_protocol;
+            if (data.status !== undefined) this.status = data.status;
+            if (data.remark !== undefined) this.remark = data.remark;
+            if (data.available_models !== undefined) this.available_models = data.available_models;
         }
     }
 
@@ -37,6 +53,13 @@ class SgVendorConfig extends CastsAttributes {
             skip_tls_verify: this.skip_tls_verify,
         };
         if (this.proxy != null) result.proxy = this.proxy;
+        if (this.supplier_name) result.supplier_name = this.supplier_name;
+        if (this.channel_code) result.channel_code = this.channel_code;
+        if (this.api_type) result.api_type = this.api_type;
+        if (this.openai_protocol) result.openai_protocol = this.openai_protocol;
+        if (this.status) result.status = this.status;
+        if (this.remark) result.remark = this.remark;
+        if (this.available_models?.length) result.available_models = this.available_models;
         return result;
     }
 

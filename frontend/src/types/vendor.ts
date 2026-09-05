@@ -18,6 +18,13 @@ export interface VendorUrls {
 export interface VendorConfig {
     auth_mode?: VendorAuthMode;
     skip_tls_verify?: boolean;
+    supplier_name?: string;
+    channel_code?: string;
+    api_type?: 'openai' | 'anthropic';
+    openai_protocol?: 'chat_completions' | 'responses';
+    status?: 'active' | 'disabled';
+    remark?: string;
+    available_models?: string[];
     proxy?: VendorProxyConfig | null;
     [key: string]: any;
 }

@@ -5,128 +5,39 @@
         @ok="handleOk"
         @cancel="handleCancel"
         :confirm-loading="loading"
-        width="600px"
+        width="680px"
+        :style="{ top: '5vh' }"
     >
         <a-form
             :model="formState"
             :rules="rules"
             layout="vertical"
             ref="formRef"
+            class="vendor-edit-form"
         >
-            <a-form-item label="类型" name="type" tooltip="可以直接选择已经存在的供应商，输入 token即可，通常不需要修改 url；如果是不在内置列表中，请选择 Other，则需要自己添加 token 和 url">
-                <a-select
-                    v-model:value="formState.type"
-                    placeholder="请选择供应商类型"
-                    show-search
-                    option-filter-prop="label"
-                    :options="vendorTypeOptions"
-                />
-            </a-form-item>
-            <a-form-item label="名称" name="name">
-                <a-input v-model:value="formState.name" placeholder="请输入供应商名称" />
-            </a-form-item>
-            <a-form-item label="Token" name="token">
-                <a-input-password
-                    v-model:value="formState.token"
-                    placeholder="请输入 API Token"
-                />
-            </a-form-item>
-            <div class="urls-header">
-                <label class="ant-form-item-label">URLs 配置</label>
-                <a-button v-if="urlsMode === 'view'" type="link" size="small" class="toggle-btn" @click="urlsMode = 'edit'">
-                    <EditOutlined /> 编辑
-                </a-button>
-            </div>
-            <a-form-item>
-                <!-- 查看模式：合并展示 preset + 用户自定义 -->
-                <template v-if="urlsMode === 'view'">
-                    <div class="urls-view">
-                        <div v-for="item in mergedUrls" :key="item.key" class="url-view-item">
-                            <span class="url-key">{{ item.key }}:</span>
-                            <span class="url-value">{{ item.url }}</span>
-                            <a-tag v-if="item.isCustom" color="blue" class="custom-tag">自定义</a-tag>
-                        </div>
-                    </div>
-                </template>
-                <!-- 编辑模式：仅用户自定义条目 -->
-                <template v-else>
-                    <div v-for="(item, index) in urlsForm" :key="index" class="url-item">
-                        <a-row :gutter="8" align="middle">
-                            <a-col :span="6">
-                                <a-select v-model:value="item.type" style="width: 100%" placeholder="请选择 URL 类型">
-                                    <a-select-option
-                                        v-for="type in URL_TYPES"
-                                        :key="type.value"
-                                        :value="type.value"
-                                        :disabled="urlsForm.some((u, i) => u.type === type.value && i !== index)"
-                                    >
-                                        {{ type.label }}
-                                    </a-select-option>
-                                </a-select>
-                            </a-col>
-                            <a-col :span="16">
-                                <a-input v-model:value="item.url" placeholder="请输入 URL" />
-                            </a-col>
-                            <a-col :span="2">
-                                <a-button type="text" danger @click="removeUrl(index)">
-                                    <DeleteOutlined />
-                                </a-button>
-                            </a-col>
-                        </a-row>
-                    </div>
-                    <a-button
-                        type="dashed"
-                        block
-                        @click="addUrl"
-                        :disabled="urlsForm.length >= URL_TYPES.length"
-                    >
-                        <PlusOutlined /> 添加 URL
-                    </a-button>
-                    <a-button v-if="currentTypePreset" type="link" size="small" class="toggle-btn" @click="urlsMode = 'view'">
-                        返回查看
-                    </a-button>
-                </template>
-            </a-form-item>
-            <!-- 高级设置 -->
-            <SettingsCollapse v-model:activeKey="advancedActiveKey" panel-key="advanced" header="高级设置">
-                <div class="settings-row">
-                    <label class="settings-label">认证方式</label>
-                    <a-select v-model:value="formState.auth_mode" style="flex: 1">
-                        <a-select-option value="api_key">API Key (x-api-key)</a-select-option>
-                        <a-select-option value="bearer_token">Bearer Token (Authorization)</a-select-option>
-                    </a-select>
-                </div>
-                <div class="settings-row">
-                    <label class="settings-label">跳过 TLS 验证</label>
-                    <a-switch v-model:checked="formState.skip_tls_verify" />
-                    <span style="margin-left: 8px; color: #999; font-size: 12px;">当使用自签名证书等场景时使用</span>
-                </div>
-                <div class="settings-row">
-                    <label class="settings-label">代理配置</label>
-                    <a-select v-model:value="formState.proxy_type" style="flex: 1" allow-clear>
-                        <a-select-option :value="null">不使用</a-select-option>
-                        <a-select-option value="http">HTTP</a-select-option>
-                        <a-select-option value="socks5">SOCKS5</a-select-option>
-                    </a-select>
-                </div>
-                <div class="settings-row" v-if="formState.proxy_type">
-                    <label class="settings-label">代理地址</label>
-                    <a-input v-model:value="formState.proxy_url" placeholder="http://host:port 或 socks5://user:pass@host:port" />
-                </div>
-            </SettingsCollapse>
+            <a-form-item label="通道编码"><a-input v-model:value="formState.channel_code" :maxlength="64" /></a-form-item>
+            <a-form-item label="供应商名称" name="supplier_name"><a-input v-model:value="formState.supplier_name" /></a-form-item>
+            <a-form-item label="通道名称" name="name"><a-input v-model:value="formState.name" /></a-form-item>
+            <a-form-item label="接口类型" name="type"><a-select v-model:value="formState.type" placeholder="请选择接口类型" show-search option-filter-prop="label" :options="vendorTypeOptions" /></a-form-item>
+            <a-form-item v-if="formState.type === 'openai'" label="OpenAI 接口协议"><a-select v-model:value="formState.openai_protocol"><a-select-option value="chat_completions">/v1/chat/completions</a-select-option><a-select-option value="responses">/v1/responses</a-select-option></a-select></a-form-item>
+            <a-form-item label="API 地址"><a-input v-model:value="formState.api_url" /></a-form-item>
+            <a-form-item label="认证凭证" name="token"><a-input-password v-model:value="formState.token" placeholder="请输入 API Token" /></a-form-item>
+            <a-form-item label="可用模型"><a-space direction="vertical" style="width: 100%"><a-select v-model:value="formState.models" mode="tags" :token-separators="[',', ' ']" placeholder="输入模型 ID 后回车"><a-select-option v-for="model in fetchedModels" :key="model" :value="model">{{ model }}</a-select-option></a-select><a-button size="small" :loading="modelsLoading" @click="fetchModels">自动获取模型</a-button></a-space><div v-if="modelsError" class="field-hint field-error">{{ modelsError }}</div><div v-else class="field-hint">支持手动输入，也可以使用当前接口地址和凭证自动获取。</div></a-form-item>
+            <a-form-item label="代理配置"><a-select v-model:value="formState.proxy_type" allow-clear placeholder="不使用代理"><a-select-option :value="null">不使用</a-select-option><a-select-option value="http">HTTP</a-select-option><a-select-option value="socks5">SOCKS5</a-select-option></a-select></a-form-item>
+            <a-form-item v-if="formState.proxy_type" label="代理地址"><a-input v-model:value="formState.proxy_url" placeholder="http://host:port 或 socks5://user:pass@host:port" /></a-form-item>
+            <a-form-item label="状态"><a-radio-group v-model:value="formState.status"><a-radio value="active">启用</a-radio><a-radio value="disabled">停用</a-radio></a-radio-group></a-form-item>
+            <a-form-item label="备注"><a-textarea v-model:value="formState.remark" :rows="3" :maxlength="200" show-count /></a-form-item>
         </a-form>
     </a-modal>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue';
+import { ref, reactive } from 'vue';
 import type { FormInstance } from 'ant-design-vue/es';
-import { PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons-vue';
-import { updateVendor } from '@/api/vendor';
-import type { UpdateVendorRequest, Vendor, VendorType, VendorUrls, VendorAuthMode, VendorProxyType } from '@/types/vendor';
+import { updateVendor, fetchModelsPreview } from '@/api/vendor';
+import type { UpdateVendorRequest, Vendor, VendorType, VendorAuthMode, VendorProxyType, VendorUrls } from '@/types/vendor';
 import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 import { useVendorPresets } from '@/composables/useVendorPresets';
-import SettingsCollapse from '@/components/common/SettingsCollapse.vue';
 
 const emit = defineEmits<{
     success: [vendor: Vendor];
@@ -135,95 +46,84 @@ const emit = defineEmits<{
 const visible = ref(false);
 const loading = ref(false);
 const formRef = ref<FormInstance>();
-const advancedActiveKey = ref<string[]>([]);
+const modelsLoading = ref(false);
+const modelsError = ref('');
+const fetchedModels = ref<string[]>([]);
 
-const URL_TYPES = [
-    { label: 'OpenAI', value: 'openai' },
-    { label: 'Anthropic', value: 'anthropic' },
-];
-
-const { presetUrls, vendorTypeOptions, load: loadPresets } = useVendorPresets();
-const PRESET_URLS = presetUrls;
+const { vendorTypeOptions, load: loadPresets } = useVendorPresets();
 
 const currentId = ref<number>(0);
+const currentConfig = ref<Record<string, any>>({});
 
 const formState = reactive({
     type: 'openai' as VendorType,
+    channel_code: '',
+    supplier_name: '',
     name: '',
     token: '',
+    api_url: '',
+    openai_protocol: 'chat_completions' as 'chat_completions' | 'responses',
+    models: [] as string[],
+    status: 'active' as 'active' | 'disabled',
+    remark: '',
     auth_mode: 'bearer_token' as VendorAuthMode,
-    skip_tls_verify: false,
     proxy_type: null as VendorProxyType | null,
     proxy_url: '',
 });
 
-const urlsMode = ref<'view' | 'edit'>('view');
-
-// 用户自定义条目（从 vendor.urls 初始化）
-const urlsForm = reactive<{ type: string; url: string }[]>([]);
-
-const currentTypePreset = computed(() => PRESET_URLS.value[formState.type] ?? null);
-
-// 查看模式：preset 为底，用户自定义覆盖，有自定义的标记
-const mergedUrls = computed(() => {
-    const preset = PRESET_URLS.value[formState.type] ?? {};
-    const customMap: Record<string, string> = {};
-    urlsForm.forEach(item => {
-        if (item.url) customMap[item.type] = item.url;
-    });
-    const keys = new Set([...Object.keys(preset), ...Object.keys(customMap)]);
-    return Array.from(keys)
-        .filter(k => k !== 'label')
-        .map(key => ({
-            key,
-            url: customMap[key] ?? preset[key] ?? '',
-            isCustom: !!customMap[key],
-        }));
-});
-
-// 切换类型时只更新模式，保留用户已填写的自定义 URLs
-watch(() => formState.type, (newType) => {
-    urlsMode.value = PRESET_URLS.value[newType] ? 'view' : 'edit';
-});
-
 const rules = {
     type: [{ required: true, message: '请选择供应商类型' }],
+    supplier_name: [{ required: true, message: '请输入供应商名称' }],
     name: [{ required: true, message: '请输入供应商名称' }],
     token: [{ required: true, message: '请输入 API Token' }],
 };
 
 async function open(vendor: Vendor) {
     currentId.value = vendor.id;
+    currentConfig.value = { ...(vendor.config || {}) };
     formState.type = vendor.type;
+    formState.channel_code = vendor.config?.channel_code || '';
+    formState.supplier_name = vendor.config?.supplier_name || '';
     formState.name = vendor.name;
     formState.token = vendor.token;
+    formState.openai_protocol = vendor.config?.openai_protocol || 'chat_completions';
+    formState.api_url = vendor.urls?.[formState.openai_protocol === 'responses' ? 'responses' : formState.type] || vendor.urls?.openai || '';
+    formState.models = vendor.config?.available_models || [];
+    fetchedModels.value = [...formState.models];
+    modelsError.value = '';
+    formState.status = vendor.config?.status || 'active';
+    formState.remark = vendor.config?.remark || '';
     formState.auth_mode = vendor.config?.auth_mode || 'bearer_token';
-    formState.skip_tls_verify = vendor.config?.skip_tls_verify ?? false;
     formState.proxy_type = vendor.config?.proxy?.type ?? null;
     formState.proxy_url = vendor.config?.proxy?.url ?? '';
 
     // 加载已保存的自定义 URLs
-    urlsForm.splice(0, urlsForm.length);
-    Object.entries(vendor.urls).forEach(([key, url]) => {
-        if (url !== undefined) urlsForm.push({ type: key, url });
-    });
-
     await loadPresets();
-    urlsMode.value = PRESET_URLS.value[vendor.type] ? 'view' : 'edit';
-    advancedActiveKey.value = [];
     visible.value = true;
 }
 
-function addUrl() {
-    const usedTypes = urlsForm.map(u => u.type);
-    const availableType = URL_TYPES.find(t => !usedTypes.includes(t.value));
-    if (availableType) {
-        urlsForm.push({ type: availableType.value, url: '' });
+async function fetchModels() {
+    modelsLoading.value = true;
+    modelsError.value = '';
+    try {
+        const result = await fetchModelsPreview({
+            type: formState.type,
+            token: formState.token,
+            urls: {
+                [formState.type === 'anthropic' ? 'anthropic' : 'openai']:
+                    formState.type !== 'anthropic' && formState.openai_protocol === 'responses'
+                        ? formState.api_url.replace(/\/responses\/?$/, '') + '/chat/completions'
+                        : formState.api_url,
+            },
+            config: { auth_mode: formState.auth_mode },
+        });
+        fetchedModels.value = result.models;
+        if (!result.models.length) modelsError.value = '接口未返回可用模型，请检查地址或手动输入。';
+    } catch {
+        modelsError.value = '模型获取失败，请检查 API 地址和认证凭证。';
+    } finally {
+        modelsLoading.value = false;
     }
-}
-
-function removeUrl(index: number) {
-    urlsForm.splice(index, 1);
 }
 
 async function handleOk() {
@@ -231,9 +131,7 @@ async function handleOk() {
         await formRef.value?.validate();
 
         const urls: VendorUrls = {};
-        urlsForm.forEach(item => {
-            if (item.url) urls[item.type] = item.url;
-        });
+        urls[formState.openai_protocol === 'responses' ? 'responses' : formState.type] = formState.api_url;
 
         const updateData: UpdateVendorRequest = {
             type: formState.type,
@@ -241,8 +139,14 @@ async function handleOk() {
             token: formState.token,
             urls,
             config: {
+                ...currentConfig.value,
+                channel_code: formState.channel_code,
+                supplier_name: formState.supplier_name,
+                openai_protocol: formState.openai_protocol,
+                available_models: formState.models,
+                status: formState.status,
+                remark: formState.remark,
                 auth_mode: formState.auth_mode,
-                skip_tls_verify: formState.skip_tls_verify,
                 proxy: formState.proxy_type
                     ? { type: formState.proxy_type, url: formState.proxy_url }
                     : null,
@@ -269,6 +173,42 @@ defineExpose({ open });
 </script>
 
 <style scoped>
+.vendor-edit-form {
+    max-height: 78vh;
+    overflow-y: auto;
+    padding-right: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+.vendor-edit-form::-webkit-scrollbar {
+    width: 6px;
+}
+
+.vendor-edit-form::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.vendor-edit-form::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 999px;
+}
+
+.vendor-edit-form::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.32);
+}
+
+.field-hint {
+    color: var(--color-text-secondary, #8c8c8c);
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 6px;
+}
+
+.field-error {
+    color: #d4380d;
+}
+
 .url-item {
     margin-bottom: 12px;
 }

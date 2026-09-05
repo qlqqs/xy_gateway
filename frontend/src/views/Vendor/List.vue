@@ -80,28 +80,6 @@
                                 <ExperimentOutlined />
                             </a-button>
                         </a-tooltip>
-                        <a-tooltip title="模型">
-                            <a-button
-                                type="text"
-                                size="small"
-                                class="vendor-action-button"
-                                aria-label="模型"
-                                @click="handleModels(record)"
-                            >
-                                <DatabaseOutlined />
-                            </a-button>
-                        </a-tooltip>
-                        <a-tooltip title="查看">
-                            <a-button
-                                type="text"
-                                size="small"
-                                class="vendor-action-button"
-                                aria-label="查看"
-                                @click="handleView(record)"
-                            >
-                                <EyeOutlined />
-                            </a-button>
-                        </a-tooltip>
                         <a-tooltip title="删除">
                             <a-button
                                 danger
@@ -128,13 +106,10 @@
 import { ref } from 'vue';
 import type { TableColumnsType } from 'ant-design-vue';
 import {
-    DatabaseOutlined,
     DeleteOutlined,
     EditOutlined,
     ExperimentOutlined,
-    EyeOutlined,
 } from '@ant-design/icons-vue';
-import { useRouter } from 'vue-router';
 import { Modal } from 'ant-design-vue/es';
 import { listVendors, deleteVendor } from '@/api/vendor';
 import { useResourceTable } from '@/composables/useResourceTable';
@@ -144,8 +119,6 @@ import DialogEdit from './DialogEdit.vue';
 import DialogTest from './DialogTest.vue';
 import type { Vendor, VendorQuery, VendorType } from '@/types/vendor';
 import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
-
-const router = useRouter();
 
 const { loading, data, pagination, searchForm, loadData, handleSearch, handleReset, handleTableChange } = useResourceTable<Vendor, VendorQuery>({
     initialSearchForm: {
@@ -190,14 +163,6 @@ function handleEditSuccess() {
 
 function handleTest(record: Vendor) {
     testDialogRef.value?.openVendorTest(record);
-}
-
-function handleModels(record: Vendor) {
-    router.push({ name: 'VendorModels', params: { id: record.id } });
-}
-
-function handleView(record: Vendor) {
-    router.push(`/vendor/${record.id}`);
 }
 
 function handleDelete(record: Vendor) {

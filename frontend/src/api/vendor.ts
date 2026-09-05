@@ -54,6 +54,10 @@ export async function fetchVendorModels(vendorId: number): Promise<{ models: str
     return request.get(`/vendor/${vendorId}/model/fetch.json`);
 }
 
+export async function fetchModelsPreview(data: Pick<CreateVendorRequest, 'type' | 'token' | 'urls' | 'config'>): Promise<{ models: string[] }> {
+    return request.post('/vendor/models/fetch.json', data);
+}
+
 export async function syncVendorModels(vendorId: number, modelIds: string[]): Promise<import('../types/vendor').VendorModel[]> {
     return request.post(`/vendor/${vendorId}/model/sync.json`, { model_ids: modelIds });
 }

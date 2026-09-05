@@ -119,6 +119,7 @@ app.post("/client-config/sync-from-local.json", authMiddleware.requireAdmin, cli
 
 // Vendor (需要管理员权限)
 app.get("/vendor/preset-urls.json", authMiddleware.requireAdmin, vendorController.getPresetUrls);
+app.post("/vendor/models/fetch.json", authMiddleware.requireAdmin, vendorController.fetchModelsPreview);
 app.get("/vendor/list.json", authMiddleware.requireAdmin, vendorController.listVendors);
 app.post("/vendor/batch.json", authMiddleware.requireAdmin, vendorController.getVendorsByIds);
 app.post("/vendor/create.json", authMiddleware.requireAdmin, vendorController.createVendor);

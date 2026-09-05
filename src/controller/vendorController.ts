@@ -172,6 +172,18 @@ async function testVendor(c: Context) {
     return c.json(result);
 }
 
+async function fetchModelsPreview(c: Context) {
+    const body = await c.req.json();
+    const vendor = new SgVendor({
+        type: body.type,
+        token: body.token,
+        urls: body.urls,
+        config: body.config,
+    });
+    const models = await vendorService.fetchUpstreamModels(vendor);
+    return c.json({ models });
+}
+
 async function getPresetUrls(c: Context) {
     return c.json(vendorDefaultUrls.getAllUrls());
 }
@@ -185,5 +197,6 @@ export default {
     updateVendor,
     deleteVendor,
     testVendor,
+    fetchModelsPreview,
     getPresetUrls,
 };
