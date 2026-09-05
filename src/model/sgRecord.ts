@@ -30,7 +30,7 @@ class SgRecordUsage extends CastsAttributes {
     /** 命中缓存的输入（prompt_tokens 的子集）；上游未返回为 null */
     cache_read_tokens?: number | null;
 
-    /** 写入缓存 token（仅记录，不参与计费）；上游未返回为 null */
+    /** 写入缓存 token；是否计费由模型的 cache_write 价格决定；上游未返回为 null */
     cache_creation_tokens?: number | null;
 
     /**
@@ -71,7 +71,7 @@ class SgRecordUsage extends CastsAttributes {
 
     /**
      * 存储口径（v2：prompt_tokens 为总量 + usage_version 标记），供 static set() 与写侧序列化复用。
-     * 从展示口径反向还原：prompt_total = 非缓存输入 + 缓存读取；cache_creation 仅在存在时输出。
+     * 从展示口径反向还原：prompt_total = 非缓存输入 + 缓存读取；cache_creation 在存在时输出。
      */
     toStorageJSON(): Record<string, number | null | undefined> {
         const result: Record<string, number | null | undefined> = {

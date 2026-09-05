@@ -180,9 +180,13 @@ function finalizeStreamResult(
             const fullResponse = accumulator.getResponse();
             const normalizedUsage = usageUtils.normalizeUsage(ApiFormat.OPENAI, accumulator.getUsage() as Dict | null);
             const usageJson = usageUtils.serializeStoredUsage(normalizedUsage?.recordUsage ?? null);
-            const cost = normalizedUsage
-                ? usageUtils.calculateCost(model, normalizedUsage.promptTokens, normalizedUsage.outputTokens, normalizedUsage.cacheReadTokens)
-                : 0;
+            const cost = usageUtils.calculateCost(
+                model,
+                normalizedUsage?.promptTokens ?? 0,
+                normalizedUsage?.outputTokens ?? 0,
+                normalizedUsage?.cacheReadTokens ?? 0,
+                normalizedUsage?.cacheWriteTokens ?? 0,
+            );
 
             await recordService.update(record.id, {
                 response_data: JSON.stringify(fullResponse),
@@ -321,9 +325,13 @@ export async function handleNonStreamResponse(
     }
 
     const usageJson = normalizedUsage ? usageUtils.serializeStoredUsage(normalizedUsage.recordUsage) : null;
-    const cost = normalizedUsage
-        ? usageUtils.calculateCost(model, normalizedUsage.promptTokens, normalizedUsage.outputTokens, normalizedUsage.cacheReadTokens)
-        : 0;
+    const cost = usageUtils.calculateCost(
+        model,
+        normalizedUsage?.promptTokens ?? 0,
+        normalizedUsage?.outputTokens ?? 0,
+        normalizedUsage?.cacheReadTokens ?? 0,
+        normalizedUsage?.cacheWriteTokens ?? 0,
+    );
 
     const recordStatus = statusCode === 200 ? SgRecordStatus.SUCCESS : SgRecordStatus.FAILED;
     // 非流式：首 token 时间 = 整体响应耗时

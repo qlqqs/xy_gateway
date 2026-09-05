@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import senderService from "../../../src/service/senderService";
 import usageUtils from "../../../src/util/protocol/usageUtil";
 import protocolUtils from "../../../src/util/protocol/protocolUtil";
+import type { SgModel } from "../../../src/model/sgModel";
 import { ConverterFactory } from "../../../src/util/protocolConverter/ConverterFactory";
 import { ApiFormat } from "../../../src/constants";
 import customError from "../../../src/util/customErrorUtil";
@@ -190,6 +191,32 @@ describe("serializeStoredUsage", () => {
         );
         // 成本按最小扣减单位（1e-6）取整：0.0000135988 → 14e-6
         expect(cost).toBeCloseTo(14e-6, 12);
+    });
+
+    it("includes cache-write tokens when a cache-write price is configured", () => {
+        const model = {
+            prices: {
+                input: 1,
+                output: 2,
+                cache_read: 3,
+                cache_write: 4,
+            },
+        } as SgModel;
+
+        const cost = usageUtils.calculateCost(model, 1_000_000, 1_000_000, 100_000, 50_000);
+
+        expect(cost).toBeCloseTo(3.4, 12);
+    });
+
+    it("uses the default per-request price without token usage", () => {
+        const model = {
+            prices: {
+                billing_mode: "per_request",
+                per_request: 0.25,
+            },
+        } as SgModel;
+
+        expect(usageUtils.calculateCost(model, 0, 0)).toBe(0.25);
     });
 });
 

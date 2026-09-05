@@ -46,6 +46,12 @@ export enum ModelRoutingMode {
     FIRST_AVAILABLE = "first_available",
 }
 
+export enum ModelBillingMode {
+    TOKEN = "token",
+    PER_REQUEST = "per_request",
+    IMAGE = "image",
+}
+
 export const UPSTREAM_FAILURE_COOLDOWN_MS = 30_000;
 
 export const PRICE_UNIT_TOKENS = 1_000_000;

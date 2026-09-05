@@ -49,7 +49,7 @@
                 <template v-if="column.key === 'price'">
                     <span style="display: flex; align-items: center; gap: 4px;">
                         价格
-                        <a-tooltip title="元/百万 tokens">
+                        <a-tooltip title="按当前计费模式显示价格">
                             <InfoCircleOutlined style="font-size: 12px; color: #999;" />
                         </a-tooltip>
                     </span>
@@ -83,10 +83,10 @@
                 </template>
                 <template v-if="column.key === 'price'">
                     <a-tag 
-                        :color="((record.prices?.input || 0) > 0 || (record.prices?.output || 0) > 0 || (record.prices?.cache_read || 0) > 0) ? 'blue' : 'default'"
-                        :style="{ color: ((record.prices?.input || 0) > 0 || (record.prices?.output || 0) > 0 || (record.prices?.cache_read || 0) > 0) ? undefined : '#999' }"
+                        :color="hasConfiguredPrice(record) ? 'blue' : 'default'"
+                        :style="{ color: hasConfiguredPrice(record) ? undefined : '#999' }"
                     >
-                        {{ ((record.prices?.input || 0) > 0 || (record.prices?.output || 0) > 0 || (record.prices?.cache_read || 0) > 0) ? '已配置' : '未配置' }}
+                        {{ hasConfiguredPrice(record) ? '已配置' : '未配置' }}
                     </a-tag>
                 </template>
                 <template v-if="column.key === 'created_at'">
@@ -103,17 +103,6 @@
                                 @click="handleEdit(record)"
                             >
                                 <EditOutlined />
-                            </a-button>
-                        </a-tooltip>
-                        <a-tooltip title="查看">
-                            <a-button
-                                type="text"
-                                size="small"
-                                class="model-action-button"
-                                aria-label="查看"
-                                @click="handleView(record)"
-                            >
-                                <EyeOutlined />
                             </a-button>
                         </a-tooltip>
                         <a-tooltip title="测试">
@@ -156,7 +145,6 @@ import {
     DeleteOutlined,
     EditOutlined,
     ExperimentOutlined,
-    EyeOutlined,
     InfoCircleOutlined,
 } from '@ant-design/icons-vue';
 import { deleteModel, listModels } from '@/api/model';
@@ -186,6 +174,20 @@ const { loading, data, pagination, searchForm, loadData, handleSearch, handleRes
 
 const dialogFormRef = ref<InstanceType<typeof DialogForm>>();
 const testDialogRef = ref<InstanceType<typeof DialogTest>>();
+
+function hasConfiguredPrice(model: Model): boolean {
+    const prices = model.prices;
+    if (!prices) return false;
+    return [
+        prices.input,
+        prices.output,
+        prices.cache_write,
+        prices.cache_read,
+        prices.image_input,
+        prices.image_output,
+        prices.per_request,
+    ].some(value => typeof value === 'number' && value > 0);
+}
 
 const vendors = ref<VendorType[]>([]);
 const vendorsLoading = ref(false);
@@ -237,10 +239,6 @@ function handleEdit(record: Model) {
 
 function handleSuccess() {
     loadData();
-}
-
-function handleView(record: Model) {
-    dialogFormRef.value?.openView(record);
 }
 
 function handleTest(record: Model) {

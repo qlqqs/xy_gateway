@@ -25,6 +25,9 @@ export interface VendorConfig {
     status?: 'active' | 'disabled';
     remark?: string;
     available_models?: string[];
+    concurrency?: number;
+    load_factor?: number | null;
+    priority?: number;
     proxy?: VendorProxyConfig | null;
     [key: string]: any;
 }

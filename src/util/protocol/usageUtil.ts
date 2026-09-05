@@ -10,18 +10,27 @@ export function calculateCost(
     promptTokens: number,
     outputTokens: number,
     cacheReadTokens: number = 0,
+    cacheWriteTokens: number = 0,
 ): number {
     const prices = model.prices || {};
+
+    // 按次 / 按图片模式使用默认单次价格；这两种模式不依赖上游返回 token usage。
+    if (prices.billing_mode === "per_request" || prices.billing_mode === "image") {
+        return billingUtils.quantizeAmount(prices.per_request ?? 0);
+    }
+
     const inputPrice = prices.input ?? 0;
     const cacheReadPrice = prices.cache_read ?? 0;
+    const cacheWritePrice = prices.cache_write ?? 0;
     const outputPrice = prices.output ?? 0;
 
     const normalPromptTokens = Math.max(0, promptTokens - cacheReadTokens);
     // 价格单位为每百万（PRICE_UNIT_TOKENS）token；结果取整到最小扣减单位（0.000001 元）的整数倍
     const promptCost = (normalPromptTokens / PRICE_UNIT_TOKENS) * inputPrice;
     const cacheCost = (cacheReadTokens / PRICE_UNIT_TOKENS) * cacheReadPrice;
+    const cacheWriteCost = (cacheWriteTokens / PRICE_UNIT_TOKENS) * cacheWritePrice;
     const outputCost = (outputTokens / PRICE_UNIT_TOKENS) * outputPrice;
-    return billingUtils.quantizeAmount(promptCost + cacheCost + outputCost);
+    return billingUtils.quantizeAmount(promptCost + cacheCost + cacheWriteCost + outputCost);
 }
 
 export function normalizeUsage(format: ApiFormat, usage: Dict | null | undefined) {
@@ -41,7 +50,9 @@ export function normalizeUsage(format: ApiFormat, usage: Dict | null | undefined
             ?? (usage.cache_read_tokens as number | undefined)
             ?? null;
         // accumulator 归一化后 Anthropic 的 cache 写入以 cache_write_tokens 出现，统一键名落库
-        cacheWriteRaw = (usage.cache_write_tokens as number | undefined) ?? null;
+        cacheWriteRaw = ((usage.prompt_tokens_details as Dict | undefined)?.cache_write_tokens as number | undefined)
+            ?? (usage.cache_write_tokens as number | undefined)
+            ?? null;
     }
 
     if (format === ApiFormat.ANTHROPIC) {
@@ -74,6 +85,7 @@ export function normalizeUsage(format: ApiFormat, usage: Dict | null | undefined
     const promptTokens = promptTotal ?? 0;
     const outputTokens = completionRaw ?? 0;
     const cacheReadTokens = cacheReadRaw ?? 0;
+    const cacheWriteTokens = cacheWriteRaw ?? 0;
 
     // 构造即归一：SgRecordUsage 实例内部为展示口径（prompt_tokens = 非缓存输入）
     const recordUsage = new SgRecordUsage({
@@ -84,7 +96,7 @@ export function normalizeUsage(format: ApiFormat, usage: Dict | null | undefined
         cache_creation_tokens: cacheWriteRaw,
     });
 
-    return { recordUsage, promptTokens, outputTokens, cacheReadTokens };
+    return { recordUsage, promptTokens, outputTokens, cacheReadTokens, cacheWriteTokens };
 }
 
 

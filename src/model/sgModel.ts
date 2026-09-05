@@ -1,7 +1,9 @@
 import { CastsAttributes, Model } from "sutando";
 import { inspect, InspectOptions } from "util";
-import { ModelRoutingMode, MIN_MODEL_PRICE, PRICE_UNIT_TOKENS } from "../constants";
+import { ModelBillingMode, ModelRoutingMode, MIN_MODEL_PRICE, PRICE_UNIT_TOKENS } from "../constants";
 import customError from "../util/customErrorUtil";
+
+const MODEL_BILLING_MODES = new Set<ModelBillingMode>(Object.values(ModelBillingMode));
 
 class ModelUpstreamConfig {
     vendor_id: number = 0;
@@ -106,7 +108,17 @@ class SgModel extends Model {
 
     name!: string | null;
     enable!: boolean;
-    prices!: { input?: number, output?: number, cache_read?: number } | null;
+    prices!: {
+        billing_mode?: ModelBillingMode;
+        input?: number;
+        output?: number;
+        cache_write?: number;
+        cache_read?: number;
+        image_input?: number;
+        image_output?: number;
+        per_request?: number;
+        [key: string]: unknown;
+    } | null;
     routing_mode!: ModelRoutingMode;
     routing_config!: ModelRoutingConfig;
 
@@ -140,6 +152,18 @@ class SgModel extends Model {
         }
         for (const [key, value] of Object.entries(prices)) {
             if (value === undefined || value === null) {
+                continue;
+            }
+            if (key === "billing_mode") {
+                if (typeof value !== "string" || !MODEL_BILLING_MODES.has(value as ModelBillingMode)) {
+                    throw new customError.AppError(
+                        `Billing mode must be one of ${[...MODEL_BILLING_MODES].join(", ")}`,
+                        400,
+                    );
+                }
+                continue;
+            }
+            if (key === "intervals") {
                 continue;
             }
             if (

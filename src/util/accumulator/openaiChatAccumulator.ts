@@ -39,6 +39,10 @@ interface OpenAIChatChunk {
         prompt_tokens?: number;
         completion_tokens?: number;
         total_tokens?: number;
+        prompt_tokens_details?: {
+            cached_tokens?: number;
+            cache_write_tokens?: number;
+        };
         completion_tokens_details?: {
             reasoning_tokens?: number;
         };
@@ -181,7 +185,7 @@ export class OpenAIChatAccumulator extends AccumulatorBase {
      * 合并后,读取方(getUsage 等)统一从 this.response.usage 取值。
      */
     private accumulateUsage(rawUsage: OpenAIChatChunk["usage"]): void {
-        const promptDetails = (rawUsage as any).prompt_tokens_details;
+        const promptDetails = rawUsage?.prompt_tokens_details;
         const prev = this.response.usage;
         this.response.usage = {
             prompt_tokens: rawUsage?.prompt_tokens ?? prev?.prompt_tokens,

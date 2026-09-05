@@ -4,6 +4,9 @@ export type ModelRoutingMode = 'single' | 'load_balance' | 'first_available';
 
 export type LoadBalanceStrategy = 'user' | 'request';
 
+/** 模型价格的计费模式，与渠道定价保持一致。 */
+export type ModelBillingMode = 'token' | 'per_request' | 'image';
+
 export interface ModelUpstreamConfig {
     vendor_id: number;
     vendor_model_id?: number;
@@ -27,9 +30,14 @@ export interface ModelRoutingConfig {
 }
 
 export interface ModelPrices {
+    billing_mode?: ModelBillingMode;
     input?: number;
     output?: number;
+    cache_write?: number;
     cache_read?: number;
+    image_input?: number;
+    image_output?: number;
+    per_request?: number;
 }
 
 export interface Model extends BaseEntity {

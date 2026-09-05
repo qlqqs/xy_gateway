@@ -10,21 +10,21 @@
                 <span>{{ dialogTitle }}</span>
                 <div class="model-status">
                     <span>启用</span>
-                    <a-switch v-model:checked="formState.enable" size="small" :disabled="isView" />
+                    <a-switch v-model:checked="formState.enable" size="small" />
                 </div>
             </div>
         </template>
         <template #footer>
             <div class="modal-footer">
-                <a-button @click="handleCancel">{{ isView ? '关闭' : '取消' }}</a-button>
-                <a-button v-if="!isView" type="primary" :loading="loading" @click="handleOk">
+                <a-button @click="handleCancel">取消</a-button>
+                <a-button type="primary" :loading="loading" @click="handleOk">
                     {{ isEdit ? '保存' : '创建' }}
                 </a-button>
             </div>
         </template>
         <a-form
             :model="formState"
-            :rules="isView ? {} : rules"
+            :rules="rules"
             class="model-form"
             layout="horizontal"
             :colon="false"
@@ -41,106 +41,29 @@
                         </a-tooltip>
                     </span>
                 </template>
-                <a-input v-model:value="formState.name" placeholder="请输入模型名称" :disabled="isView" />
+                <a-input v-model:value="formState.name" placeholder="请输入模型名称" />
             </a-form-item>
-            <a-form-item name="routing_mode">
-                <template #label>
-                    <span class="upstream-label">
-                        路由模式
-                        <a-tooltip title="决定模型请求在多个上游之间的调度方式">
-                            <InfoCircleOutlined class="field-help-icon" />
-                        </a-tooltip>
-                    </span>
-                </template>
-                <a-select
-                    v-model:value="formState.routing_mode"
-                    placeholder="请选择路由模式"
-                    :disabled="isView"
-                    @change="handleRoutingModeChange"
-                >
-                    <a-select-option value="single">
-                        固定上游
-                        <a-tooltip title="使用唯一启用的上游">
-                            <InfoCircleOutlined class="routing-help-icon" />
-                        </a-tooltip>
-                    </a-select-option>
-                    <a-select-option value="load_balance">
-                        负载均衡
-                        <a-tooltip title="在多个可用上游之间分配请求">
-                            <InfoCircleOutlined class="routing-help-icon" />
-                        </a-tooltip>
-                    </a-select-option>
-                    <a-select-option value="first_available">
-                        首选可用
-                        <a-tooltip title="按列表顺序选择，第一个不可用时自动切换到下一个">
-                            <InfoCircleOutlined class="routing-help-icon" />
-                        </a-tooltip>
-                    </a-select-option>
-                </a-select>
-            </a-form-item>
-            <a-form-item v-if="formState.routing_mode === 'load_balance'" name="load_balance_strategy">
-                <template #label>
-                    <span class="upstream-label">
-                        随机方式
-                        <a-tooltip title="按用户随机：同一用户的请求路由稳定，不同用户分散到不同上游；按请求随机：每次请求等概率随机">
-                            <InfoCircleOutlined class="field-help-icon" />
-                        </a-tooltip>
-                    </span>
-                </template>
-                <a-radio-group
-                    v-model:value="formState.load_balance_strategy"
-                    button-style="solid"
-                    :disabled="isView"
-                >
-                    <a-radio-button value="user">
-                        按用户随机
-                        <a-tooltip title="以用户 id 为种子：同一用户的请求始终路由到同一批上游（粘性），不同用户分散到不同上游">
-                            <InfoCircleOutlined class="routing-help-icon" />
-                        </a-tooltip>
-                    </a-radio-button>
-                    <a-radio-button value="request">
-                        按请求随机
-                        <a-tooltip title="每次请求等概率随机选择一个可用上游">
-                            <InfoCircleOutlined class="routing-help-icon" />
-                        </a-tooltip>
-                    </a-radio-button>
-                </a-radio-group>
-            </a-form-item>
-            <a-form-item :required="!isView">
+            <a-form-item required>
                 <template #label>
                     <span class="upstream-label">
                         上游模型
-                        <a-tooltip title="配置模型请求实际使用的供应商和上游模型">
+                        <a-tooltip title="可配置多个供应商及其上游模型">
                             <InfoCircleOutlined class="field-help-icon" />
                         </a-tooltip>
                     </span>
                 </template>
                 <UpstreamConfig
                     :upstreams="formState.upstreams"
-                    :mode="isView ? 'view' : 'edit'"
-                    :routing-mode="formState.routing_mode"
+                    mode="edit"
+                    :routing-mode="upstreamConfigRoutingMode"
                     :model-name="formState.name"
                     @update:upstreams="formState.upstreams = $event"
-                />
-            </a-form-item>
-            <a-form-item v-if="formState.routing_mode !== 'single'" name="failover_enabled">
-                <template #label>
-                    <span class="upstream-label">
-                        失败切换
-                        <a-tooltip title="上游返回可重试错误时，自动切换到下一个可用上游">
-                            <InfoCircleOutlined class="field-help-icon" />
-                        </a-tooltip>
-                    </span>
-                </template>
-                <a-switch
-                    v-model:checked="formState.failoverEnabled"
-                    :disabled="isView"
                 />
             </a-form-item>
             <a-form-item v-if="moduleBillingEnabled" label="价格设置">
                 <PriceConfig
                     :prices="formState.prices"
-                    :mode="isView ? 'view' : 'edit'"
+                    mode="edit"
                     @update:prices="formState.prices = $event"
                 />
             </a-form-item>
@@ -175,15 +98,13 @@ const visible = ref(false);
 const loading = ref(false);
 const formRef = ref<FormInstance>();
 
-const dialogMode = ref<'create' | 'edit' | 'view'>('create');
+const dialogMode = ref<'create' | 'edit'>('create');
 const currentId = ref<number>(0);
 
 const isEdit = computed(() => dialogMode.value === 'edit');
-const isView = computed(() => dialogMode.value === 'view');
 const dialogTitle = computed(() => ({
     create: '新建模型',
     edit: '编辑模型',
-    view: '查看模型',
 }[dialogMode.value]));
 
 function createUpstream(data?: Partial<ModelUpstreamFormValue>): ModelUpstreamFormValue {
@@ -196,17 +117,36 @@ function createUpstream(data?: Partial<ModelUpstreamFormValue>): ModelUpstreamFo
 
 const formState = reactive({
     name: '',
-    routing_mode: 'single' as ModelRoutingMode,
+    // 路由模式仍随请求提交，但新建模型默认使用多上游负载均衡。
+    routing_mode: 'load_balance' as ModelRoutingMode,
     load_balance_strategy: 'user' as LoadBalanceStrategy,
     upstreams: [createUpstream()] as ModelUpstreamFormValue[],
     failoverEnabled: true,
     enable: true,
     prices: {
+        billing_mode: 'token' as const,
         input: undefined as number | undefined,
         output: undefined as number | undefined,
+        cache_write: undefined as number | undefined,
         cache_read: undefined as number | undefined,
+        image_input: undefined as number | undefined,
+        image_output: undefined as number | undefined,
+        per_request: undefined as number | undefined,
     } as ModelPrices,
 });
+
+// 单上游模型打开编辑时也显示多上游配置；只有真正添加第二个上游时才升级提交策略。
+const upstreamConfigRoutingMode = computed<ModelRoutingMode>(() => (
+    formState.routing_mode === 'single'
+        ? 'load_balance'
+        : formState.routing_mode
+));
+
+const requestRoutingMode = computed<ModelRoutingMode>(() => (
+    formState.routing_mode === 'single' && formState.upstreams.length > 1
+        ? 'load_balance'
+        : formState.routing_mode
+));
 
 const rules = {
     name: [{ required: true, message: '请输入模型名称' }],
@@ -214,16 +154,30 @@ const rules = {
 
 const moduleBillingEnabled = ref(false);
 
-function handleRoutingModeChange() {
-    if (formState.routing_mode !== 'single') {
-        return;
+/**
+ * 兼容尚未支持 billing_mode 的网关接口。
+ * 旧接口会把 prices 中的每个字段都按数值价格校验，计费模式只作为前端状态保留，不能随请求发送。
+ */
+function toRequestPrices(prices: ModelPrices): Omit<ModelPrices, 'billing_mode'> {
+    const requestPrices: Omit<ModelPrices, 'billing_mode'> = {};
+    const priceKeys = [
+        'input',
+        'output',
+        'cache_write',
+        'cache_read',
+        'image_input',
+        'image_output',
+        'per_request',
+    ] as const;
+
+    for (const key of priceKeys) {
+        const value = prices[key];
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            requestPrices[key] = value;
+        }
     }
 
-    const upstream = formState.upstreams.find(item => item.enabled)
-        ?? formState.upstreams[0]
-        ?? createUpstream();
-    upstream.enabled = true;
-    formState.upstreams = [upstream];
+    return requestPrices;
 }
 
 function openCreate() {
@@ -237,18 +191,13 @@ function openCreate() {
 }
 
 function openEdit(model: Model) {
-    openModel(model, 'edit');
+    openModel(model);
 }
 
 
-function openView(model: Model) {
-    openModel(model, 'view');
-}
-
-
-function openModel(model: Model, mode: 'edit' | 'view') {
+function openModel(model: Model) {
     resetForm();
-    dialogMode.value = mode;
+    dialogMode.value = 'edit';
     currentId.value = model.id;
     formState.name = model.name;
     formState.routing_mode = model.routing_mode;
@@ -262,9 +211,14 @@ function openModel(model: Model, mode: 'edit' | 'view') {
     formState.enable = Boolean(model.enable);
     formState.failoverEnabled = model.routing_config.failover?.enabled ?? true;
     formState.prices = {
-        input: model.prices?.input || undefined,
-        output: model.prices?.output || undefined,
-        cache_read: model.prices?.cache_read || undefined,
+        billing_mode: model.prices?.billing_mode ?? 'token',
+        input: model.prices?.input ?? undefined,
+        output: model.prices?.output ?? undefined,
+        cache_write: model.prices?.cache_write ?? undefined,
+        cache_read: model.prices?.cache_read ?? undefined,
+        image_input: model.prices?.image_input ?? undefined,
+        image_output: model.prices?.image_output ?? undefined,
+        per_request: model.prices?.per_request ?? undefined,
     };
     getConfig().then(config => {
         moduleBillingEnabled.value = config.module_billing_enabled === 'true';
@@ -285,7 +239,7 @@ async function handleOk() {
             notifyError('至少需要启用一个上游');
             return;
         }
-        if (formState.routing_mode === 'single' && enabledCount !== 1) {
+        if (requestRoutingMode.value === 'single' && enabledCount !== 1) {
             notifyError('固定上游模式只能启用一个上游');
             return;
         }
@@ -298,20 +252,16 @@ async function handleOk() {
                 enabled: upstream.enabled,
             })),
             failover: { enabled: formState.failoverEnabled },
-            ...(formState.routing_mode === 'load_balance'
+            ...(requestRoutingMode.value === 'load_balance'
                 ? { load_balance_strategy: formState.load_balance_strategy }
                 : {}),
         };
         const requestData: CreateModelRequest = {
             name: formState.name,
             enable: formState.enable,
-            routing_mode: formState.routing_mode,
+            routing_mode: requestRoutingMode.value,
             routing_config: routingConfig,
-            prices: {
-                input: formState.prices.input ?? undefined,
-                output: formState.prices.output ?? undefined,
-                cache_read: formState.prices.cache_read ?? undefined,
-            },
+            prices: toRequestPrices(formState.prices),
         };
 
         if (isEdit.value) {
@@ -333,15 +283,20 @@ async function handleOk() {
 
 function resetForm() {
     formState.name = '';
-    formState.routing_mode = 'single';
+    formState.routing_mode = 'load_balance';
     formState.load_balance_strategy = 'user';
     formState.upstreams = [createUpstream()];
     formState.failoverEnabled = true;
     formState.enable = true;
     formState.prices = {
+        billing_mode: 'token',
         input: undefined,
         output: undefined,
+        cache_write: undefined,
         cache_read: undefined,
+        image_input: undefined,
+        image_output: undefined,
+        per_request: undefined,
     };
 }
 
@@ -352,7 +307,7 @@ function handleCancel() {
     resetForm();
 }
 
-defineExpose({ openCreate, openEdit, openView });
+defineExpose({ openCreate, openEdit });
 </script>
 
 <style scoped>
@@ -380,11 +335,6 @@ defineExpose({ openCreate, openEdit, openView });
 
 .model-form {
     padding-top: 12px;
-}
-
-.routing-help-icon {
-    margin-left: 4px;
-    font-size: 12px;
 }
 
 .upstream-label {

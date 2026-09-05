@@ -25,6 +25,41 @@
             <a-form-item label="可用模型"><a-space direction="vertical" style="width: 100%"><a-select v-model:value="formState.models" mode="tags" :token-separators="[',', ' ']" placeholder="输入模型 ID 后回车"><a-select-option v-for="model in fetchedModels" :key="model" :value="model">{{ model }}</a-select-option></a-select><a-button size="small" :loading="modelsLoading" @click="fetchModels">自动获取模型</a-button></a-space><div v-if="modelsError" class="field-hint field-error">{{ modelsError }}</div><div v-else class="field-hint">支持手动输入，也可以使用当前接口地址和凭证自动获取。</div></a-form-item>
             <a-form-item label="代理配置"><a-select v-model:value="formState.proxy_type" allow-clear placeholder="不使用代理"><a-select-option :value="null">不使用</a-select-option><a-select-option value="http">HTTP</a-select-option><a-select-option value="socks5">SOCKS5</a-select-option></a-select></a-form-item>
             <a-form-item v-if="formState.proxy_type" label="代理地址"><a-input v-model:value="formState.proxy_url" placeholder="http://host:port 或 socks5://user:pass@host:port" /></a-form-item>
+            <a-row :gutter="[16, 0]" class="scheduler-settings-row">
+                <a-col :xs="24" :sm="8">
+                    <a-form-item label="并发数" name="concurrency">
+                        <a-input-number
+                            v-model:value="formState.concurrency"
+                            :min="1"
+                            :precision="0"
+                            style="width: 100%"
+                        />
+                    </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="8">
+                    <a-form-item label="负载因子" name="load_factor">
+                        <a-input-number
+                            v-model:value="formState.load_factor"
+                            :min="1"
+                            :precision="0"
+                            :placeholder="String(formState.concurrency || 1)"
+                            style="width: 100%"
+                        />
+                        <div class="field-hint">提高负载因子可以提高对账号的调度频率</div>
+                    </a-form-item>
+                </a-col>
+                <a-col :xs="24" :sm="8">
+                    <a-form-item label="优先级" name="priority">
+                        <a-input-number
+                            v-model:value="formState.priority"
+                            :min="1"
+                            :precision="0"
+                            style="width: 100%"
+                        />
+                        <div class="field-hint">优先级越小的账号优先使用</div>
+                    </a-form-item>
+                </a-col>
+            </a-row>
             <a-form-item label="状态"><a-radio-group v-model:value="formState.status"><a-radio value="active">启用</a-radio><a-radio value="disabled">停用</a-radio></a-radio-group></a-form-item>
             <a-form-item label="备注"><a-textarea v-model:value="formState.remark" :rows="3" :maxlength="200" show-count /></a-form-item>
         </a-form>
@@ -64,6 +99,9 @@ const formState = reactive({
     api_url: '',
     openai_protocol: 'chat_completions' as 'chat_completions' | 'responses',
     models: [] as string[],
+    concurrency: 1,
+    load_factor: null as number | null,
+    priority: 1,
     status: 'active' as 'active' | 'disabled',
     remark: '',
     auth_mode: 'bearer_token' as VendorAuthMode,
@@ -76,6 +114,9 @@ const rules = {
     supplier_name: [{ required: true, message: '请输入供应商名称' }],
     name: [{ required: true, message: '请输入供应商名称' }],
     token: [{ required: true, message: '请输入 API Token' }],
+    concurrency: [{ required: true, type: 'number', min: 1, message: '并发数必须大于或等于 1' }],
+    load_factor: [{ type: 'number', min: 1, message: '负载因子必须大于或等于 1' }],
+    priority: [{ required: true, type: 'number', min: 1, message: '优先级必须大于或等于 1' }],
 };
 
 async function open(vendor: Vendor) {
@@ -91,6 +132,9 @@ async function open(vendor: Vendor) {
     formState.models = vendor.config?.available_models || [];
     fetchedModels.value = [...formState.models];
     modelsError.value = '';
+    formState.concurrency = vendor.config?.concurrency ?? 1;
+    formState.load_factor = vendor.config?.load_factor ?? null;
+    formState.priority = vendor.config?.priority ?? 1;
     formState.status = vendor.config?.status || 'active';
     formState.remark = vendor.config?.remark || '';
     formState.auth_mode = vendor.config?.auth_mode || 'bearer_token';
@@ -144,6 +188,9 @@ async function handleOk() {
                 supplier_name: formState.supplier_name,
                 openai_protocol: formState.openai_protocol,
                 available_models: formState.models,
+                concurrency: formState.concurrency,
+                load_factor: formState.load_factor,
+                priority: formState.priority,
                 status: formState.status,
                 remark: formState.remark,
                 auth_mode: formState.auth_mode,

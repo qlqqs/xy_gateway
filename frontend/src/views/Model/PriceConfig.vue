@@ -8,108 +8,167 @@
         <a-collapse-panel key="billing">
             <template #header>
                 <span v-if="isExpanded">价格设置</span>
-                <div v-else class="price-display">
-                    <span class="price-item" title="输入价格">
-                        <ArrowUpOutlined class="price-icon input" />
-                        <template v-if="prices.input != null">¥{{ prices.input.toFixed(6) }}</template>
-                        <span v-else class="unset-price">-</span>
-                    </span>
-                    <span class="price-divider">/</span>
-                    <span class="price-item" title="输出价格">
-                        <ArrowDownOutlined class="price-icon output" />
-                        <template v-if="prices.output != null">¥{{ prices.output.toFixed(6) }}</template>
-                        <span v-else class="unset-price">-</span>
-                    </span>
-                    <span class="price-divider">/</span>
-                    <span class="price-item" title="缓存读取价格">
-                        <ArrowUpOutlined class="price-icon cache-read" />
-                        <template v-if="prices.cache_read != null">¥{{ prices.cache_read.toFixed(6) }}</template>
-                        <span v-else class="unset-price">-</span>
-                    </span>
+                <div v-else class="price-summary">
+                    <a-tag class="billing-mode-tag" color="blue">{{ billingModeLabel }}</a-tag>
+                    <template v-for="field in summaryFields" :key="field.key">
+                        <span class="summary-item">
+                            <span class="summary-label">{{ field.shortLabel }}</span>
+                            <span>{{ formatPrice(prices[field.key]) }}</span>
+                        </span>
+                    </template>
+                    <span v-if="summaryFields.length === 0" class="unset-price">未设置</span>
                 </div>
             </template>
-            <div class="settings-row">
-                <label class="settings-label">
-                    输入价格
-                    <a-tooltip title="输入 token 的计费价格（元/百万 tokens），留空表示不收费">
-                        <InfoCircleOutlined class="field-help-icon" />
-                    </a-tooltip>
-                </label>
-                <a-input-number
-                    :value="prices.input"
-                    placeholder="请输入输入价格"
-                    :min="0.0001"
-                    :precision="6"
-                    style="width: 100%"
-                    @update:value="updatePrice('input', $event)"
-                />
-            </div>
-            <div class="settings-row">
-                <label class="settings-label">
-                    输出价格
-                    <a-tooltip title="输出 token 的计费价格（元/百万 tokens），留空表示不收费">
-                        <InfoCircleOutlined class="field-help-icon" />
-                    </a-tooltip>
-                </label>
-                <a-input-number
-                    :value="prices.output"
-                    placeholder="请输入输出价格"
-                    :min="0.0001"
-                    :precision="6"
-                    style="width: 100%"
-                    @update:value="updatePrice('output', $event)"
-                />
-            </div>
-            <div class="settings-row">
-                <label class="settings-label">
-                    缓存读取价格
-                    <a-tooltip title="缓存命中时读取 token 的计费价格（元/百万 tokens），留空表示不收费">
-                        <InfoCircleOutlined class="field-help-icon" />
-                    </a-tooltip>
-                </label>
-                <a-input-number
-                    :value="prices.cache_read"
-                    placeholder="请输入缓存读取价格"
-                    :min="0.0001"
-                    :precision="6"
-                    style="width: 100%"
-                    @update:value="updatePrice('cache_read', $event)"
-                />
+
+            <div class="pricing-content">
+                <div class="mode-row">
+                    <label class="settings-label">计费模式</label>
+                    <a-select
+                        :value="effectiveBillingMode"
+                        class="mode-select"
+                        aria-label="计费模式"
+                        @update:value="updateBillingMode"
+                    >
+                        <a-select-option value="token">按 Token</a-select-option>
+                        <a-select-option value="per_request">按次</a-select-option>
+                        <a-select-option value="image">按图片</a-select-option>
+                    </a-select>
+                </div>
+
+                <template v-if="effectiveBillingMode === 'token'">
+                    <div class="price-section-title">
+                        默认价格
+                        <span>元/百万 tokens</span>
+                    </div>
+                    <div class="price-grid">
+                        <div v-for="field in tokenPriceFields" :key="field.key" class="price-field">
+                            <label class="price-field-label">
+                                {{ field.label }}
+                                <a-tooltip v-if="field.tooltip" :title="field.tooltip">
+                                    <InfoCircleOutlined class="field-help-icon" />
+                                </a-tooltip>
+                            </label>
+                            <a-input-number
+                                :value="prices[field.key]"
+                                class="price-input"
+                                placeholder="默认"
+                                :min="0"
+                                :precision="6"
+                                allow-clear
+                                :aria-label="field.label"
+                                @update:value="updatePrice(field.key, $event)"
+                            />
+                        </div>
+                    </div>
+                </template>
+
+                <div v-else class="single-price-block">
+                    <div class="price-section-title">
+                        {{ singlePriceLabel }}
+                        <span>元/次</span>
+                    </div>
+                    <a-input-number
+                        :value="prices.per_request"
+                        class="price-input"
+                        placeholder="请输入价格"
+                        :min="0"
+                        :precision="6"
+                        allow-clear
+                        :aria-label="singlePriceLabel"
+                        @update:value="updatePrice('per_request', $event)"
+                    />
+                </div>
+
+                <div class="price-hint">留空或填写 0 表示不收费</div>
             </div>
         </a-collapse-panel>
     </a-collapse>
 
-    <div v-else class="price-display">
-        <span class="price-item" title="输入价格">
-            <ArrowUpOutlined class="price-icon input" />
-            ¥{{ formatPrice(prices.input) }}
-        </span>
-        <span class="price-divider">/</span>
-        <span class="price-item" title="输出价格">
-            <ArrowDownOutlined class="price-icon output" />
-            ¥{{ formatPrice(prices.output) }}
-        </span>
-        <span class="price-divider">/</span>
-        <span class="price-item" title="缓存读取价格">
-            <ArrowUpOutlined class="price-icon cache-read" />
-            ¥{{ formatPrice(prices.cache_read) }}
-        </span>
+    <div v-else class="price-view">
+        <div class="view-mode-row">
+            <span class="view-mode-label">计费模式</span>
+            <a-tag color="blue">{{ billingModeLabel }}</a-tag>
+        </div>
+        <div v-if="effectiveBillingMode === 'token'" class="price-view-grid">
+            <div v-for="field in tokenPriceFields" :key="field.key" class="price-view-item">
+                <span>{{ field.label }}</span>
+                <span class="price-view-value">{{ formatPrice(prices[field.key]) }}</span>
+            </div>
+        </div>
+        <div v-else class="price-view-grid">
+            <div class="price-view-item">
+                <span>{{ singlePriceLabel }}</span>
+                <span class="price-view-value">{{ formatPrice(prices.per_request) }}</span>
+            </div>
+        </div>
     </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import {
-    ArrowDownOutlined,
-    ArrowUpOutlined,
-    InfoCircleOutlined,
-} from '@ant-design/icons-vue';
-import type { ModelPrices } from '@/types/model';
+import { InfoCircleOutlined } from '@ant-design/icons-vue';
+import type { ModelBillingMode, ModelPrices } from '@/types/model';
 
-const props = defineProps<{
+type TokenPriceKey =
+    | 'input'
+    | 'output'
+    | 'cache_write'
+    | 'cache_read'
+    | 'image_input'
+    | 'image_output';
+
+interface TokenPriceField {
+    key: TokenPriceKey;
+    label: string;
+    shortLabel: string;
+    tooltip?: string;
+}
+
+const tokenPriceFields: TokenPriceField[] = [
+    {
+        key: 'input',
+        label: '输入价格',
+        shortLabel: '输入',
+        tooltip: '输入 token 的计费价格（元/百万 tokens）',
+    },
+    {
+        key: 'output',
+        label: '输出价格',
+        shortLabel: '输出',
+        tooltip: '输出 token 的计费价格（元/百万 tokens）',
+    },
+    {
+        key: 'cache_write',
+        label: '缓存写入价格',
+        shortLabel: '缓存写入',
+        tooltip: '缓存写入 token 的计费价格（元/百万 tokens）',
+    },
+    {
+        key: 'cache_read',
+        label: '缓存读取价格',
+        shortLabel: '缓存读取',
+        tooltip: '缓存命中 token 的计费价格（元/百万 tokens）',
+    },
+    {
+        key: 'image_input',
+        label: '图片输入价格',
+        shortLabel: '图片输入',
+        tooltip: '图片输入 token 的计费价格（元/百万 tokens）',
+    },
+    {
+        key: 'image_output',
+        label: '图片输出价格',
+        shortLabel: '图片输出',
+        tooltip: '图片输出 token 的计费价格（元/百万 tokens）',
+    },
+];
+
+interface Props {
     mode: 'edit' | 'view';
     prices: ModelPrices;
-}>();
+}
+
+const props = defineProps<Props>();
 
 const emit = defineEmits<{
     'update:prices': [prices: ModelPrices];
@@ -119,6 +178,30 @@ const activeKey = ref<string[]>([]);
 
 const isExpanded = computed(() => activeKey.value.includes('billing'));
 
+const effectiveBillingMode = computed<ModelBillingMode>(() => {
+    const mode = props.prices.billing_mode;
+    return mode === 'per_request' || mode === 'image' ? mode : 'token';
+});
+
+const billingModeLabel = computed(() => ({
+    token: '按 Token',
+    per_request: '按次',
+    image: '按图片',
+}[effectiveBillingMode.value]));
+
+const singlePriceLabel = computed(() => (
+    effectiveBillingMode.value === 'image' ? '图片单次价格' : '单次价格'
+));
+
+const summaryFields = computed(() => {
+    if (effectiveBillingMode.value !== 'token') {
+        return props.prices.per_request == null
+            ? []
+            : [{ key: 'per_request' as const, shortLabel: singlePriceLabel.value }];
+    }
+    return tokenPriceFields.filter(field => props.prices[field.key] != null).slice(0, 3);
+});
+
 function updatePrice(key: keyof ModelPrices, value: number | null) {
     emit('update:prices', {
         ...props.prices,
@@ -126,9 +209,18 @@ function updatePrice(key: keyof ModelPrices, value: number | null) {
     });
 }
 
+function updateBillingMode(value: ModelBillingMode | undefined) {
+    const nextMode: ModelBillingMode = value === 'per_request' || value === 'image'
+        ? value
+        : 'token';
+    emit('update:prices', {
+        ...props.prices,
+        billing_mode: nextMode,
+    });
+}
 
 function formatPrice(value?: number): string {
-    if (value === undefined || value === null) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
         return '-';
     }
     return `¥${value.toFixed(6)}`;
@@ -156,15 +248,45 @@ function formatPrice(value?: number): string {
     padding: 0 16px 12px;
 }
 
-.settings-row {
+.price-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.billing-mode-tag {
+    flex-shrink: 0;
+    margin-inline-end: 0;
+}
+
+.summary-item {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    color: var(--text-secondary, #666);
+}
+
+.summary-label {
+    color: var(--text-secondary, #999);
+}
+
+.unset-price {
+    color: var(--text-secondary, #999);
+}
+
+.pricing-content {
+    padding-top: 4px;
+}
+
+.mode-row {
     display: flex;
     align-items: center;
     gap: 12px;
     margin-bottom: 16px;
-}
-
-.settings-row:last-child {
-    margin-bottom: 0;
 }
 
 .settings-label {
@@ -173,48 +295,104 @@ function formatPrice(value?: number): string {
     align-items: center;
     width: 100px;
     font-size: 14px;
-    color: rgba(0, 0, 0, 0.88);
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+}
+
+.mode-select {
+    flex: 1;
+}
+
+.price-section-title {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+}
+
+.price-section-title span {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-secondary, #999);
+}
+
+.price-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+}
+
+.price-field {
+    min-width: 0;
+}
+
+.price-field-label {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+    font-size: 12px;
+    color: var(--text-secondary, #666);
+}
+
+.price-input {
+    width: 100%;
 }
 
 .field-help-icon {
     margin-left: 4px;
-    color: var(--text-secondary);
-    font-size: 13px;
+    color: var(--text-secondary, #999);
+    font-size: 12px;
 }
 
-.price-display {
-    display: flex;
-    align-items: center;
+.single-price-block {
+    max-width: 280px;
 }
 
-.price-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.unset-price {
+.price-hint {
+    margin: 12px 0 0;
+    font-size: 12px;
     color: var(--text-secondary, #999);
 }
 
-.price-icon {
-    font-size: 14px;
+.price-view {
+    width: 100%;
 }
 
-.price-icon.input {
-    color: var(--accent-primary);
+.view-mode-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
 }
 
-.price-icon.output {
-    color: #52c41a;
+.view-mode-label {
+    color: var(--text-secondary, #666);
 }
 
-.price-icon.cache-read {
-    color: #722ed1;
+.price-view-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 20px;
 }
 
-.price-divider {
-    margin: 0 8px;
-    color: var(--token-divider);
+.price-view-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--text-secondary, #666);
+}
+
+.price-view-value {
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+    .price-grid,
+    .price-view-grid {
+        grid-template-columns: 1fr;
+    }
 }
 </style>

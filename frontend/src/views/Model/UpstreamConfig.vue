@@ -119,7 +119,7 @@
                 @click="addUpstream"
             >
                 <PlusOutlined />
-                添加上游
+                添加供应商模型
             </a-button>
         </div>
     </div>
