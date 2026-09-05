@@ -60,6 +60,10 @@
                     </a-form-item>
                 </a-col>
             </a-row>
+            <a-form-item label="分组" name="group_id">
+                <a-select v-model:value="formState.group_id" :options="groupOptions" allow-clear placeholder="选择分组（可选）" />
+                <div class="field-hint">用于标识供应商所属的调用分组</div>
+            </a-form-item>
             <a-form-item label="状态"><a-radio-group v-model:value="formState.status"><a-radio value="active">启用</a-radio><a-radio value="disabled">停用</a-radio></a-radio-group></a-form-item>
             <a-form-item label="备注"><a-textarea v-model:value="formState.remark" :rows="3" :maxlength="200" show-count /></a-form-item>
         </a-form>
@@ -67,12 +71,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, computed } from 'vue';
 import type { FormInstance } from 'ant-design-vue/es';
 import { updateVendor, fetchModelsPreview } from '@/api/vendor';
 import type { UpdateVendorRequest, Vendor, VendorType, VendorAuthMode, VendorProxyType, VendorUrls } from '@/types/vendor';
 import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 import { useVendorPresets } from '@/composables/useVendorPresets';
+import groupStore from '@/stores/groups';
 
 const emit = defineEmits<{
     success: [vendor: Vendor];
@@ -90,10 +95,15 @@ const { vendorTypeOptions, load: loadPresets } = useVendorPresets();
 const currentId = ref<number>(0);
 const currentConfig = ref<Record<string, any>>({});
 
+const groupOptions = computed(() => groupStore.groups.value
+    .filter(group => group.status === 'active')
+    .map(group => ({ label: group.name, value: group.id })));
+
 const formState = reactive({
     type: 'openai' as VendorType,
     channel_code: '',
     supplier_name: '',
+    group_id: null as number | null,
     name: '',
     token: '',
     api_url: '',
@@ -125,6 +135,7 @@ async function open(vendor: Vendor) {
     formState.type = vendor.type;
     formState.channel_code = vendor.config?.channel_code || '';
     formState.supplier_name = vendor.config?.supplier_name || '';
+    formState.group_id = vendor.config?.group_id ?? null;
     formState.name = vendor.name;
     formState.token = vendor.token;
     formState.openai_protocol = vendor.config?.openai_protocol || 'chat_completions';
@@ -186,6 +197,7 @@ async function handleOk() {
                 ...currentConfig.value,
                 channel_code: formState.channel_code,
                 supplier_name: formState.supplier_name,
+                group_id: formState.group_id,
                 openai_protocol: formState.openai_protocol,
                 available_models: formState.models,
                 concurrency: formState.concurrency,

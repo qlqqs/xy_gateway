@@ -28,9 +28,6 @@
             :row-key="(record: User) => record.id"
         >
             <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'token'">
-                    <TokenDisplay :token="record.token" />
-                </template>
                 <template v-if="column.key === 'type'">
                     <a-tag
                         :style="record.type === 'admin'
@@ -73,7 +70,6 @@
 import type { TableColumnsType } from 'ant-design-vue';
 import { listUsers } from '@/api/user';
 import { useResourceTable } from '@/composables/useResourceTable';
-import TokenDisplay from '@/components/common/TokenDisplay.vue';
 import { formatBalance, BALANCE_SCALE } from '@/utils/format';
 import type { User, UserQuery } from '@/types/user';
 

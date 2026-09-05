@@ -24,25 +24,51 @@
                     un-checked-value="disabled"
                 />
             </a-form-item>
-            <a-form-item label="Token" name="token" extra="留空保存时服务端会重新生成 Token；修改后旧 Token 将失效">
-                <a-input-password
-                    v-model:value="formState.token"
-                    placeholder="请输入 Token"
-                >
-                    <template #addonAfter>
-                        <a-button type="link" size="small" @click="showRegenerateConfirm">重新生成 Token</a-button>
-                    </template>
-                </a-input-password>
+            <a-form-item label="Key" name="keys" extra="可添加多个 key；保存后将使用当前 key 列表">
+                <div class="keys-editor">
+                    <div v-for="(_, index) in formState.keys" :key="index" class="key-row">
+                        <a-input-password
+                            v-model:value="formState.keys[index]"
+                            class="key-input"
+                            :placeholder="`请输入 Key ${index + 1}`"
+                        >
+                            <template #addonAfter>
+                                <a-button type="link" size="small" html-type="button" @click="showRegenerateConfirm(index)">重新生成 key</a-button>
+                            </template>
+                        </a-input-password>
+                        <a-select
+                            v-model:value="formState.keyGroups[index]"
+                            class="group-select"
+                            :options="groupOptions"
+                            allow-clear
+                            placeholder="选择分组"
+                        />
+                        <a-button
+                            type="text"
+                            danger
+                            aria-label="移除 key"
+                            title="移除 key"
+                            @click="removeKey(index)"
+                        >
+                            <DeleteOutlined />
+                        </a-button>
+                    </div>
+                    <a-button type="dashed" block html-type="button" @click="addKey">
+                        <PlusOutlined /> 添加 key
+                    </a-button>
+                </div>
             </a-form-item>
         </a-form>
     </a-modal>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, computed } from 'vue';
 import { Modal } from 'ant-design-vue/es';
 import type { FormInstance } from 'ant-design-vue/es';
-import { updateUser } from '@/api/user';
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons-vue';
+import userStore from '@/stores/users';
+import groupStore from '@/stores/groups';
 import type { User } from '@/types/user';
 import { notifyError, notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 
@@ -57,7 +83,8 @@ const userId = ref<number>();
 
 const formState = reactive({
     name: '',
-    token: '',
+    keys: [''],
+    keyGroups: [null] as Array<number | null>,
     status: 'active' as 'active' | 'disabled',
 });
 
@@ -68,20 +95,36 @@ const rules = {
 function open(user: User) {
     userId.value = user.id;
     formState.name = user.name;
-    formState.token = user.token;
+    formState.keys = [...user.keys];
+    if (formState.keys.length === 0) formState.keys = [''];
+    formState.keyGroups = formState.keys.map(key => user.keyGroups[key] ?? null);
     formState.status = user.status || 'active';
     visible.value = true;
 }
 
-function showRegenerateConfirm() {
+function addKey() {
+    formState.keys.push('');
+    formState.keyGroups.push(null);
+}
+
+function removeKey(index: number) {
+    formState.keys.splice(index, 1);
+    formState.keyGroups.splice(index, 1);
+}
+
+const groupOptions = computed(() => groupStore.groups.value
+    .filter(group => group.status === 'active')
+    .map(group => ({ label: group.name, value: group.id })));
+
+function showRegenerateConfirm(index: number) {
     Modal.confirm({
-        title: '确认重新生成 Token',
-        content: '重新生成 Token 后，旧的 Token 将立即失效，用户需要使用新的 Token 进行认证。确定要继续吗？',
+        title: '确认重新生成 key',
+        content: '重新生成 key 后，当前 key 将立即失效。确定要继续吗？',
         okText: '确定',
         cancelText: '取消',
         onOk: async () => {
-            formState.token = crypto.randomUUID();
-            notifySuccess('新 Token 已生成，请点击确定保存');
+            formState.keys[index] = crypto.randomUUID();
+            notifySuccess('新 key 已生成，请点击确定保存');
         },
     });
 }
@@ -94,12 +137,26 @@ async function handleOk() {
             return;
         }
 
+        const keyEntries = formState.keys
+            .map((key, index) => ({ key: key.trim(), groupId: formState.keyGroups[index] ?? null }))
+            .filter(entry => entry.key);
+        const keys = keyEntries.map(entry => entry.key);
+        if (new Set(keys).size !== keys.length) {
+            throw new Error('key 不能重复');
+        }
+
         loading.value = true;
-        const user = await updateUser(userId.value, {
+        const keyGroups = Object.fromEntries(keyEntries.map(entry => [entry.key, entry.groupId]));
+        const user = userStore.update(userId.value, {
             name: formState.name,
-            token: formState.token,
+            keys,
+            keyGroups,
             status: formState.status,
         });
+        if (!user) {
+            notifyError('用户不存在');
+            return;
+        }
         notifySuccess('更新成功');
         emit('success', user);
         handleCancel();
@@ -113,10 +170,46 @@ async function handleOk() {
 function handleCancel() {
     visible.value = false;
     formState.name = '';
-    formState.token = '';
+    formState.keys = [''];
+    formState.keyGroups = [null];
     formState.status = 'active';
     userId.value = undefined;
 }
 
 defineExpose({ open });
 </script>
+
+<style scoped>
+.keys-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.key-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.key-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.group-select {
+    width: 220px;
+    flex: 0 0 220px;
+}
+
+@media (max-width: 640px) {
+    .key-row {
+        flex-wrap: wrap;
+    }
+
+    .group-select {
+        width: calc(100% - 40px);
+        flex-basis: calc(100% - 40px);
+    }
+}
+</style>

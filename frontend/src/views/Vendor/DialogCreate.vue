@@ -61,6 +61,10 @@
                     </a-form-item>
                 </a-col>
             </a-row>
+            <a-form-item label="分组" name="group_id">
+                <a-select v-model:value="formState.group_id" :options="groupOptions" allow-clear placeholder="选择分组（可选）" />
+                <div class="field-hint">用于标识供应商所属的调用分组</div>
+            </a-form-item>
             <a-form-item label="状态" name="status"><a-radio-group v-model:value="formState.status"><a-radio value="active">启用</a-radio><a-radio value="disabled">停用</a-radio></a-radio-group></a-form-item>
             <a-form-item label="备注"><a-textarea v-model:value="formState.remark" :rows="3" placeholder="可填写环境、用途或维护说明" :maxlength="200" show-count /></a-form-item>
         </a-form>
@@ -74,6 +78,7 @@ import { createVendor, fetchModelsPreview } from '@/api/vendor';
 import type { CreateVendorRequest, Vendor, VendorType, VendorAuthMode, VendorProxyType } from '@/types/vendor';
 import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 import { useVendorPresets } from '@/composables/useVendorPresets';
+import groupStore from '@/stores/groups';
 
 const emit = defineEmits<{
     success: [vendor: Vendor];
@@ -94,6 +99,7 @@ const formState = reactive({
     channel_code: '',
     name: '',
     supplier_name: '',
+    group_id: null as number | null,
     token: '',
     api_type: 'openai' as 'openai' | 'anthropic',
     openai_protocol: 'chat_completions' as 'chat_completions' | 'responses',
@@ -110,6 +116,9 @@ const formState = reactive({
 });
 
 const authModeLabel = computed(() => formState.type === 'anthropic' ? 'API Key' : 'Bearer Token');
+const groupOptions = computed(() => groupStore.groups.value
+    .filter(group => group.status === 'active')
+    .map(group => ({ label: group.name, value: group.id })));
 function syncAuthMode() {
     formState.api_type = formState.type === 'anthropic' ? 'anthropic' : 'openai';
     formState.auth_mode = formState.api_type === 'anthropic' ? 'api_key' : 'bearer_token';
@@ -158,6 +167,7 @@ async function open() {
     formState.channel_code = '';
     formState.name = '';
     formState.supplier_name = '';
+    formState.group_id = null;
     formState.token = '';
     formState.api_type = 'openai';
     formState.openai_protocol = 'chat_completions';
@@ -207,6 +217,7 @@ async function handleOk() {
             config: {
                 auth_mode: formState.auth_mode,
                 supplier_name: formState.supplier_name,
+                group_id: formState.group_id,
                 channel_code: formState.channel_code,
                 api_type: formState.api_type,
                 openai_protocol: formState.openai_protocol,

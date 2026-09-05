@@ -39,13 +39,11 @@
             :data-source="data"
             :loading="loading"
             :pagination="pagination"
+            table-layout="fixed"
             @change="handleTableChange"
             :row-key="(record: User) => record.id"
         >
             <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'token'">
-                    <TokenDisplay :token="record.token" />
-                </template>
                 <template v-if="column.key === 'type'">
                     <a-tag
                         :style="record.type === 'admin'
@@ -79,17 +77,6 @@
                 </template>
                 <template v-if="column.key === 'action'">
                     <a-space :size="0">
-                        <a-tooltip title="查看">
-                            <a-button
-                                type="text"
-                                size="small"
-                                class="user-action-button"
-                                aria-label="查看"
-                                @click="handleView(record)"
-                            >
-                                <EyeOutlined />
-                            </a-button>
-                        </a-tooltip>
                         <a-tooltip title="编辑">
                             <a-button
                                 type="text"
@@ -114,18 +101,15 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import type { TableColumnsType } from 'ant-design-vue';
-import { EditOutlined, EyeOutlined } from '@ant-design/icons-vue';
-import { useRouter } from 'vue-router';
-import { listUsers } from '@/api/user';
+import { EditOutlined } from '@ant-design/icons-vue';
 import { useResourceTable } from '@/composables/useResourceTable';
 import { useAppStore } from '@/stores/app';
-import TokenDisplay from '@/components/common/TokenDisplay.vue';
+import userStore from '@/stores/users';
 import { formatBalance, BALANCE_SCALE } from '@/utils/format';
 import DialogCreate from './DialogCreate.vue';
 import DialogEdit from './DialogEdit.vue';
 import type { User, UserQuery } from '@/types/user';
 
-const router = useRouter();
 const appStore = useAppStore();
 
 // 后端返回整数微元，展示时换算为"元"
@@ -136,7 +120,7 @@ const { loading, data, pagination, searchForm, loadData, handleSearch, handleRes
         keyword: undefined,
         type: undefined,
     },
-    fetcher: listUsers,
+    fetcher: userStore.list,
     resetSearchForm: (form) => {
         form.keyword = undefined;
         form.type = undefined;
@@ -150,15 +134,15 @@ const columns = computed<TableColumnsType<User>>(() => {
     const cols: TableColumnsType<User> = [
         { title: 'ID', key: 'id', dataIndex: 'id', width: 80 },
         { title: '用户名', key: 'name', dataIndex: 'name' },
-        { title: 'Token', key: 'token', dataIndex: 'token' },
         { title: '类型', key: 'type', dataIndex: 'type', width: 100 },
         { title: '启用', key: 'status', dataIndex: 'status', width: 80 },
     ];
     if (appStore.moduleBillingEnabled) {
         cols.push({ title: '余额', key: 'balance', dataIndex: 'balance', width: 150 });
     }
-    cols.push({ title: '操作', key: 'action', width: 120, fixed: 'right' as const });
-    return cols;
+    cols.push({ title: '操作', key: 'action', width: 120 });
+    const equalWidth = `${100 / cols.length}%`;
+    return cols.map(column => ({ ...column, width: equalWidth }));
 });
 
 function handleCreate() {
@@ -167,10 +151,6 @@ function handleCreate() {
 
 function handleCreateSuccess() {
     loadData();
-}
-
-function handleView(record: User) {
-    router.push(`/user/${record.id}`);
 }
 
 function handleEdit(record: User) {
@@ -203,4 +183,5 @@ function getPopupContainer(node: HTMLElement): HTMLElement {
 .user-action-button {
     color: var(--accent-primary);
 }
+
 </style>

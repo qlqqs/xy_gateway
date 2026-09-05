@@ -12,8 +12,8 @@
             <a-descriptions :column="1" bordered>
                 <a-descriptions-item label="ID">{{ user.id }}</a-descriptions-item>
                 <a-descriptions-item label="用户名">{{ user.name }}</a-descriptions-item>
-                <a-descriptions-item label="Token">
-                    <TokenDisplay :token="user.token" />
+                <a-descriptions-item label="Key">
+                    <KeyDisplay :keys="user.keys" />
                 </a-descriptions-item>
                 <a-descriptions-item label="类型">
                     <a-tag
@@ -53,11 +53,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getUser } from '@/api/user';
 import { formatDate } from '@/utils/format';
-import TokenDisplay from '@/components/common/TokenDisplay.vue';
+import KeyDisplay from '@/components/common/KeyDisplay.vue';
 import DialogEdit from './DialogEdit.vue';
 import type { User } from '@/types/user';
+import userStore from '@/stores/users';
 
 const route = useRoute();
 const router = useRouter();
@@ -73,15 +73,10 @@ onMounted(async () => {
     }
 });
 
-async function loadUser(id: number) {
+function loadUser(id: number) {
     loading.value = true;
-    try {
-        user.value = await getUser(id);
-    } catch (error) {
-        console.error('加载用户失败:', error);
-    } finally {
-        loading.value = false;
-    }
+    user.value = userStore.get(id);
+    loading.value = false;
 }
 
 function handleBack() {

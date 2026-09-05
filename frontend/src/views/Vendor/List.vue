@@ -44,6 +44,7 @@
             :data-source="data"
             :loading="loading"
             :pagination="pagination"
+            table-layout="fixed"
             @change="handleTableChange"
             :row-key="(record: Vendor) => record.id"
         >
@@ -137,12 +138,12 @@ const editDialogRef = ref();
 const testDialogRef = ref();
 
 const columns: TableColumnsType<Vendor> = [
-    { title: 'ID', key: 'id', dataIndex: 'id', width: 80 },
-    { title: '类型', key: 'type', dataIndex: 'type', width: 120 },
-    { title: '名称', key: 'name', dataIndex: 'name' },
-    { title: '模型数量', key: 'model_count', dataIndex: 'model_count', width: 100 },
-    { title: '创建时间', key: 'created_at', dataIndex: 'created_at', width: 180 },
-    { title: '操作', key: 'action', width: 140, fixed: 'right' as const },
+    { title: 'ID', key: 'id', dataIndex: 'id', width: '16.6667%' },
+    { title: '类型', key: 'type', dataIndex: 'type', width: '16.6667%' },
+    { title: '名称', key: 'name', dataIndex: 'name', width: '16.6667%' },
+    { title: '模型数量', key: 'model_count', dataIndex: 'model_count', width: '16.6667%' },
+    { title: '创建时间', key: 'created_at', dataIndex: 'created_at', width: '16.6667%' },
+    { title: '操作', key: 'action', width: '16.6667%' },
 ];
 
 function handleCreate() {

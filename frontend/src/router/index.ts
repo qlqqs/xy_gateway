@@ -7,7 +7,8 @@ import AppLayout from '@/components/layout/AppLayout.vue';
 import Dashboard from '@/views/Dashboard.vue';
 import UserIndex from '@/views/User/Index.vue';
 import UserList from '@/views/User/List.vue';
-import UserDetail from '@/views/User/Detail.vue';
+import GroupIndex from '@/views/Group/Index.vue';
+import GroupList from '@/views/Group/List.vue';
 import VendorIndex from '@/views/Vendor/Index.vue';
 import VendorList from '@/views/Vendor/List.vue';
 import ModelIndex from '@/views/Model/Index.vue';
@@ -50,10 +51,18 @@ const routes: RouteRecordRaw[] = [
                         name: 'UserList',
                         component: UserList,
                     },
+                ],
+            },
+            {
+                path: 'group',
+                name: 'Group',
+                component: GroupIndex,
+                meta: { title: '分组管理' },
+                children: [
                     {
-                        path: ':id',
-                        name: 'UserDetail',
-                        component: UserDetail,
+                        path: '',
+                        name: 'GroupList',
+                        component: GroupList,
                     },
                 ],
             },

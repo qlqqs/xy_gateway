@@ -28,6 +28,7 @@ export interface VendorConfig {
     concurrency?: number;
     load_factor?: number | null;
     priority?: number;
+    group_id?: number | null;
     proxy?: VendorProxyConfig | null;
     [key: string]: any;
 }

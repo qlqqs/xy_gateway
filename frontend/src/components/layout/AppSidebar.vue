@@ -15,6 +15,10 @@
                     <TeamOutlined />
                     <span>用户管理</span>
                 </a-menu-item>
+                <a-menu-item key="/group">
+                    <GroupOutlined />
+                    <span>分组管理</span>
+                </a-menu-item>
                 <a-menu-item key="/vendor">
                     <CloudUploadOutlined />
                     <span>供应商管理</span>
@@ -75,7 +79,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { DashboardOutlined, TeamOutlined, CloudUploadOutlined, DatabaseOutlined, FileTextOutlined, MenuFoldOutlined, MenuUnfoldOutlined, DollarOutlined, CodeOutlined, SettingOutlined } from '@ant-design/icons-vue';
+import { DashboardOutlined, TeamOutlined, GroupOutlined, CloudUploadOutlined, DatabaseOutlined, FileTextOutlined, MenuFoldOutlined, MenuUnfoldOutlined, DollarOutlined, CodeOutlined, SettingOutlined } from '@ant-design/icons-vue';
 import { useAppStore } from '@/stores/app';
 import { checkUpdate } from '@/api/system';
 import { getConfig } from '@/api/config';
@@ -93,6 +97,7 @@ const version = computed(() => appStore.version);
 const selectedKeys = computed(() => {
     const path = route.path;
     if (path.startsWith('/user')) return ['/user'];
+    if (path.startsWith('/group')) return ['/group'];
     if (path.startsWith('/vendor')) return ['/vendor'];
     if (path.startsWith('/model')) return ['/model'];
     if (path.startsWith('/record')) return ['/record'];
