@@ -32,7 +32,7 @@
             :columns="columns"
             :data-source="filteredGroups"
             :pagination="{ pageSize: 10, showSizeChanger: true }"
-            :row-key="(record: GroupRecord) => record.id"
+            :row-key="(record: GroupRow) => record.id"
             table-layout="fixed"
         >
             <template #bodyCell="{ column, record }">
@@ -107,9 +107,16 @@ import type { TableColumnsType } from 'ant-design-vue';
 import type { FormInstance } from 'ant-design-vue/es';
 import { Modal, message } from 'ant-design-vue/es';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons-vue';
-import groupStore, { type GroupRecord, type GroupStatus, type InboundProtocol } from '@/stores/groups';
+import groupStore, { type GroupDraft, type GroupRecord, type GroupStatus, type InboundProtocol } from '@/stores/groups';
+import modelsStore from '@/stores/models';
+import usersStore from '@/stores/users';
+import vendorsStore from '@/stores/vendors';
 
-const columns: TableColumnsType<GroupRecord> = [
+interface GroupRow extends GroupRecord {
+    channelCount: number;
+}
+
+const columns: TableColumnsType<GroupRow> = [
     { title: 'ID', key: 'id', dataIndex: 'id', width: '14.2857%' },
     { title: '分组信息', key: 'name', dataIndex: 'name', width: '14.2857%' },
     { title: '通道数', key: 'channelCount', dataIndex: 'channelCount', width: '14.2857%' },
@@ -141,22 +148,33 @@ const inboundProtocolOptions = [
     { label: 'OpenAI Chat Completions（/v1/chat/completions）', value: 'openai_chat' },
     { label: 'Anthropic Messages（/v1/messages）', value: 'anthropic' },
 ];
-const modelOptions = [
-    { label: 'gpt-4o', value: 'gpt-4o' },
-    { label: 'gpt-4o-mini', value: 'gpt-4o-mini' },
-    { label: 'claude-sonnet-4-20250514', value: 'claude-sonnet-4-20250514' },
-    { label: 'claude-3-7-sonnet-latest', value: 'claude-3-7-sonnet-latest' },
-    { label: 'gemini-2.5-pro', value: 'gemini-2.5-pro' },
-    { label: 'deepseek-chat', value: 'deepseek-chat' },
-];
+const modelOptions = computed(() => modelsStore.models.map(model => ({
+    label: model.name,
+    value: model.name,
+})));
 const rules = {
     name: [{ required: true, message: '请输入分组名称' }],
     inboundProtocols: [{ validator: () => formState.inboundProtocols.length > 0 ? Promise.resolve() : Promise.reject(new Error('至少选择一种入站协议')) }],
 };
 
+const groupsWithChannelCount = computed<GroupRow[]>(() => {
+    const counts = new Map<number, number>();
+    vendorsStore.vendors.forEach(vendor => {
+        const groupId = vendor.config.group_id;
+        if (groupId !== null && groupId !== undefined) {
+            counts.set(groupId, (counts.get(groupId) ?? 0) + 1);
+        }
+    });
+
+    return groups.value.map(group => ({
+        ...group,
+        channelCount: counts.get(group.id) ?? 0,
+    }));
+});
+
 const filteredGroups = computed(() => {
     const query = appliedKeyword.value.trim().toLowerCase();
-    return groups.value.filter(group => {
+    return groupsWithChannelCount.value.filter(group => {
         const matchesKeyword = !query || group.name.toLowerCase().includes(query) || group.description.toLowerCase().includes(query);
         const matchesStatus = !appliedStatus.value || group.status === appliedStatus.value;
         return matchesKeyword && matchesStatus;
@@ -174,7 +192,7 @@ function resetFilter() {
     applyFilter();
 }
 
-function openCreate() {
+function resetForm() {
     editingId.value = null;
     formState.name = '';
     formState.description = '';
@@ -183,6 +201,10 @@ function openCreate() {
     formState.whitelistEnabled = false;
     formState.rateMultiplier = 1;
     formState.status = 'active';
+}
+
+function openCreate() {
+    resetForm();
     dialogOpen.value = true;
 }
 
@@ -205,40 +227,66 @@ async function saveGroup() {
         return;
     }
 
-    const now = new Date().toLocaleString('zh-CN', { hour12: false });
-    const payload = {
-        ...formState,
-        status: formState.status as GroupStatus,
-    };
-    if (editingId.value === null) {
-        const nextId = Math.max(0, ...groups.value.map(group => group.id)) + 1;
-        groups.value.unshift({ ...payload, id: nextId, channelCount: 0, updatedAt: now });
-        message.success('分组已创建');
-    } else {
-        const group = groups.value.find(item => item.id === editingId.value);
-        if (group) Object.assign(group, { ...payload, updatedAt: now });
-        message.success('分组已更新');
+    try {
+        const payload: GroupDraft = {
+            ...formState,
+            status: formState.status as GroupStatus,
+        };
+        if (editingId.value === null) {
+            groupStore.create(payload);
+            message.success('分组已创建');
+        } else if (groupStore.update(editingId.value, payload)) {
+            message.success('分组已更新');
+        } else {
+            throw new Error('分组不存在');
+        }
+        closeDialog();
+    } catch (error) {
+        message.error(error instanceof Error ? error.message : '分组保存失败');
     }
-    closeDialog();
 }
 
 function closeDialog() {
     dialogOpen.value = false;
 }
 
+async function removeGroupReferences(groupId: number): Promise<void> {
+    await Promise.all([
+        usersStore.clearGroupReferences(groupId),
+        vendorsStore.clearGroupReferences(groupId),
+    ]);
+}
+
 function removeGroup(group: GroupRecord) {
+    const userReferences = usersStore.users.reduce(
+        (count, user) => count + (user.keys.some(key => key.groupId === group.id) ? 1 : 0),
+        0,
+    );
+    const vendorReferences = vendorsStore.vendors.filter(vendor => vendor.config.group_id === group.id).length;
+    const referenceHint = userReferences + vendorReferences > 0
+        ? `将同时解除 ${userReferences} 个用户和 ${vendorReferences} 个供应商的分组引用。`
+        : '当前没有发现关联的用户或供应商。';
+
     Modal.confirm({
         title: '确认删除',
-        content: `确定要删除分组“${group.name}”吗？`,
+        content: `确定要删除分组“${group.name}”吗？${referenceHint}`,
         okText: '删除',
         cancelText: '取消',
         okType: 'danger',
-        onOk: () => {
-            groups.value = groups.value.filter(item => item.id !== group.id);
-            message.success('分组已删除');
+        onOk: async () => {
+            try {
+                await removeGroupReferences(group.id);
+                if (!groupStore.remove(group.id)) {
+                    throw new Error('分组不存在');
+                }
+                message.success('分组已删除');
+            } catch {
+                message.error('分组删除失败，请稍后重试');
+            }
         },
     });
 }
+
 </script>
 
 <style scoped>

@@ -20,7 +20,6 @@
                         <a-select
                             :value="upstream.vendor_id"
                             placeholder="请选择供应商"
-                            :loading="vendorsLoading"
                             :disabled="mode === 'view'"
                             @change="handleVendorChange(index, $event)"
                         >
@@ -88,7 +87,7 @@
                                 size="small"
                                 :disabled="mode === 'view' || !upstream.vendor_id"
                                 aria-label="测试"
-                                @click="handleTest(upstream)"
+                                @click="handleTest"
                             >
                                 <ExperimentOutlined />
                             </a-button>
@@ -128,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
     ArrowDownOutlined,
     ArrowUpOutlined,
@@ -136,11 +135,9 @@ import {
     ExperimentOutlined,
     PlusOutlined,
 } from '@ant-design/icons-vue';
-import { listVendors, listVendorModels } from '@/api/vendor';
+import vendorsStore from '@/stores/vendors';
 import type { ModelRoutingMode, ModelUpstreamFormValue } from '@/types/model';
-import type { Vendor, VendorModel } from '@/types/vendor';
-import { normalizeListResponse } from '@/utils/listResponse';
-import { notifyRequestError } from '@/utils/requestFeedback';
+import type { VendorModel } from '@/types/vendor';
 import DialogTest from '@/views/Vendor/DialogTest.vue';
 
 const props = defineProps<{
@@ -161,15 +158,10 @@ const emit = defineEmits<{
     'update:upstreams': [upstreams: ModelUpstreamFormValue[]];
 }>();
 
-const vendors = ref<Vendor[]>([]);
-const vendorsLoading = ref(false);
+const vendors = vendorsStore.vendors;
 const vendorModelsByVendor = ref<Map<number, VendorModel[]>>(new Map());
 const loadingVendorIds = ref<Set<number>>(new Set());
 const testDialogRef = ref<InstanceType<typeof DialogTest>>();
-
-onMounted(() => {
-    void loadVendors();
-});
 
 watch(
     () => props.upstreams.map(upstream => upstream.vendor_id),
@@ -183,18 +175,6 @@ watch(
     { immediate: true },
 );
 
-async function loadVendors() {
-    vendorsLoading.value = true;
-    try {
-        vendors.value = normalizeListResponse(await listVendors({ page: 1, pageSize: 1000 })).list;
-    } catch (error) {
-        notifyRequestError(error, '加载供应商列表失败');
-    } finally {
-        vendorsLoading.value = false;
-    }
-}
-
-
 async function loadVendorModels(vendorId: number) {
     if (vendorModelsByVendor.value.has(vendorId) || loadingVendorIds.value.has(vendorId)) {
         return;
@@ -202,7 +182,7 @@ async function loadVendorModels(vendorId: number) {
 
     loadingVendorIds.value = new Set([...loadingVendorIds.value, vendorId]);
     try {
-        const models = await listVendorModels(vendorId);
+        const models = await vendorsStore.listModels(vendorId);
         const next = new Map(vendorModelsByVendor.value);
         next.set(vendorId, models);
         vendorModelsByVendor.value = next;
@@ -284,7 +264,7 @@ function moveUpstream(index: number, offset: number) {
 }
 
 
-function handleTest(_upstream: ModelUpstreamFormValue) {
+function handleTest() {
     if (!props.modelName) return;
     testDialogRef.value?.openModelTest(props.modelName);
 }

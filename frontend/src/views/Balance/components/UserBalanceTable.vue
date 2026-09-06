@@ -68,10 +68,10 @@
 
 <script setup lang="ts">
 import type { TableColumnsType } from 'ant-design-vue';
-import { listUsers } from '@/api/user';
 import { useResourceTable } from '@/composables/useResourceTable';
 import { formatBalance, BALANCE_SCALE } from '@/utils/format';
 import type { User, UserQuery } from '@/types/user';
+import userStore from '@/stores/users';
 
 // 后端返回整数微元，展示时换算为"元"
 const balanceFormatter = ({ value }: { value: number }) => formatBalance(value / BALANCE_SCALE);
@@ -80,11 +80,11 @@ const emit = defineEmits<{
     adjust: [user: User];
 }>();
 
-const { loading, data, pagination, searchForm, handleSearch, handleReset, handleTableChange } = useResourceTable<User, UserQuery>({
+const { loading, data, pagination, searchForm, loadData, handleSearch, handleReset, handleTableChange } = useResourceTable<User, UserQuery>({
     initialSearchForm: {
         keyword: undefined,
     },
-    fetcher: listUsers,
+    fetcher: userStore.list,
     resetSearchForm: (form) => {
         form.keyword = undefined;
     },
@@ -101,6 +101,8 @@ const columns: TableColumnsType<User> = [
 function handleAdjust(record: User) {
     emit('adjust', record);
 }
+
+defineExpose({ reload: loadData });
 </script>
 
 <style scoped>

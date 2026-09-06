@@ -4,22 +4,17 @@ let memoryToken = '';
 
 export function getAuthToken(): string {
     if (memoryToken) {
-        console.log('[authSession] getAuthToken: memory=' + memoryToken.substring(0, 8) + '...');
         return memoryToken;
     }
 
     if (typeof window === 'undefined') {
-        console.log('[authSession] getAuthToken: no window, returning empty');
         return '';
     }
 
-    const ls = window.localStorage.getItem(ADMIN_TOKEN_KEY) || '';
-    console.log('[authSession] getAuthToken: localStorage=' + (ls ? ls.substring(0, 8) + '...' : 'empty'));
-    return ls;
+    return window.localStorage.getItem(ADMIN_TOKEN_KEY) || '';
 }
 
 export function setAuthToken(token: string, options: { persist?: boolean } = {}): void {
-    console.log('[authSession] setAuthToken: ' + (token ? token.substring(0, 8) + '...' : 'empty'));
     memoryToken = token;
 
     if (typeof window === 'undefined') {
@@ -32,7 +27,6 @@ export function setAuthToken(token: string, options: { persist?: boolean } = {})
 }
 
 export function clearAuthToken(): void {
-    console.log('[authSession] clearAuthToken called, stack=' + new Error().stack);
     memoryToken = '';
 
     if (typeof window === 'undefined') {

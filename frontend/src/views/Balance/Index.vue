@@ -2,7 +2,7 @@
     <div class="balance-page">
         <a-tabs v-model:active-key="activeTab">
             <a-tab-pane key="users" tab="用户余额">
-                <UserBalanceTable @adjust="handleAdjust" />
+                <UserBalanceTable ref="userBalanceTableRef" @adjust="handleAdjust" />
             </a-tab-pane>
             <a-tab-pane key="records" tab="充值记录">
                 <RechargeRecordsTable :selected-user-id="selectedUserId" />
@@ -22,6 +22,7 @@ import BalanceAdjustDialog from './components/BalanceAdjustDialog.vue';
 const activeTab = ref('users');
 const selectedUserId = ref<number | undefined>();
 const adjustDialogRef = ref();
+const userBalanceTableRef = ref<{ reload: () => Promise<void> }>();
 
 function handleAdjust(user: User) {
     selectedUserId.value = user.id;
@@ -29,7 +30,7 @@ function handleAdjust(user: User) {
 }
 
 function handleAdjustSuccess() {
-    // 刷新数据
+    void userBalanceTableRef.value?.reload();
 }
 </script>
 

@@ -1,9 +1,5 @@
 import request from '@/utils/request';
-import type { StatusResponse, WelcomeResponse, UpdateStatusResponse } from '@/types/system';
-
-export function welcome(): Promise<WelcomeResponse> {
-    return request.get('/welcome');
-}
+import type { StatusResponse, UpdateStatusResponse } from '@/types/system';
 
 export function status(): Promise<StatusResponse> {
     return request.get('/status.json');

@@ -26,9 +26,9 @@
             </a-form-item>
             <a-form-item label="Key" name="keys" extra="可添加多个 key；保存后将使用当前 key 列表">
                 <div class="keys-editor">
-                    <div v-for="(_, index) in formState.keys" :key="index" class="key-row">
+                    <div v-for="(key, index) in formState.keys" :key="index" class="key-row">
                         <a-input-password
-                            v-model:value="formState.keys[index]"
+                            v-model:value="key.value"
                             class="key-input"
                             :placeholder="`请输入 Key ${index + 1}`"
                         >
@@ -37,7 +37,7 @@
                             </template>
                         </a-input-password>
                         <a-select
-                            v-model:value="formState.keyGroups[index]"
+                            v-model:value="key.groupId"
                             class="group-select"
                             :options="groupOptions"
                             allow-clear
@@ -69,7 +69,7 @@ import type { FormInstance } from 'ant-design-vue/es';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons-vue';
 import userStore from '@/stores/users';
 import groupStore from '@/stores/groups';
-import type { User } from '@/types/user';
+import type { User, UserKeyInput } from '@/types/user';
 import { notifyError, notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 
 const emit = defineEmits<{
@@ -83,8 +83,7 @@ const userId = ref<number>();
 
 const formState = reactive({
     name: '',
-    keys: [''],
-    keyGroups: [null] as Array<number | null>,
+    keys: [] as UserKeyInput[],
     status: 'active' as 'active' | 'disabled',
 });
 
@@ -95,21 +94,22 @@ const rules = {
 function open(user: User) {
     userId.value = user.id;
     formState.name = user.name;
-    formState.keys = [...user.keys];
-    if (formState.keys.length === 0) formState.keys = [''];
-    formState.keyGroups = formState.keys.map(key => user.keyGroups[key] ?? null);
+    formState.keys = user.keys.map(key => ({
+        id: key.id,
+        value: key.value,
+        groupId: key.groupId,
+        status: key.status,
+    }));
     formState.status = user.status || 'active';
     visible.value = true;
 }
 
 function addKey() {
-    formState.keys.push('');
-    formState.keyGroups.push(null);
+    formState.keys.push({ value: '', groupId: null });
 }
 
 function removeKey(index: number) {
     formState.keys.splice(index, 1);
-    formState.keyGroups.splice(index, 1);
 }
 
 const groupOptions = computed(() => groupStore.groups.value
@@ -123,7 +123,10 @@ function showRegenerateConfirm(index: number) {
         okText: '确定',
         cancelText: '取消',
         onOk: async () => {
-            formState.keys[index] = crypto.randomUUID();
+            const key = formState.keys[index];
+            if (key) {
+                key.value = crypto.randomUUID();
+            }
             notifySuccess('新 key 已生成，请点击确定保存');
         },
     });
@@ -137,20 +140,17 @@ async function handleOk() {
             return;
         }
 
-        const keyEntries = formState.keys
-            .map((key, index) => ({ key: key.trim(), groupId: formState.keyGroups[index] ?? null }))
-            .filter(entry => entry.key);
-        const keys = keyEntries.map(entry => entry.key);
-        if (new Set(keys).size !== keys.length) {
+        const keys = formState.keys
+            .map(key => ({ ...key, value: key.value.trim(), groupId: key.groupId ?? null }))
+            .filter(key => key.value);
+        if (new Set(keys.map(key => key.value)).size !== keys.length) {
             throw new Error('key 不能重复');
         }
 
         loading.value = true;
-        const keyGroups = Object.fromEntries(keyEntries.map(entry => [entry.key, entry.groupId]));
-        const user = userStore.update(userId.value, {
+        const user = await userStore.update(userId.value, {
             name: formState.name,
             keys,
-            keyGroups,
             status: formState.status,
         });
         if (!user) {
@@ -170,8 +170,7 @@ async function handleOk() {
 function handleCancel() {
     visible.value = false;
     formState.name = '';
-    formState.keys = [''];
-    formState.keyGroups = [null];
+    formState.keys = [];
     formState.status = 'active';
     userId.value = undefined;
 }

@@ -6,6 +6,12 @@ export type VendorAuthMode = 'api_key' | 'bearer_token';
 
 export type VendorProxyType = 'http' | 'socks5';
 
+export type VendorStatus = 'active' | 'disabled';
+
+export type VendorApiType = 'openai' | 'anthropic';
+
+export type OpenAiProtocol = 'chat_completions' | 'responses';
+
 export interface VendorProxyConfig {
     type: VendorProxyType;
     url: string;
@@ -20,9 +26,9 @@ export interface VendorConfig {
     skip_tls_verify?: boolean;
     supplier_name?: string;
     channel_code?: string;
-    api_type?: 'openai' | 'anthropic';
-    openai_protocol?: 'chat_completions' | 'responses';
-    status?: 'active' | 'disabled';
+    api_type?: VendorApiType;
+    openai_protocol?: OpenAiProtocol;
+    status?: VendorStatus;
     remark?: string;
     available_models?: string[];
     concurrency?: number;
@@ -30,7 +36,6 @@ export interface VendorConfig {
     priority?: number;
     group_id?: number | null;
     proxy?: VendorProxyConfig | null;
-    [key: string]: any;
 }
 
 export interface Vendor extends BaseEntity {

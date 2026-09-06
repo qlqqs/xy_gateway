@@ -60,7 +60,7 @@
                     @update:upstreams="formState.upstreams = $event"
                 />
             </a-form-item>
-            <a-form-item v-if="moduleBillingEnabled" label="价格设置">
+            <a-form-item v-if="appStore.moduleBillingEnabled" label="价格设置">
                 <PriceConfig
                     :prices="formState.prices"
                     mode="edit"
@@ -75,8 +75,8 @@
 import { computed, ref, reactive } from 'vue';
 import type { FormInstance } from 'ant-design-vue/es';
 import { InfoCircleOutlined } from '@ant-design/icons-vue';
-import { createModel, updateModel } from '@/api/model';
-import { getConfig } from '@/api/config';
+import modelsStore from '@/stores/models';
+import { useAppStore } from '@/stores/app';
 import type {
     CreateModelRequest,
     LoadBalanceStrategy,
@@ -97,6 +97,7 @@ const emit = defineEmits<{
 const visible = ref(false);
 const loading = ref(false);
 const formRef = ref<FormInstance>();
+const appStore = useAppStore();
 
 const dialogMode = ref<'create' | 'edit'>('create');
 const currentId = ref<number>(0);
@@ -108,11 +109,16 @@ const dialogTitle = computed(() => ({
 }[dialogMode.value]));
 
 function createUpstream(data?: Partial<ModelUpstreamFormValue>): ModelUpstreamFormValue {
-    return {
-        vendor_id: data?.vendor_id,
-        vendor_model_id: data?.vendor_model_id,
+    const upstream: ModelUpstreamFormValue = {
         enabled: data?.enabled ?? true,
     };
+    if (data?.vendor_id !== undefined) {
+        upstream.vendor_id = data.vendor_id;
+    }
+    if (data?.vendor_model_id !== undefined) {
+        upstream.vendor_model_id = data.vendor_model_id;
+    }
+    return upstream;
 }
 
 const formState = reactive({
@@ -152,14 +158,8 @@ const rules = {
     name: [{ required: true, message: '请输入模型名称' }],
 };
 
-const moduleBillingEnabled = ref(false);
-
-/**
- * 兼容尚未支持 billing_mode 的网关接口。
- * 旧接口会把 prices 中的每个字段都按数值价格校验，计费模式只作为前端状态保留，不能随请求发送。
- */
-function toRequestPrices(prices: ModelPrices): Omit<ModelPrices, 'billing_mode'> {
-    const requestPrices: Omit<ModelPrices, 'billing_mode'> = {};
+function toRequestPrices(prices: ModelPrices): ModelPrices {
+    const requestPrices: ModelPrices = { billing_mode: prices.billing_mode };
     const priceKeys = [
         'input',
         'output',
@@ -184,18 +184,10 @@ function openCreate() {
     resetForm();
     dialogMode.value = 'create';
     currentId.value = 0;
-    getConfig().then(config => {
-        moduleBillingEnabled.value = config.module_billing_enabled === 'true';
-    });
     visible.value = true;
 }
 
 function openEdit(model: Model) {
-    openModel(model);
-}
-
-
-function openModel(model: Model) {
     resetForm();
     dialogMode.value = 'edit';
     currentId.value = model.id;
@@ -220,9 +212,6 @@ function openModel(model: Model) {
         image_output: model.prices?.image_output ?? undefined,
         per_request: model.prices?.per_request ?? undefined,
     };
-    getConfig().then(config => {
-        moduleBillingEnabled.value = config.module_billing_enabled === 'true';
-    });
     visible.value = true;
 }
 
@@ -235,22 +224,28 @@ async function handleOk() {
         }
 
         const enabledCount = formState.upstreams.filter(upstream => upstream.enabled).length;
-        if (enabledCount === 0) {
+        if (formState.enable && enabledCount === 0) {
             notifyError('至少需要启用一个上游');
             return;
         }
-        if (requestRoutingMode.value === 'single' && enabledCount !== 1) {
+        if (formState.enable && requestRoutingMode.value === 'single' && enabledCount !== 1) {
             notifyError('固定上游模式只能启用一个上游');
             return;
         }
 
         loading.value = true;
-        const routingConfig: ModelRoutingConfig = {
-            upstreams: formState.upstreams.map(upstream => ({
-                vendor_id: upstream.vendor_id!,
+        const upstreams = formState.upstreams.map(upstream => {
+            if (upstream.vendor_id === undefined) {
+                throw new Error('请为每个上游选择供应商');
+            }
+            return {
+                vendor_id: upstream.vendor_id,
                 ...(upstream.vendor_model_id ? { vendor_model_id: upstream.vendor_model_id } : {}),
                 enabled: upstream.enabled,
-            })),
+            };
+        });
+        const routingConfig: ModelRoutingConfig = {
+            upstreams,
             failover: { enabled: formState.failoverEnabled },
             ...(requestRoutingMode.value === 'load_balance'
                 ? { load_balance_strategy: formState.load_balance_strategy }
@@ -265,11 +260,11 @@ async function handleOk() {
         };
 
         if (isEdit.value) {
-            const model = await updateModel(currentId.value, requestData);
+            const model = await modelsStore.update(currentId.value, requestData);
             notifySuccess('更新成功');
             emit('success', model);
         } else {
-            const model = await createModel(requestData);
+            const model = await modelsStore.create(requestData);
             notifySuccess('创建成功');
             emit('success', model);
         }

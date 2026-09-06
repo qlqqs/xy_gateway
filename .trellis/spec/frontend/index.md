@@ -9,4 +9,4 @@
 - [类型安全](type-safety.md)
 - [质量与无障碍](quality-guidelines.md)
 
-导入 `frontend/src` 内容时使用 `@/` 别名。API 调用统一经过 `src/api/`，认证 header 和响应归一化经过 `src/utils/request.ts`，跨页面复用的状态放入对应的 Pinia store。
+导入 `frontend/src` 内容时使用 `@/` 别名。记录、系统设置和连通性 API 调用统一经过 `src/api/`，认证 header 和响应归一化经过 `src/utils/request.ts`；用户、分组、供应商和模型管理状态经过对应 resource store/repository 边界，不在组件中直接读写存储。

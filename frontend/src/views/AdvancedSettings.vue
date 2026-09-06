@@ -5,7 +5,7 @@
         </div>
 
         <a-spin :spinning="loading">
-            <a-tabs v-model:activeKey="activeTab">
+            <a-tabs v-model:active-key="activeTab">
                 <!-- 功能模块 -->
                 <a-tab-pane key="modules" tab="功能模块">
                     <div class="settings-list">
@@ -462,11 +462,11 @@ async function saveConfig() {
         // 同步全局状态
         appStore.moduleBillingEnabled = form.module_billing_enabled;
 
-        if ((window as any).posthog) {
+        if (window.posthog) {
             if (form.telemetry_disabled) {
-                (window as any).posthog.opt_out_capturing();
+                window.posthog.opt_out_capturing();
             } else {
-                (window as any).posthog.opt_in_capturing();
+                window.posthog.opt_in_capturing();
             }
         }
     } catch {

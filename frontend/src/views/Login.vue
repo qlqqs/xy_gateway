@@ -3,10 +3,18 @@
         <a-card class="login-card">
             <template #title>
                 <div class="card-title">
-                    <img src="/favicon.svg" alt="Logo" class="logo" />
+                    <img src="/favicon.svg" alt="Logo" class="logo">
                     <span>GT AI Gateway</span>
                 </div>
             </template>
+            <a-alert
+                v-if="config.frontendOnly"
+                type="info"
+                show-icon
+                message="前端独立演示模式"
+                description="当前不依赖后端，输入任意非空值即可进入管理界面。"
+                class="demo-alert"
+            />
             <a-form
                 :model="formState"
                 :rules="rules"
@@ -16,7 +24,7 @@
                 <a-form-item label="Admin Token" name="token">
                     <a-input
                         v-model:value="formState.token"
-                        placeholder="请输入管理员 Token"
+                        :placeholder="config.frontendOnly ? '输入任意值，例如 demo' : '请输入管理员 Token'"
                         size="large"
                     />
                 </a-form-item>
@@ -28,7 +36,7 @@
                         block
                         :loading="loading"
                     >
-                        登录
+                        {{ config.frontendOnly ? '进入前端演示' : '登录' }}
                     </a-button>
                 </a-form-item>
             </a-form>
@@ -42,6 +50,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { notifyError, notifySuccess } from '@/utils/requestFeedback';
 import { isTauri } from '@/utils/platform';
+import config from '@/config';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -68,7 +77,9 @@ async function tryAutoLogin() {
             const redirect = router.currentRoute.value.query.redirect as string;
             router.push(redirect || '/dashboard');
         }
-    } catch {} finally {
+    } catch (error) {
+        console.warn('自动登录失败，等待后端就绪事件:', error);
+    } finally {
         loading.value = false;
     }
 }
@@ -127,6 +138,10 @@ async function handleLogin() {
 
 .login-card {
     width: 400px;
+}
+
+.demo-alert {
+    margin-bottom: 24px;
 }
 
 .card-title {

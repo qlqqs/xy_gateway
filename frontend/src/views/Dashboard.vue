@@ -177,13 +177,12 @@ import {
     UserOutlined,
     RobotOutlined,
 } from '@ant-design/icons-vue';
-import { listUsers } from '@/api/user';
-import { listVendors } from '@/api/vendor';
-import { listModels } from '@/api/model';
 import { status } from '@/api/system';
 import { useStatsStore } from '@/stores/stats';
+import userStore from '@/stores/users';
+import vendorsStore from '@/stores/vendors';
+import modelsStore from '@/stores/models';
 import { useAutoRefresh } from '@/composables/useAutoRefresh';
-import { normalizeListResponse } from '@/utils/listResponse';
 import StatusCard from '@/components/common/StatusCard.vue';
 import StatisticCard from '@/components/common/StatisticCard.vue';
 import RecordTable from '@/components/common/RecordTable.vue';
@@ -275,21 +274,12 @@ function handleAutoRefreshChange(checked: boolean): void {
 async function loadSystemData() {
     loading.value = true;
     try {
-        const [users, vendors, models, systemStatusData] = await Promise.all([
-            listUsers({ page: 1, pageSize: 1 }),
-            listVendors({ page: 1, pageSize: 1 }),
-            listModels({ page: 1, pageSize: 1 }),
-            status().catch(() => null),
-        ]);
-
-        const normalizedUsers = normalizeListResponse(users);
-        const normalizedVendors = normalizeListResponse(vendors);
-        const normalizedModels = normalizeListResponse(models);
+        const systemStatusData = await status().catch(() => null);
 
         systemStats.value = {
-            userCount: normalizedUsers.total,
-            vendorCount: normalizedVendors.total,
-            modelCount: normalizedModels.total,
+            userCount: userStore.users.length,
+            vendorCount: vendorsStore.vendors.length,
+            modelCount: modelsStore.models.length,
             recordCount: systemStatusData?.statistics?.records || 0,
         };
 

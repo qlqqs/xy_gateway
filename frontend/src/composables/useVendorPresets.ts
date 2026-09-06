@@ -1,28 +1,16 @@
-import { ref, computed } from 'vue';
-import { getVendorPresetUrls } from '@/api/vendor';
+import { computed } from 'vue';
+import { VENDOR_PRESETS, type VendorPreset } from '@/constants/vendor';
+import type { VendorType } from '@/types/vendor';
 
-export type VendorPreset = { label?: string } & Record<string, string>;
-export type PresetUrls = Record<string, VendorPreset>;
+type PresetUrls = Record<VendorType, VendorPreset>;
 
-const presetUrls = ref<PresetUrls>({});
-let loadPromise: Promise<void> | null = null;
+const presetUrls: PresetUrls = VENDOR_PRESETS;
 
 export function useVendorPresets() {
-    function load(): Promise<void> {
-        if (!loadPromise) {
-            loadPromise = getVendorPresetUrls()
-                .then(data => { presetUrls.value = data; })
-                .catch(() => { loadPromise = null; });
-        }
-        return loadPromise;
-    }
+    const vendorTypeOptions = computed(() => Object.entries(presetUrls).map(([value, preset]) => ({
+        value,
+        label: preset.label,
+    })));
 
-    const vendorTypeOptions = computed(() =>
-        Object.entries(presetUrls.value).map(([value, preset]) => ({
-            value,
-            label: preset.label ?? value,
-        })),
-    );
-
-    return { presetUrls, vendorTypeOptions, load };
+    return { presetUrls, vendorTypeOptions };
 }

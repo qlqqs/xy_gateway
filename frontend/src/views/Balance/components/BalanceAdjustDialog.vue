@@ -41,16 +41,6 @@
                     <template #prefix>¥</template>
                 </a-input-number>
             </a-form-item>
-
-            <a-form-item label="备注" name="remark">
-                <a-textarea
-                    v-model:value="formState.remark"
-                    placeholder="请输入备注（可选）"
-                    :rows="3"
-                    :maxlength="200"
-                    show-count
-                />
-            </a-form-item>
         </a-form>
 
         <a-alert
@@ -66,8 +56,8 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue';
 import type { FormInstance } from 'ant-design-vue/es';
-import { adjustUserBalance } from '@/api/user';
 import type { User } from '@/types/user';
+import userStore from '@/stores/users';
 import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 import { formatBalance, BALANCE_SCALE } from '@/utils/format';
 
@@ -84,7 +74,6 @@ const currentUser = ref<User>();
 const formState = reactive({
     type: 'recharge' as 'recharge' | 'adjustment',
     amount: 0,
-    remark: '',
 });
 
 const rules = {
@@ -99,7 +88,6 @@ function open(user: User) {
     currentUser.value = user;
     formState.type = 'recharge';
     formState.amount = 0;
-    formState.remark = '';
     visible.value = true;
 }
 
@@ -112,11 +100,14 @@ async function handleOk() {
             ? formState.amount
             : -formState.amount;
 
-        await adjustUserBalance(currentUser.value!.id, {
-            amount: actualAmount,
-            type: formState.type,
-            remark: formState.remark,
-        });
+        const user = currentUser.value;
+        if (!user) {
+            throw new Error('未选择用户');
+        }
+        const updatedUser = await userStore.adjustBalance(user.id, actualAmount);
+        if (!updatedUser) {
+            throw new Error('用户不存在');
+        }
 
         notifySuccess(formState.type === 'recharge' ? '充值成功' : '扣减成功');
         emit('success');
@@ -132,7 +123,6 @@ function handleCancel() {
     visible.value = false;
     formState.type = 'recharge';
     formState.amount = 0;
-    formState.remark = '';
 }
 
 defineExpose({ open });

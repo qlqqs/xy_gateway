@@ -112,7 +112,8 @@ import {
     ExperimentOutlined,
 } from '@ant-design/icons-vue';
 import { Modal } from 'ant-design-vue/es';
-import { listVendors, deleteVendor } from '@/api/vendor';
+import vendorsStore from '@/stores/vendors';
+import modelsStore from '@/stores/models';
 import { useResourceTable } from '@/composables/useResourceTable';
 import { formatDate } from '@/utils/format';
 import DialogCreate from './DialogCreate.vue';
@@ -126,7 +127,7 @@ const { loading, data, pagination, searchForm, loadData, handleSearch, handleRes
         keyword: undefined,
         type: undefined,
     },
-    fetcher: listVendors,
+    fetcher: vendorsStore.list,
     resetSearchForm: (form) => {
         form.keyword = undefined;
         form.type = undefined;
@@ -158,8 +159,15 @@ function handleEdit(record: Vendor) {
     editDialogRef.value?.open(record);
 }
 
-function handleEditSuccess() {
-    loadData();
+async function handleEditSuccess(vendor: Vendor) {
+    try {
+        const vendorModels = await vendorsStore.listModels(vendor.id);
+        await modelsStore.clearVendorModelReferences(vendor.id, vendorModels.map(model => model.id));
+    } catch (error) {
+        notifyRequestError(error, '同步模型引用失败');
+    } finally {
+        void loadData();
+    }
 }
 
 function handleTest(record: Vendor) {
@@ -167,15 +175,22 @@ function handleTest(record: Vendor) {
 }
 
 function handleDelete(record: Vendor) {
+    const referencedModels = modelsStore.models.filter(model => model.routing_config.upstreams
+        .some(upstream => upstream.vendor_id === record.id));
+    const referenceHint = referencedModels.length > 0
+        ? `将同时从 ${referencedModels.length} 个模型路由中移除该供应商；没有其他上游的模型会自动停用。`
+        : '当前没有模型引用该供应商。';
+
     Modal.confirm({
         title: '确认删除',
-        content: `确定要删除供应商 "${record.name}" 吗？`,
+        content: `确定要删除供应商 "${record.name}" 吗？${referenceHint}`,
         okText: '确定',
         cancelText: '取消',
         okType: 'danger',
         onOk: async () => {
             try {
-                await deleteVendor(record.id);
+                await modelsStore.clearVendorReferences(record.id);
+                await vendorsStore.remove(record.id);
                 notifySuccess('删除成功');
                 void loadData();
             } catch (error) {

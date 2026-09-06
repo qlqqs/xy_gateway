@@ -20,14 +20,9 @@ export function setBaseURL(url: string) {
     instance.defaults.baseURL = url;
 }
 
-export function getBaseURL(): string {
-    return instance.defaults.baseURL as string || window.location.origin;
-}
-
 instance.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
         const token = getAuthToken();
-        console.log('[request] interceptor: token=' + (token ? token.substring(0, 8) + '...' : 'empty') + ' url=' + config.url);
         if (token && config.headers) {
             config.headers['Authorization'] = `Bearer ${token}`;
         }

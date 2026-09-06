@@ -5,10 +5,6 @@ export const RunMode = {
 
 export type RunMode = typeof RunMode[keyof typeof RunMode];
 
-export interface WelcomeResponse {
-    user_type?: string;
-}
-
 export interface SystemStatusInfo {
     environment?: string;
     version?: string;
@@ -41,8 +37,6 @@ export interface StatusResponse {
     statistics?: SystemStatistics;
     modules?: {
         billing?: boolean;
-        api_playground?: boolean;
-        client_config?: boolean;
     };
     storage?: StorageStatus;
     timestamp?: string;

@@ -34,13 +34,11 @@ async function loadDesktopRuntimeConfig(): Promise<boolean> {
             invoke<string>('get_auth_token'),
         ]);
 
-        console.log('[main] invoke result: url=' + url + ' token=' + (token || 'empty'));
         if (url) {
             setBaseURL(url);
         }
 
         if (token) {
-            console.log('[main] calling setAuthToken with token=' + token.substring(0, 8) + '...');
             setAuthToken(token, { persist: false });
         }
     } catch (e) {
@@ -49,19 +47,6 @@ async function loadDesktopRuntimeConfig(): Promise<boolean> {
 
     return true;
 }
-
-// Override console.log to also send to Rust for debugging
-const _origLog = console.log.bind(console);
-console.log = function(...args: any[]) {
-    _origLog(...args);
-    try {
-        if (isTauri()) {
-            import('@tauri-apps/api/core').then(({ invoke }) => {
-                invoke('log_to_rust', { msg: args.map(String).join(' ') });
-            }).catch(() => {});
-        }
-    } catch {}
-};
 
 async function bootstrap() {
     const loadedDesktopConfig = await loadDesktopRuntimeConfig();
@@ -81,9 +66,8 @@ async function bootstrap() {
         opt_out_capturing_by_default: true,
     });
     
-    // Default to opt-in, we will opt-out later if the config says so
-    // We attach it to window for easy access
-    (window as any).posthog = posthog;
+    // 默认关闭自动采集，设置页根据服务端配置决定是否启用。
+    window.posthog = posthog;
 
     app.use(pinia);
     app.use(router);

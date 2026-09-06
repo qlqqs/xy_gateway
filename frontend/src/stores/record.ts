@@ -4,6 +4,9 @@ import { listRecords, latestRecords, getRecord, getRecordActivity } from '@/api/
 import { getUser, fetchUsersByIds } from '@/api/user';
 import { getModel, fetchModelsByIds } from '@/api/model';
 import { getVendor, fetchVendorsByIds } from '@/api/vendor';
+import userStore from '@/stores/users';
+import modelsStore from '@/stores/models';
+import vendorsStore from '@/stores/vendors';
 import type { Record, RecordQuery, RecordDetail, RecordActivityEntry } from '@/types/record';
 
 
@@ -69,18 +72,22 @@ export const useRecordStore = defineStore('record', () => {
         const userIds = [...new Set(recordList.map(r => r.user_id).filter(id => id !== null && Number(id) !== -1))] as number[];
         const modelIds = [...new Set(recordList.map(r => r.model_id).filter(id => id !== null))] as number[];
 
-        const [users, models] = await Promise.all([
-            userIds.length > 0 ? fetchUsersByIds(userIds) : Promise.resolve([]),
-            modelIds.length > 0 ? fetchModelsByIds(modelIds) : Promise.resolve([]),
-        ]);
-
-        const userMap = new Map(users.map(u => [Number(u.id), u.name]));
-        const modelMap = new Map(models.map(m => [Number(m.id), m]));
-
-        // 获取供应商信息 (基于记录自身的 vendor_id)
         const vendorIds = [...new Set(recordList.map(r => r.vendor_id).filter(id => id !== null && id !== undefined))] as number[];
-        const vendors = vendorIds.length > 0 ? await fetchVendorsByIds(vendorIds) : [];
-        const vendorMap = new Map(vendors.map(v => [Number(v.id), v.name]));
+        const userMap = new Map(userStore.users.map(user => [user.id, user.name]));
+        const modelMap = new Map(modelsStore.models.map(model => [model.id, model]));
+        const vendorMap = new Map(vendorsStore.vendors.map(vendor => [vendor.id, vendor.name]));
+
+        const missingUserIds = userIds.filter(id => !userMap.has(id));
+        const missingModelIds = modelIds.filter(id => !modelMap.has(id));
+        const missingVendorIds = vendorIds.filter(id => !vendorMap.has(Number(id)));
+        const [users, models, vendors] = await Promise.all([
+            missingUserIds.length > 0 ? fetchUsersByIds(missingUserIds).catch(() => []) : Promise.resolve([]),
+            missingModelIds.length > 0 ? fetchModelsByIds(missingModelIds).catch(() => []) : Promise.resolve([]),
+            missingVendorIds.length > 0 ? fetchVendorsByIds(missingVendorIds).catch(() => []) : Promise.resolve([]),
+        ]);
+        users.forEach(user => userMap.set(Number(user.id), user.name));
+        models.forEach(model => modelMap.set(Number(model.id), model));
+        vendors.forEach(vendor => vendorMap.set(Number(vendor.id), vendor.name));
 
         recordList.forEach(record => {
             const uid = record.user_id !== null ? Number(record.user_id) : null;
@@ -130,8 +137,13 @@ export const useRecordStore = defineStore('record', () => {
             // 并行查询用户和模型信息
             const promises: Promise<void>[] = [];
 
+            const localUser = record.user_id && record.user_id !== -1
+                ? userStore.users.find(user => user.id === Number(record.user_id))
+                : undefined;
             if (record.user_id === -1) {
                 recordDetail.user_name = 'root';
+            } else if (localUser) {
+                recordDetail.user_name = localUser.name;
             } else if (record.user_id) {
                 promises.push(
                     getUser(record.user_id).then(user => {
@@ -142,7 +154,12 @@ export const useRecordStore = defineStore('record', () => {
                 );
             }
 
-            if (record.model_id) {
+            const localModel = record.model_id
+                ? modelsStore.models.find(model => model.id === Number(record.model_id))
+                : undefined;
+            if (localModel) {
+                recordDetail.model_name = localModel.name;
+            } else if (record.model_id) {
                 promises.push(
                     getModel(record.model_id).then(async model => {
                         recordDetail.model_name = model.name;
@@ -152,7 +169,12 @@ export const useRecordStore = defineStore('record', () => {
                 );
             }
 
-            if (record.vendor_id) {
+            const localVendor = record.vendor_id
+                ? vendorsStore.vendors.find(vendor => vendor.id === Number(record.vendor_id))
+                : undefined;
+            if (localVendor) {
+                recordDetail.vendor_name = localVendor.name;
+            } else if (record.vendor_id) {
                 promises.push(
                     getVendor(record.vendor_id).then(vendor => {
                         recordDetail.vendor_name = vendor.name;

@@ -93,7 +93,7 @@
                 </div>
 
                 <div class="result-detail">
-                    <a-tabs v-model:activeKey="activeTab" size="small">
+                    <a-tabs v-model:active-key="activeTab" size="small">
                         <a-tab-pane key="response" tab="响应">
                             <pre class="response-body">{{ formattedResponse }}</pre>
                         </a-tab-pane>
@@ -426,36 +426,6 @@ defineExpose({ openVendorTest, openModelTest });
     margin-left: 8px;
 }
 
-.auto-convert-row {
-    margin-bottom: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.auto-convert-main {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.convert-hint {
-    color: #8c8c8c;
-    font-size: 12px;
-}
-
-.convert-reason-line {
-    margin-left: 24px;
-    color: #faad14;
-    font-size: 12px;
-    line-height: 1.4;
-}
-
-.no-url-hint {
-    color: #ff4d4f;
-    font-size: 12px;
-}
-
 .result-convert {
     margin-top: 4px;
     font-size: 12px;
@@ -517,12 +487,6 @@ defineExpose({ openVendorTest, openModelTest });
 
 .result-detail {
     margin-top: 16px;
-}
-
-.detail-label {
-    font-size: 13px;
-    color: #8c8c8c;
-    margin-bottom: 8px;
 }
 
 .response-body {

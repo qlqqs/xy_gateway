@@ -15,7 +15,6 @@
                         placeholder="全部"
                         style="width: 150px"
                         allow-clear
-                        :loading="vendorsLoading"
                     >
                         <a-select-option
                             v-for="vendor in vendors"
@@ -138,7 +137,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { TableColumnsType } from 'ant-design-vue';
 import { Modal } from 'ant-design-vue/es';
 import {
@@ -147,17 +146,17 @@ import {
     ExperimentOutlined,
     InfoCircleOutlined,
 } from '@ant-design/icons-vue';
-import { deleteModel, listModels } from '@/api/model';
-import { listVendors, fetchVendorModelsByIds } from '@/api/vendor';
-import { getConfig } from '@/api/config';
+import modelsStore from '@/stores/models';
+import vendorsStore from '@/stores/vendors';
+import groupStore from '@/stores/groups';
+import { useAppStore } from '@/stores/app';
 import { useResourceTable } from '@/composables/useResourceTable';
 import { formatDate } from '@/utils/format';
-import { normalizeListResponse } from '@/utils/listResponse';
 import DialogForm from './DialogForm.vue';
 import DialogTest from '@/views/Vendor/DialogTest.vue';
 import UpstreamModel from './UpstreamModel.vue';
 import type { Model, ModelQuery } from '@/types/model';
-import type { Vendor as VendorType, VendorModel } from '@/types/vendor';
+import type { VendorModel } from '@/types/vendor';
 import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 
 const { loading, data, pagination, searchForm, loadData, handleSearch, handleReset, handleTableChange } = useResourceTable<Model, ModelQuery>({
@@ -165,12 +164,14 @@ const { loading, data, pagination, searchForm, loadData, handleSearch, handleRes
         keyword: undefined,
         vendor_id: undefined,
     },
-    fetcher: listModels,
+    fetcher: modelsStore.list,
     resetSearchForm: (form) => {
         form.keyword = undefined;
         form.vendor_id = undefined;
     },
 });
+
+const appStore = useAppStore();
 
 const dialogFormRef = ref<InstanceType<typeof DialogForm>>();
 const testDialogRef = ref<InstanceType<typeof DialogTest>>();
@@ -186,14 +187,11 @@ function hasConfiguredPrice(model: Model): boolean {
         prices.image_input,
         prices.image_output,
         prices.per_request,
-    ].some(value => typeof value === 'number' && value > 0);
+    ].some(value => typeof value === 'number' && Number.isFinite(value));
 }
 
-const vendors = ref<VendorType[]>([]);
-const vendorsLoading = ref(false);
+const vendors = vendorsStore.vendors;
 const vendorModelsMap = ref<Map<number, VendorModel>>(new Map());
-const moduleBillingEnabled = ref(false);
-
 const columns = computed<TableColumnsType<Model>>(() => {
     const cols: TableColumnsType<Model> = [
         { title: 'ID', key: 'id', dataIndex: 'id' },
@@ -201,7 +199,7 @@ const columns = computed<TableColumnsType<Model>>(() => {
         { title: '上游模型', key: 'upstream_model' },
         { title: '状态', key: 'enable', dataIndex: 'enable' },
     ];
-    if (moduleBillingEnabled.value) {
+    if (appStore.moduleBillingEnabled) {
         cols.push({ title: '价格', key: 'price' });
     }
     cols.push(
@@ -209,24 +207,6 @@ const columns = computed<TableColumnsType<Model>>(() => {
         { title: '操作', key: 'action', width: 120, fixed: 'right' as const },
     );
     return cols;
-});
-
-async function loadVendors() {
-    vendorsLoading.value = true;
-    try {
-        vendors.value = normalizeListResponse(await listVendors({ page: 1, pageSize: 1000 })).list;
-    } catch (error) {
-        console.error('加载供应商列表失败:', error);
-    } finally {
-        vendorsLoading.value = false;
-    }
-}
-
-onMounted(() => {
-    void loadVendors();
-    getConfig().then(config => {
-        moduleBillingEnabled.value = config.module_billing_enabled === 'true';
-    });
 });
 
 function handleCreate() {
@@ -254,7 +234,8 @@ function handleDelete(record: Model) {
         okType: 'danger',
         onOk: async () => {
             try {
-                await deleteModel(record.id);
+                await groupStore.clearModelReferences(record.name);
+                await modelsStore.remove(record.id);
                 notifySuccess('删除成功');
                 void loadData();
             } catch (error) {
@@ -265,7 +246,7 @@ function handleDelete(record: Model) {
 }
 
 function getVendorName(vendorId: number): string {
-    const vendor = vendors.value.find(v => v.id === vendorId);
+    const vendor = vendors.find(v => v.id === vendorId);
     return vendor ? vendor.name : `ID: ${vendorId}`;
 }
 
@@ -281,8 +262,10 @@ async function loadVendorModelsForPage(models: Model[]) {
     )))];
     if (ids.length === 0) return;
     try {
-        const vms = await fetchVendorModelsByIds(ids);
-        vms.forEach((vm: VendorModel) => vendorModelsMap.value.set(vm.id, vm));
+        const vendorModels = await vendorsStore.batchModels(ids);
+        vendorModels.forEach((vendorModel: VendorModel) => {
+            vendorModelsMap.value.set(vendorModel.id, vendorModel);
+        });
     } catch {
         // ignore
     }
@@ -304,31 +287,6 @@ watch(data, (models) => {
     justify-content: space-between;
     align-items: flex-start;
     margin-bottom: 16px;
-}
-
-.price-display {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.price-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-}
-
-.price-icon {
-    font-size: 12px;
-}
-
-.price-icon.input {
-    color: var(--accent-primary);
-}
-
-.price-icon.output {
-    color: #52c41a;
 }
 
 .model-action-button {

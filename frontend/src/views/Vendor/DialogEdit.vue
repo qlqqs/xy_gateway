@@ -18,8 +18,8 @@
             <a-form-item label="通道编码"><a-input v-model:value="formState.channel_code" :maxlength="64" /></a-form-item>
             <a-form-item label="供应商名称" name="supplier_name"><a-input v-model:value="formState.supplier_name" /></a-form-item>
             <a-form-item label="通道名称" name="name"><a-input v-model:value="formState.name" /></a-form-item>
-            <a-form-item label="接口类型" name="type"><a-select v-model:value="formState.type" placeholder="请选择接口类型" show-search option-filter-prop="label" :options="vendorTypeOptions" /></a-form-item>
-            <a-form-item v-if="formState.type === 'openai'" label="OpenAI 接口协议"><a-select v-model:value="formState.openai_protocol"><a-select-option value="chat_completions">/v1/chat/completions</a-select-option><a-select-option value="responses">/v1/responses</a-select-option></a-select></a-form-item>
+            <a-form-item label="接口类型" name="type"><a-select v-model:value="formState.type" placeholder="请选择接口类型" show-search option-filter-prop="label" :options="vendorTypeOptions" @change="handleTypeChange" /></a-form-item>
+            <a-form-item v-if="formState.api_type === 'openai'" label="OpenAI 接口协议"><a-select v-model:value="formState.openai_protocol" @change="handleProtocolChange"><a-select-option value="chat_completions">/v1/chat/completions</a-select-option><a-select-option value="responses">/v1/responses</a-select-option></a-select></a-form-item>
             <a-form-item label="API 地址"><a-input v-model:value="formState.api_url" /></a-form-item>
             <a-form-item label="认证凭证" name="token"><a-input-password v-model:value="formState.token" placeholder="请输入 API Token" /></a-form-item>
             <a-form-item label="可用模型"><a-space direction="vertical" style="width: 100%"><a-select v-model:value="formState.models" mode="tags" :token-separators="[',', ' ']" placeholder="输入模型 ID 后回车"><a-select-option v-for="model in fetchedModels" :key="model" :value="model">{{ model }}</a-select-option></a-select><a-button size="small" :loading="modelsLoading" @click="fetchModels">自动获取模型</a-button></a-space><div v-if="modelsError" class="field-hint field-error">{{ modelsError }}</div><div v-else class="field-hint">支持手动输入，也可以使用当前接口地址和凭证自动获取。</div></a-form-item>
@@ -73,8 +73,8 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue';
 import type { FormInstance } from 'ant-design-vue/es';
-import { updateVendor, fetchModelsPreview } from '@/api/vendor';
-import type { UpdateVendorRequest, Vendor, VendorType, VendorAuthMode, VendorProxyType, VendorUrls } from '@/types/vendor';
+import vendorsStore from '@/stores/vendors';
+import type { UpdateVendorRequest, Vendor, VendorApiType, VendorType, VendorAuthMode, VendorProxyType, VendorUrls } from '@/types/vendor';
 import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 import { useVendorPresets } from '@/composables/useVendorPresets';
 import groupStore from '@/stores/groups';
@@ -90,10 +90,10 @@ const modelsLoading = ref(false);
 const modelsError = ref('');
 const fetchedModels = ref<string[]>([]);
 
-const { vendorTypeOptions, load: loadPresets } = useVendorPresets();
+const { vendorTypeOptions, presetUrls } = useVendorPresets();
 
 const currentId = ref<number>(0);
-const currentConfig = ref<Record<string, any>>({});
+const skipTlsVerify = ref<boolean | undefined>();
 
 const groupOptions = computed(() => groupStore.groups.value
     .filter(group => group.status === 'active')
@@ -101,6 +101,7 @@ const groupOptions = computed(() => groupStore.groups.value
 
 const formState = reactive({
     type: 'openai' as VendorType,
+    api_type: 'openai' as VendorApiType,
     channel_code: '',
     supplier_name: '',
     group_id: null as number | null,
@@ -119,6 +120,42 @@ const formState = reactive({
     proxy_url: '',
 });
 
+function syncApiType() {
+    formState.api_type = formState.type === 'anthropic' ? 'anthropic' : 'openai';
+    formState.auth_mode = formState.api_type === 'anthropic' ? 'api_key' : 'bearer_token';
+}
+
+function handleTypeChange() {
+    syncApiType();
+    const preset = formState.api_type === 'openai'
+        ? (formState.openai_protocol === 'responses'
+            ? presetUrls[formState.type]?.responses
+            : presetUrls[formState.type]?.openai)
+        : presetUrls[formState.type]?.anthropic;
+    if (preset) {
+        formState.api_url = preset;
+    }
+}
+
+function handleProtocolChange() {
+    if (formState.api_type !== 'openai') {
+        return;
+    }
+
+    const endpoint = formState.openai_protocol === 'responses' ? 'responses' : 'chat_completions';
+    formState.api_url = formState.api_url
+        ? toEndpoint(formState.api_url, endpoint)
+        : presetUrls[formState.type]?.[formState.openai_protocol === 'responses' ? 'responses' : 'openai'] || '';
+}
+
+function toEndpoint(url: string, endpoint: 'responses' | 'chat_completions'): string {
+    const clean = url.replace(/\/$/, '');
+    if (endpoint === 'responses') {
+        return clean.replace(/\/chat\/completions$/, '') + '/responses';
+    }
+    return clean.replace(/\/responses$/, '') + '/chat/completions';
+}
+
 const rules = {
     type: [{ required: true, message: '请选择供应商类型' }],
     supplier_name: [{ required: true, message: '请输入供应商名称' }],
@@ -129,17 +166,22 @@ const rules = {
     priority: [{ required: true, type: 'number', min: 1, message: '优先级必须大于或等于 1' }],
 };
 
-async function open(vendor: Vendor) {
+function open(vendor: Vendor) {
     currentId.value = vendor.id;
-    currentConfig.value = { ...(vendor.config || {}) };
+    skipTlsVerify.value = vendor.config?.skip_tls_verify;
     formState.type = vendor.type;
+    formState.api_type = vendor.config?.api_type
+        || (formState.type === 'anthropic' ? 'anthropic' : 'openai');
     formState.channel_code = vendor.config?.channel_code || '';
     formState.supplier_name = vendor.config?.supplier_name || '';
     formState.group_id = vendor.config?.group_id ?? null;
     formState.name = vendor.name;
     formState.token = vendor.token;
     formState.openai_protocol = vendor.config?.openai_protocol || 'chat_completions';
-    formState.api_url = vendor.urls?.[formState.openai_protocol === 'responses' ? 'responses' : formState.type] || vendor.urls?.openai || '';
+    const urlKey = formState.api_type === 'openai' && formState.openai_protocol === 'responses'
+        ? 'responses'
+        : formState.api_type;
+    formState.api_url = vendor.urls?.[urlKey] || vendor.urls?.[formState.type] || '';
     formState.models = vendor.config?.available_models || [];
     fetchedModels.value = [...formState.models];
     modelsError.value = '';
@@ -148,12 +190,11 @@ async function open(vendor: Vendor) {
     formState.priority = vendor.config?.priority ?? 1;
     formState.status = vendor.config?.status || 'active';
     formState.remark = vendor.config?.remark || '';
-    formState.auth_mode = vendor.config?.auth_mode || 'bearer_token';
+    formState.auth_mode = vendor.config?.auth_mode
+        || (formState.api_type === 'anthropic' ? 'api_key' : 'bearer_token');
     formState.proxy_type = vendor.config?.proxy?.type ?? null;
     formState.proxy_url = vendor.config?.proxy?.url ?? '';
 
-    // 加载已保存的自定义 URLs
-    await loadPresets();
     visible.value = true;
 }
 
@@ -161,12 +202,14 @@ async function fetchModels() {
     modelsLoading.value = true;
     modelsError.value = '';
     try {
-        const result = await fetchModelsPreview({
+        const result = await vendorsStore.previewModels({
             type: formState.type,
             token: formState.token,
             urls: {
-                [formState.type === 'anthropic' ? 'anthropic' : 'openai']:
-                    formState.type !== 'anthropic' && formState.openai_protocol === 'responses'
+                [formState.api_type === 'openai' && formState.openai_protocol === 'responses'
+                    ? 'responses'
+                    : formState.api_type]:
+                    formState.api_type === 'openai' && formState.openai_protocol === 'responses'
                         ? formState.api_url.replace(/\/responses\/?$/, '') + '/chat/completions'
                         : formState.api_url,
             },
@@ -186,7 +229,10 @@ async function handleOk() {
         await formRef.value?.validate();
 
         const urls: VendorUrls = {};
-        urls[formState.openai_protocol === 'responses' ? 'responses' : formState.type] = formState.api_url;
+        const urlKey = formState.api_type === 'openai' && formState.openai_protocol === 'responses'
+            ? 'responses'
+            : formState.api_type;
+        urls[urlKey] = formState.api_url;
 
         const updateData: UpdateVendorRequest = {
             type: formState.type,
@@ -194,10 +240,11 @@ async function handleOk() {
             token: formState.token,
             urls,
             config: {
-                ...currentConfig.value,
+                ...(skipTlsVerify.value === undefined ? {} : { skip_tls_verify: skipTlsVerify.value }),
                 channel_code: formState.channel_code,
                 supplier_name: formState.supplier_name,
                 group_id: formState.group_id,
+                api_type: formState.api_type,
                 openai_protocol: formState.openai_protocol,
                 available_models: formState.models,
                 concurrency: formState.concurrency,
@@ -213,7 +260,7 @@ async function handleOk() {
         };
 
         loading.value = true;
-        const vendor = await updateVendor(currentId.value, updateData);
+        const vendor = await vendorsStore.update(currentId.value, updateData);
         notifySuccess('更新成功');
         emit('success', vendor);
         handleCancel();
@@ -266,68 +313,5 @@ defineExpose({ open });
 
 .field-error {
     color: #d4380d;
-}
-
-.url-item {
-    margin-bottom: 12px;
-}
-
-.urls-view {
-    border: 1px solid var(--color-border, #d9d9d9);
-    border-radius: 6px;
-    padding: 8px 12px;
-    background: var(--color-bg-container-disabled, #f5f5f5);
-}
-
-.url-view-item {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 3px 0;
-    font-size: 13px;
-}
-
-.url-key {
-    color: var(--color-text-secondary, #888);
-    text-transform: uppercase;
-    font-size: 11px;
-    min-width: 72px;
-    flex-shrink: 0;
-}
-
-.url-value {
-    color: var(--color-text, #333);
-    word-break: break-all;
-    flex: 1;
-}
-
-.custom-tag {
-    flex-shrink: 0;
-}
-
-.toggle-btn {
-    padding: 0;
-    margin-top: 6px;
-    height: auto;
-}
-
-.urls-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-}
-
-.urls-header .ant-form-item-label {
-    margin-bottom: 0;
-}
-
-.urls-header .toggle-btn {
-    margin-top: 0;
-}
-
-.auth-hint {
-    color: #8c8c8c;
-    font-size: 12px;
 }
 </style>

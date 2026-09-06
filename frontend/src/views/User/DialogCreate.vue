@@ -16,9 +16,9 @@
             </a-form-item>
             <a-form-item label="Key（可选）" name="keys" extra="可添加多个 key，也可以不设置 key">
                 <div class="keys-editor">
-                    <div v-for="(_, index) in formState.keys" :key="index" class="key-row">
+                    <div v-for="(key, index) in formState.keys" :key="index" class="key-row">
                         <a-input-password
-                            v-model:value="formState.keys[index]"
+                            v-model:value="key.value"
                             class="key-input"
                             :placeholder="`请输入 Key ${index + 1}`"
                         >
@@ -27,7 +27,7 @@
                             </template>
                         </a-input-password>
                         <a-select
-                            v-model:value="formState.keyGroups[index]"
+                            v-model:value="key.groupId"
                             class="group-select"
                             :options="groupOptions"
                             allow-clear
@@ -64,7 +64,7 @@ import type { FormInstance } from 'ant-design-vue/es';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons-vue';
 import userStore from '@/stores/users';
 import groupStore from '@/stores/groups';
-import type { User } from '@/types/user';
+import type { User, UserKeyInput } from '@/types/user';
 import { notifyError, notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 
 const emit = defineEmits<{
@@ -76,8 +76,7 @@ const formRef = ref<FormInstance>();
 
 const formState = reactive({
     name: '',
-    keys: [] as string[],
-    keyGroups: [] as Array<number | null>,
+    keys: [] as UserKeyInput[],
     type: 'normal' as const,
 });
 
@@ -87,21 +86,23 @@ const rules = {
 };
 
 function open() {
+    handleCancel();
     visible.value = true;
 }
 
 function addKey() {
-    formState.keys.push('');
-    formState.keyGroups.push(null);
+    formState.keys.push({ value: '', groupId: null });
 }
 
 function removeKey(index: number) {
     formState.keys.splice(index, 1);
-    formState.keyGroups.splice(index, 1);
 }
 
 function generateKey(index: number) {
-    formState.keys[index] = crypto.randomUUID();
+    const key = formState.keys[index];
+    if (key) {
+        key.value = crypto.randomUUID();
+    }
 }
 
 const groupOptions = computed(() => groupStore.groups.value
@@ -111,16 +112,14 @@ const groupOptions = computed(() => groupStore.groups.value
 async function handleOk() {
     try {
         await formRef.value?.validate();
-        const keyEntries = formState.keys
-            .map((key, index) => ({ key: key.trim(), groupId: formState.keyGroups[index] ?? null }))
-            .filter(entry => entry.key);
-        const keys = keyEntries.map(entry => entry.key);
-        if (new Set(keys).size !== keys.length) {
+        const keys = formState.keys
+            .map(key => ({ ...key, value: key.value.trim(), groupId: key.groupId ?? null }))
+            .filter(key => key.value);
+        if (new Set(keys.map(key => key.value)).size !== keys.length) {
             notifyError('key 不能重复');
             return;
         }
-        const keyGroups = Object.fromEntries(keyEntries.map(entry => [entry.key, entry.groupId]));
-        const user = userStore.create({ name: formState.name, keys, keyGroups, type: formState.type });
+        const user = await userStore.create({ name: formState.name, keys, type: formState.type });
         notifySuccess('创建成功');
         emit('success', user);
         handleCancel();
@@ -133,7 +132,6 @@ function handleCancel() {
     visible.value = false;
     formState.name = '';
     formState.keys = [];
-    formState.keyGroups = [];
     formState.type = 'normal';
 }
 

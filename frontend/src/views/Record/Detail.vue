@@ -99,7 +99,7 @@
 
                 <!-- 请求与响应数据 -->
                 <a-card class="detail-card request-tabs-card">
-                    <a-tabs v-model:activeKey="activeRequestTab">
+                    <a-tabs v-model:active-key="activeRequestTab">
                         <template #rightExtra>
                             <a-space v-if="activeRequestTab === 'request_json'">
                                 <a-button type="link" size="small" @click="isRequestExpanded = !isRequestExpanded">
@@ -145,7 +145,7 @@
                                     @load="onIframeLoad" 
                                     frameborder="0"
                                     class="visualization-iframe"
-                                ></iframe>
+                                />
                             </div>
                         </a-tab-pane>
 
@@ -210,51 +210,81 @@ const recordStore = useRecordStore();
 const viewerIframe = ref<HTMLIFrameElement | null>(null);
 const activeRequestTab = ref<string>('request_json');
 
-const requestJsonRef = ref<any>(null);
-const responseJsonRef = ref<any>(null);
+interface JsonViewerHandle {
+    handleCopy: () => void;
+}
+
+interface ViewerBridge {
+    setLlmData?: (data: ConversationData) => void;
+}
+
+interface ViewerWindow extends Window {
+    gt_bridge?: ViewerBridge;
+}
+
+interface ConversationObject {
+    system?: unknown;
+    messages: unknown[];
+}
+
+type ConversationData = unknown[] | ConversationObject;
+
+const requestJsonRef = ref<JsonViewerHandle | null>(null);
+const responseJsonRef = ref<JsonViewerHandle | null>(null);
 
 const isRequestExpanded = ref(true);
 const isResponseExpanded = ref(true);
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 const conversationData = computed(() => {
-    const messages: any[] = [];
-    let system: any = undefined;
+    const messages: unknown[] = [];
+    let system: unknown;
     try {
         if (recordStore.currentRecord?.request_data) {
-            const req = JSON.parse(recordStore.currentRecord.request_data);
-            if (req.messages && Array.isArray(req.messages)) {
+            const req: unknown = JSON.parse(recordStore.currentRecord.request_data);
+            if (isRecord(req) && Array.isArray(req.messages)) {
                 messages.push(...req.messages);
             }
-            if (req.system != null) {
+            if (isRecord(req) && req.system != null) {
                 system = req.system;
             }
         }
-    } catch(e) {}
+    } catch {
+        // 请求内容可能不是 JSON，保留原始详情页继续展示。
+    }
     try {
         if (recordStore.currentRecord?.response_data) {
-            const res = JSON.parse(recordStore.currentRecord.response_data);
-            if (res.choices && res.choices.length > 0 && res.choices[0].message) {
+            const res: unknown = JSON.parse(recordStore.currentRecord.response_data);
+            if (isRecord(res) && Array.isArray(res.choices)
+                && isRecord(res.choices[0]) && res.choices[0].message) {
                 messages.push(res.choices[0].message);
-            } else if (res.message) {
+            } else if (isRecord(res) && res.message) {
                 messages.push(res.message);
             }
         }
-    } catch(e) {}
+    } catch {
+        // 响应内容可能不是 JSON，保留原始详情页继续展示。
+    }
     return system !== undefined ? { system, messages } : messages;
 });
 
-function getMessageCount(data: any): number {
+function getMessageCount(data: ConversationData): number {
     if (Array.isArray(data)) return data.length;
-    return data?.messages?.length ?? 0;
+    return data.messages.length;
+}
+
+function sendConversationToViewer(data: ConversationData): void {
+    const frameWindow = viewerIframe.value?.contentWindow as ViewerWindow | null;
+    frameWindow?.gt_bridge?.setLlmData?.(data);
 }
 
 function onIframeLoad() {
-    if (viewerIframe.value && viewerIframe.value.contentWindow) {
+    if (viewerIframe.value?.contentWindow) {
         setTimeout(() => {
-            const bridge = (viewerIframe.value!.contentWindow as any).gt_bridge;
-            if (bridge && typeof bridge.setLlmData === 'function') {
-                bridge.setLlmData(JSON.parse(JSON.stringify(conversationData.value)));
-            }
+            sendConversationToViewer(conversationData.value);
         }, 300);
     }
 }
@@ -269,10 +299,7 @@ watch(conversationData, (newVal) => {
     }
 
     if (getMessageCount(newVal) > 0 && viewerIframe.value && viewerIframe.value.contentWindow) {
-        const bridge = (viewerIframe.value.contentWindow as any).gt_bridge;
-        if (bridge && typeof bridge.setLlmData === 'function') {
-            bridge.setLlmData(JSON.parse(JSON.stringify(newVal)));
-        }
+        sendConversationToViewer(newVal);
     }
 }, { deep: true, immediate: true });
 

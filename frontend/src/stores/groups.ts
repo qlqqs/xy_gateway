@@ -1,34 +1,63 @@
 import { ref } from 'vue';
+import repository from '@/repositories/mockGroups';
+import type { GroupDraft, GroupRecord } from '@/types/group';
 
-export type GroupStatus = 'active' | 'disabled';
-export type InboundProtocol = 'openai_chat' | 'openai_responses' | 'anthropic';
+export type { GroupDraft, GroupRecord, GroupStatus, InboundProtocol } from '@/types/group';
 
-export interface GroupRecord {
-    id: number;
-    name: string;
-    description: string;
-    inboundProtocols: InboundProtocol[];
-    channelCount: number;
-    customModels: string[];
-    whitelistEnabled: boolean;
-    rateMultiplier: number;
-    status: GroupStatus;
-    updatedAt: string;
+const groups = ref<GroupRecord[]>(repository.all());
+
+function syncAll(): void {
+    groups.value = repository.all();
 }
 
-const groups = ref<GroupRecord[]>([
-    {
-        id: 1,
-        name: '默认分组',
-        description: '系统默认访问范围',
-        inboundProtocols: ['openai_responses'],
-        channelCount: 0,
-        customModels: [],
-        whitelistEnabled: false,
-        rateMultiplier: 1,
-        status: 'active',
-        updatedAt: '—',
-    },
-]);
+function get(id: number): GroupRecord | null {
+    const group = repository.get(id);
+    if (group) {
+        const index = groups.value.findIndex(item => item.id === id);
+        if (index < 0) {
+            groups.value.unshift(group);
+        } else {
+            groups.value.splice(index, 1, group);
+        }
+    }
+    return group;
+}
 
-export default { groups };
+function create(data: GroupDraft): GroupRecord {
+    const group = repository.create(data);
+    syncAll();
+    return group;
+}
+
+function update(id: number, data: Partial<GroupDraft>): GroupRecord | null {
+    const group = repository.update(id, data);
+    if (group) {
+        syncAll();
+    }
+    return group;
+}
+
+function remove(id: number): boolean {
+    const removed = repository.remove(id);
+    if (removed) {
+        syncAll();
+    }
+    return removed;
+}
+
+function clearModelReferences(modelName: string): number {
+    const changed = repository.clearModelReferences(modelName);
+    if (changed > 0) {
+        syncAll();
+    }
+    return changed;
+}
+
+export default {
+    groups,
+    get,
+    create,
+    update,
+    remove,
+    clearModelReferences,
+};

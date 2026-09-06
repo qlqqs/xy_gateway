@@ -1,8 +1,5 @@
 import type { TablePaginationConfig } from 'ant-design-vue';
 
-// 通用类型定义
-export type BaseResponse<T = unknown> = Record<string, T>;
-
 export interface PaginationParams {
     page?: number;
     pageSize?: number;
@@ -25,8 +22,6 @@ export interface ListResponse<T> {
     list: T[];
     total: number;
 }
-
-export type ListResult<T> = T[] | ListResponse<T>;
 
 export interface BaseEntity {
     id: number;

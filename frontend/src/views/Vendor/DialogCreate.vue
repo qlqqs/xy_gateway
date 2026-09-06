@@ -19,8 +19,8 @@
             <a-form-item label="通道编码" name="channel_code"><a-input v-model:value="formState.channel_code" placeholder="例如：prod-openai-01" :maxlength="64" /></a-form-item>
             <a-form-item label="供应商名称" name="supplier_name"><a-input v-model:value="formState.supplier_name" placeholder="例如：星河云计算有限公司" /></a-form-item>
             <a-form-item label="通道名称" name="name"><a-input v-model:value="formState.name" placeholder="例如：生产环境主通道" /></a-form-item>
-            <a-form-item label="接口类型" name="type"><a-select v-model:value="formState.type" placeholder="请选择接口类型" show-search option-filter-prop="label" :options="vendorTypeOptions" @change="syncAuthMode" /><div class="field-hint">认证方式将自动匹配为 {{ authModeLabel }}</div></a-form-item>
-            <a-form-item v-if="formState.type === 'openai'" label="OpenAI 接口协议" name="openai_protocol"><a-select v-model:value="formState.openai_protocol" @change="syncAuthMode"><a-select-option value="chat_completions">/v1/chat/completions</a-select-option><a-select-option value="responses">/v1/responses</a-select-option></a-select></a-form-item>
+            <a-form-item label="接口类型" name="type"><a-select v-model:value="formState.type" placeholder="请选择接口类型" show-search option-filter-prop="label" :options="vendorTypeOptions" @change="handleTypeChange" /><div class="field-hint">认证方式将自动匹配为 {{ authModeLabel }}</div></a-form-item>
+            <a-form-item v-if="formState.api_type === 'openai'" label="OpenAI 接口协议" name="openai_protocol"><a-select v-model:value="formState.openai_protocol" @change="handleProtocolChange"><a-select-option value="chat_completions">/v1/chat/completions</a-select-option><a-select-option value="responses">/v1/responses</a-select-option></a-select></a-form-item>
             <a-form-item label="API 地址" name="api_url"><a-input v-model:value="formState.api_url" placeholder="https://api.example.com/v1" /></a-form-item>
             <a-form-item label="认证凭证" name="token"><a-input-password v-model:value="formState.token" :placeholder="authModeLabel === 'API Key' ? '请输入 API Key' : '请输入 Bearer Token'" /></a-form-item>
             <a-form-item label="可用模型" name="models"><a-space direction="vertical" style="width: 100%"><a-select v-model:value="formState.models" mode="tags" :token-separators="[',', ' ']" placeholder="输入模型 ID 后回车，可添加多个"><a-select-option v-for="model in fetchedModels" :key="model" :value="model">{{ model }}</a-select-option></a-select><a-button size="small" :loading="modelsLoading" @click="fetchModels">自动获取模型</a-button></a-space><div v-if="modelsError" class="field-hint field-error">{{ modelsError }}</div><div v-else class="field-hint">支持手动输入，也可以使用当前接口地址和凭证自动获取。</div></a-form-item>
@@ -74,7 +74,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue';
 import type { FormInstance } from 'ant-design-vue/es';
-import { createVendor, fetchModelsPreview } from '@/api/vendor';
+import vendorsStore from '@/stores/vendors';
 import type { CreateVendorRequest, Vendor, VendorType, VendorAuthMode, VendorProxyType } from '@/types/vendor';
 import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 import { useVendorPresets } from '@/composables/useVendorPresets';
@@ -91,8 +91,7 @@ const modelsLoading = ref(false);
 const modelsError = ref('');
 const fetchedModels = ref<string[]>([]);
 
-const { presetUrls, vendorTypeOptions, load: loadPresets } = useVendorPresets();
-const PRESET_URLS = presetUrls;
+const { presetUrls, vendorTypeOptions } = useVendorPresets();
 
 const formState = reactive({
     type: 'openai' as VendorType,
@@ -115,25 +114,36 @@ const formState = reactive({
     proxy_url: '',
 });
 
-const authModeLabel = computed(() => formState.type === 'anthropic' ? 'API Key' : 'Bearer Token');
+const authModeLabel = computed(() => formState.api_type === 'anthropic' ? 'API Key' : 'Bearer Token');
 const groupOptions = computed(() => groupStore.groups.value
     .filter(group => group.status === 'active')
     .map(group => ({ label: group.name, value: group.id })));
-function syncAuthMode() {
+function syncApiType() {
     formState.api_type = formState.type === 'anthropic' ? 'anthropic' : 'openai';
     formState.auth_mode = formState.api_type === 'anthropic' ? 'api_key' : 'bearer_token';
-    if (formState.api_type === 'openai') {
-        const preset = PRESET_URLS.value[formState.type]?.openai;
-        if (formState.openai_protocol === 'responses') {
-            const responsesPreset = PRESET_URLS.value[formState.type]?.responses;
-            formState.api_url = responsesPreset || toEndpoint(formState.api_url, 'responses');
-        } else if (preset) {
-            formState.api_url = preset;
-        }
-    } else {
-        const preset = PRESET_URLS.value[formState.type]?.[formState.api_type];
-        if (preset) formState.api_url = preset;
+}
+
+function handleTypeChange() {
+    syncApiType();
+    const preset = formState.api_type === 'openai'
+        ? (formState.openai_protocol === 'responses'
+            ? presetUrls[formState.type]?.responses
+            : presetUrls[formState.type]?.openai)
+        : presetUrls[formState.type]?.anthropic;
+    if (preset) {
+        formState.api_url = preset;
     }
+}
+
+function handleProtocolChange() {
+    if (formState.api_type !== 'openai') {
+        return;
+    }
+
+    const endpoint = formState.openai_protocol === 'responses' ? 'responses' : 'chat_completions';
+    formState.api_url = formState.api_url
+        ? toEndpoint(formState.api_url, endpoint)
+        : presetUrls[formState.type]?.[formState.openai_protocol === 'responses' ? 'responses' : 'openai'] || '';
 }
 
 function toEndpoint(url: string, endpoint: 'responses' | 'chat_completions'): string {
@@ -161,8 +171,7 @@ const rules = {
     status: [{ required: true, message: '请选择状态' }],
 };
 
-async function open() {
-    await loadPresets();
+function open() {
     formState.type = 'openai';
     formState.channel_code = '';
     formState.name = '';
@@ -171,7 +180,7 @@ async function open() {
     formState.token = '';
     formState.api_type = 'openai';
     formState.openai_protocol = 'chat_completions';
-    formState.api_url = PRESET_URLS.value.openai?.openai || '';
+    formState.api_url = presetUrls.openai?.openai || '';
     formState.models = [];
     fetchedModels.value = [];
     modelsError.value = '';
@@ -180,7 +189,7 @@ async function open() {
     formState.priority = 1;
     formState.status = 'active';
     formState.remark = '';
-    syncAuthMode();
+    syncApiType();
     formState.proxy_type = null;
     formState.proxy_url = '';
     visible.value = true;
@@ -190,7 +199,7 @@ async function fetchModels() {
     modelsLoading.value = true;
     modelsError.value = '';
     try {
-        const result = await fetchModelsPreview({
+        const result = await vendorsStore.previewModels({
             type: formState.type,
             token: formState.token,
             urls: { [formState.api_type === 'openai' ? 'openai' : formState.api_type]: formState.api_type === 'openai' && formState.openai_protocol === 'responses' ? toEndpoint(formState.api_url, 'chat_completions') : formState.api_url },
@@ -234,7 +243,7 @@ async function handleOk() {
         };
 
         loading.value = true;
-        const vendor = await createVendor(createData);
+        const vendor = await vendorsStore.create(createData);
         notifySuccess('创建成功');
         emit('success', vendor);
         handleCancel();
@@ -253,69 +262,6 @@ defineExpose({ open });
 </script>
 
 <style scoped>
-.url-item {
-    margin-bottom: 12px;
-}
-
-.urls-view {
-    border: 1px solid var(--color-border, #d9d9d9);
-    border-radius: 6px;
-    padding: 8px 12px;
-    background: var(--color-bg-container-disabled, #f5f5f5);
-}
-
-.url-view-item {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 3px 0;
-    font-size: 13px;
-}
-
-.url-key {
-    color: var(--color-text-secondary, #888);
-    text-transform: uppercase;
-    font-size: 11px;
-    min-width: 72px;
-    flex-shrink: 0;
-}
-
-.url-value {
-    color: var(--color-text, #333);
-    word-break: break-all;
-    flex: 1;
-}
-
-.custom-tag {
-    flex-shrink: 0;
-}
-
-.toggle-btn {
-    padding: 0;
-    margin-top: 6px;
-    height: auto;
-}
-
-.urls-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-}
-
-.urls-header .ant-form-item-label {
-    margin-bottom: 0;
-}
-
-.urls-header .toggle-btn {
-    margin-top: 0;
-}
-
-.auth-hint {
-    color: #8c8c8c;
-    font-size: 12px;
-}
-
 .form-note {
     margin-bottom: 20px;
 }

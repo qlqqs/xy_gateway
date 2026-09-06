@@ -21,12 +21,12 @@ defineProps<Props>();
 
 ```ts
 defineProps<{
-    backup: ClientConfigBackupInfo;
-    isDeleting: boolean;
+    loading: boolean;
+    value: string;
 }>();
 
 defineEmits<{
-    (event: 'deleteConfig', backup: ClientConfigBackupInfo): void;
+    submit: [value: string];
 }>();
 ```
 

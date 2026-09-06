@@ -1,22 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { defineComponent } from 'vue';
 import { mount } from '@vue/test-utils';
 import UpstreamConfig from './UpstreamConfig.vue';
 
-const { listVendors, listVendorModels } = vi.hoisted(() => ({
-    listVendors: vi.fn(),
-    listVendorModels: vi.fn(),
-}));
-
-vi.mock('@/api/vendor', () => ({
-    listVendors,
-    listVendorModels,
-}));
-
-vi.mock('@/utils/requestFeedback', () => ({
-    notifyRequestError: vi.fn(),
-}));
-
+/* eslint-disable vue/one-component-per-file -- keep the test-only UI stubs next to the fixture. */
 const ButtonStub = defineComponent({
     emits: ['click'],
     template: '<button v-bind="$attrs" @click="$emit(\'click\')"><slot /></button>',
@@ -29,6 +16,7 @@ const CollapseStub = defineComponent({
 const TooltipStub = defineComponent({
     template: '<span><slot /></span>',
 });
+/* eslint-enable vue/one-component-per-file */
 
 const global = {
     components: {
@@ -65,13 +53,6 @@ function mountEditor(upstreams = [
 }
 
 describe('UpstreamConfig', () => {
-    beforeEach(() => {
-        listVendors.mockReset();
-        listVendorModels.mockReset();
-        listVendors.mockResolvedValue({ list: [], total: 0 });
-        listVendorModels.mockResolvedValue([]);
-    });
-
     it('adds an enabled upstream in multi-upstream modes', async () => {
         const wrapper = mountEditor();
 

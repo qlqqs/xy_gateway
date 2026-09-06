@@ -15,7 +15,8 @@ export const useAppStore = defineStore('app', () => {
     const r2StorageUnavailableReason = ref('');
 
     // 功能模块开关
-    const moduleBillingEnabled = ref(false);
+    // 管理端本地领域状态默认开启计费字段；后端状态可在连接后覆盖该值。
+    const moduleBillingEnabled = ref(true);
 
     function toggleSidebar() {
         sidebarCollapsed.value = !sidebarCollapsed.value;
@@ -36,7 +37,7 @@ export const useAppStore = defineStore('app', () => {
             const data = await status();
             version.value = data.system?.version || FALLBACK_VERSION;
             mode.value = data.mode || '';
-            moduleBillingEnabled.value = data.modules?.billing ?? false;
+            moduleBillingEnabled.value = data.modules?.billing ?? moduleBillingEnabled.value;
             r2StorageAvailable.value = data.storage?.r2_available ?? false;
             r2StorageUnavailableReason.value = data.storage?.r2_unavailable_reason || '';
         } catch (error) {

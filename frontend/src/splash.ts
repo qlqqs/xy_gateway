@@ -8,7 +8,6 @@ const databaseMigratingText = '数据库升级中，请等待，不要关闭程�
 function splashLog(message: string) {
     const elapsedMs = Math.round(performance.now() - splashStartedAt);
     const logMessage = `[splash +${elapsedMs}ms] ${message}`;
-    console.log(logMessage);
     invoke('log_to_rust', { msg: logMessage }).catch((error) => {
         console.warn('[splash] failed to send log to rust', error);
     });
@@ -82,7 +81,7 @@ async function initSplash() {
 
         splashLog('splash event listeners registered');
 
-    } catch (e: any) {
+    } catch (e: unknown) {
         splashLog(`catch splash error: ${formatError(e)}`);
         if (!hasError) {
             showInitializationError(formatError(e));

@@ -5,11 +5,17 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
     {
-        ignores: ['dist/**', 'node_modules/**', 'components.d.ts'],
+        ignores: ['dist/**', 'public/data_viewer/**', 'node_modules/**', 'components.d.ts'],
     },
     js.configs.recommended,
     ...tseslint.configs.recommended,
     ...pluginVue.configs['flat/recommended'],
+    {
+        files: ['scripts/**/*.mjs'],
+        languageOptions: {
+            globals: globals.node,
+        },
+    },
     {
         files: ['**/*.{ts,tsx,vue}'],
         languageOptions: {

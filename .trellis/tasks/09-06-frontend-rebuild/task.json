@@ -1,0 +1,29 @@
+{
+  "id": "frontend-rebuild",
+  "name": "frontend-rebuild",
+  "title": "前端重构与冗余清理",
+  "description": "以现有前端表达的业务语义和交互流程为锚点，重构前端状态、字段和交互，清理冗余代码；本任务仅修改前端并执行最小相关测试。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "frontend",
+  "package": null,
+  "priority": "P1",
+  "creator": "qlqq",
+  "assignee": "qlqq",
+  "createdAt": "2026-09-06",
+  "completedAt": null,
+  "branch": "rebuild",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "change_boundary": "frontend-only",
+    "test_scope": "minimal-frontend"
+  }
+}
