@@ -42,7 +42,62 @@ describe('前端领域 mock repository', () => {
         expect(reopenedUsers.get(created.id)?.keys[0]?.groupId).toBeNull();
     });
 
-    it('保留供应商调度字段、稳定供应商模型 ID，并完整保存模型计费模式', async () => {
+    it('单独更新 Key 后保持限制开关、字段持久化和快照隔离', async () => {
+        const { default: users } = await import('./mockUsers');
+        const key = users.get(1)?.keys[0];
+        expect(key).toBeDefined();
+        if (!key) {
+            return;
+        }
+
+        const expiresAt = '2027-01-02T03:04:00.000Z';
+        const updated = await users.updateKey(1, key.id, {
+            name: '受限 Key',
+            groupId: null,
+            modelWhitelistEnabled: false,
+            modelWhitelist: ['gpt-4o-mini'],
+            ipRestrictionEnabled: false,
+            ipWhitelist: ['192.168.1.100'],
+            ipBlacklist: ['10.0.0.0/8'],
+            quota: 12.5,
+            rateLimit: 3,
+            expiresAt,
+        });
+
+        expect(updated).toMatchObject({
+            name: '受限 Key',
+            groupId: null,
+            modelWhitelistEnabled: false,
+            modelWhitelist: ['gpt-4o-mini'],
+            ipRestrictionEnabled: false,
+            ipWhitelist: ['192.168.1.100'],
+            ipBlacklist: ['10.0.0.0/8'],
+            quota: 12.5,
+            rateLimit: 3,
+            expiresAt,
+        });
+
+        const snapshot = users.get(1);
+        snapshot?.keys[0]?.modelWhitelist.push('不应写回');
+        snapshot?.keys[0]?.ipWhitelist.push('127.0.0.1');
+        expect(users.get(1)?.keys[0]?.modelWhitelist).toEqual(['gpt-4o-mini']);
+        expect(users.get(1)?.keys[0]?.ipWhitelist).toEqual(['192.168.1.100']);
+
+        vi.resetModules();
+        const { default: reopenedUsers } = await import('./mockUsers');
+        expect(reopenedUsers.get(1)?.keys[0]).toMatchObject({
+            modelWhitelistEnabled: false,
+            modelWhitelist: ['gpt-4o-mini'],
+            ipRestrictionEnabled: false,
+            ipWhitelist: ['192.168.1.100'],
+            ipBlacklist: ['10.0.0.0/8'],
+            quota: 12.5,
+            rateLimit: 3,
+            expiresAt,
+        });
+    });
+
+    it('保留供应商调度字段、稳定供应商模型 ID，并完整保存模型映射与计费模式', async () => {
         const { default: vendors } = await import('./mockVendors');
         const vendor = await vendors.create({
             type: 'openai',
@@ -76,21 +131,21 @@ describe('前端领域 mock repository', () => {
         const model = await models.create({
             name: 'gateway-model',
             enable: true,
-            routing_mode: 'load_balance',
-            routing_config: {
+            mapping: {
                 upstreams: [{ vendor_id: vendor.id, vendor_model_id: firstModels[0]?.id, enabled: true }],
-                failover: { enabled: true },
-                load_balance_strategy: 'request',
             },
             prices: { billing_mode: 'per_request', per_request: 0.02 },
         });
         expect(model.prices?.billing_mode).toBe('per_request');
 
         const updated = await models.update(model.id, {
-            ...model,
+            name: model.name,
+            enable: model.enable,
+            mapping: { upstreams: model.mapping.upstreams },
             prices: { billing_mode: 'image', image_input: 0.5 },
         });
         expect(updated.prices).toEqual({ billing_mode: 'image', image_input: 0.5 });
+        expect(updated.mapping).toEqual(model.mapping);
     });
 
     it('拒绝余额扣减超过当前余额，并保持原状态不变', async () => {
@@ -124,10 +179,8 @@ describe('前端领域 mock repository', () => {
         const model = await models.create({
             name: '引用待删除通道的模型',
             enable: true,
-            routing_mode: 'single',
-            routing_config: {
+            mapping: {
                 upstreams: [{ vendor_id: vendor.id, enabled: true }],
-                failover: { enabled: false },
             },
             prices: null,
         });
@@ -135,7 +188,7 @@ describe('前端领域 mock repository', () => {
         expect(await models.clearVendorReferences(vendor.id)).toBe(1);
         expect(models.get(model.id)).toMatchObject({
             enable: false,
-            routing_config: { upstreams: [] },
+            mapping: { upstreams: [] },
         });
     });
 
@@ -153,10 +206,8 @@ describe('前端领域 mock repository', () => {
         const model = await models.create({
             name: '失效上游模型引用',
             enable: true,
-            routing_mode: 'single',
-            routing_config: {
+            mapping: {
                 upstreams: [{ vendor_id: vendor.id, vendor_model_id: vendorModels[0]?.id, enabled: true }],
-                failover: { enabled: false },
             },
             prices: null,
         });
@@ -164,7 +215,7 @@ describe('前端领域 mock repository', () => {
         await vendors.update(vendor.id, { config: { available_models: ['model-b'] } });
         const remainingModels = await vendors.listModels(vendor.id);
         expect(await models.clearVendorModelReferences(vendor.id, remainingModels.map(item => item.id))).toBe(1);
-        expect(models.get(model.id)?.routing_config.upstreams[0]?.vendor_model_id).toBeUndefined();
+        expect(models.get(model.id)?.mapping.upstreams[0]?.vendor_model_id).toBeUndefined();
     });
 
     it('允许没有上游的模型保持停用状态', async () => {
@@ -172,13 +223,12 @@ describe('前端领域 mock repository', () => {
         const model = await models.create({
             name: '无上游停用模型',
             enable: false,
-            routing_mode: 'single',
-            routing_config: { upstreams: [], failover: { enabled: false } },
+            mapping: { upstreams: [] },
             prices: null,
         });
 
         expect(model.enable).toBe(false);
-        expect(model.routing_config.upstreams).toEqual([]);
+        expect(model.mapping.upstreams).toEqual([]);
     });
 
     it('规范化分组字段并清理模型白名单引用', async () => {

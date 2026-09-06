@@ -88,6 +88,17 @@
                                 <EditOutlined />
                             </a-button>
                         </a-tooltip>
+                        <a-tooltip title="编辑 Key">
+                            <a-button
+                                type="text"
+                                size="small"
+                                class="user-action-button"
+                                aria-label="编辑 Key"
+                                @click="handleKeyEdit(record)"
+                            >
+                                <KeyOutlined />
+                            </a-button>
+                        </a-tooltip>
                     </a-space>
                 </template>
             </template>
@@ -96,18 +107,20 @@
 
     <DialogCreate ref="createDialogRef" @success="handleCreateSuccess" />
     <DialogEdit ref="editDialogRef" @success="handleEditSuccess" />
+    <KeyEdit ref="keyEditDialogRef" @success="handleKeyEditSuccess" />
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import type { TableColumnsType } from 'ant-design-vue';
-import { EditOutlined } from '@ant-design/icons-vue';
+import { EditOutlined, KeyOutlined } from '@ant-design/icons-vue';
 import { useResourceTable } from '@/composables/useResourceTable';
 import { useAppStore } from '@/stores/app';
 import userStore from '@/stores/users';
 import { formatBalance, BALANCE_SCALE } from '@/utils/format';
 import DialogCreate from './DialogCreate.vue';
 import DialogEdit from './DialogEdit.vue';
+import KeyEdit from './KeyEdit.vue';
 import type { User, UserQuery } from '@/types/user';
 
 const appStore = useAppStore();
@@ -129,6 +142,7 @@ const { loading, data, pagination, searchForm, loadData, handleSearch, handleRes
 
 const createDialogRef = ref();
 const editDialogRef = ref();
+const keyEditDialogRef = ref();
 
 const columns = computed<TableColumnsType<User>>(() => {
     const cols: TableColumnsType<User> = [
@@ -158,6 +172,14 @@ function handleEdit(record: User) {
 }
 
 function handleEditSuccess() {
+    loadData();
+}
+
+function handleKeyEdit(record: User): void {
+    keyEditDialogRef.value?.open(record);
+}
+
+function handleKeyEditSuccess(): void {
     loadData();
 }
 

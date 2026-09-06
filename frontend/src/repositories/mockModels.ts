@@ -3,16 +3,14 @@ import type {
     CreateModelRequest,
     Model,
     ModelPrices,
+    ModelMapping,
     ModelQuery,
-    ModelRoutingConfig,
-    ModelRoutingMode,
     ModelUpstreamConfig,
     UpdateModelRequest,
 } from '@/types/model';
 import storage from './storage';
 
-const STORAGE_KEY = 'xy-gateway:mock-models:v1';
-const routingModes: Model['routing_mode'][] = ['single', 'load_balance', 'first_available'];
+const STORAGE_KEY = 'xy-gateway:mock-models:v2';
 const billingModes: NonNullable<ModelPrices['billing_mode']>[] = ['token', 'per_request', 'image'];
 
 function isBillingMode(value: unknown): value is NonNullable<ModelPrices['billing_mode']> {
@@ -23,10 +21,8 @@ const seedModels: Model[] = [
     {
         id: 1,
         name: 'gpt-4o-mini',
-        routing_mode: 'single',
-        routing_config: {
+        mapping: {
             upstreams: [{ vendor_id: 1, enabled: true }],
-            failover: { enabled: false },
         },
         enable: true,
         prices: {
@@ -69,27 +65,13 @@ function parseUpstream(value: unknown): ModelUpstreamConfig {
     };
 }
 
-function parseRoutingConfig(value: unknown): ModelRoutingConfig {
+function parseMapping(value: unknown): ModelMapping {
     if (!isRecord(value) || !Array.isArray(value.upstreams)) {
-        throw new Error('模型路由配置无效');
+        throw new Error('模型映射配置无效');
     }
-
-    const failover = isRecord(value.failover)
-        ? { enabled: value.failover.enabled === true }
-        : { enabled: false };
-    if (value.load_balance_strategy !== undefined
-        && value.load_balance_strategy !== 'user'
-        && value.load_balance_strategy !== 'request') {
-        throw new Error('模型负载均衡策略无效');
-    }
-    const strategy = value.load_balance_strategy === 'request' ? 'request' : 'user';
 
     return {
         upstreams: value.upstreams.map(parseUpstream),
-        failover,
-        ...(value.load_balance_strategy === undefined
-            ? {}
-            : { load_balance_strategy: strategy }),
     };
 }
 
@@ -139,7 +121,7 @@ function parseModels(value: unknown): Model[] {
             || item.id <= 0
             || typeof item.name !== 'string'
             || !item.name.trim()
-            || !routingModes.includes(item.routing_mode as Model['routing_mode'])
+            || !isRecord(item.mapping)
             || typeof item.enable !== 'boolean') {
             throw new Error('模型存储包含无效记录');
         }
@@ -147,8 +129,7 @@ function parseModels(value: unknown): Model[] {
         return {
             id: item.id,
             name: item.name.trim(),
-            routing_mode: item.routing_mode as ModelRoutingMode,
-            routing_config: parseRoutingConfig(item.routing_config),
+            mapping: parseMapping(item.mapping),
             enable: item.enable,
             prices: parsePrices(item.prices),
             created_at: toDate(item.created_at, new Date()),
@@ -198,41 +179,10 @@ function normalizePrices(prices: ModelPrices | null | undefined): ModelPrices | 
     return normalized;
 }
 
-function cloneRoutingConfig(config: ModelRoutingConfig): ModelRoutingConfig {
-    const upstreams = config.upstreams.map(upstream => {
-        if (!Number.isSafeInteger(upstream.vendor_id) || upstream.vendor_id <= 0) {
-            throw new Error('模型上游供应商无效');
-        }
-        if (upstream.vendor_model_id !== undefined
-            && (!Number.isSafeInteger(upstream.vendor_model_id) || upstream.vendor_model_id <= 0)) {
-            throw new Error('模型上游模型无效');
-        }
-        return {
-            vendor_id: upstream.vendor_id,
-            ...(upstream.vendor_model_id === undefined ? {} : { vendor_model_id: upstream.vendor_model_id }),
-            enabled: upstream.enabled !== false,
-        };
-    });
-    if (!config.failover || typeof config.failover.enabled !== 'boolean') {
-        throw new Error('模型故障转移配置无效');
-    }
-    if (config.load_balance_strategy !== undefined
-        && (config.load_balance_strategy !== 'user' && config.load_balance_strategy !== 'request')) {
-        throw new Error('模型负载均衡策略无效');
-    }
-    return {
-        upstreams,
-        failover: { enabled: config.failover.enabled },
-        ...(config.load_balance_strategy
-            ? { load_balance_strategy: config.load_balance_strategy }
-            : {}),
-    };
-}
-
 function cloneModel(model: Model): Model {
     return {
         ...model,
-        routing_config: cloneRoutingConfig(model.routing_config),
+        mapping: cloneMapping(model.mapping),
         prices: clonePrices(model.prices),
         created_at: new Date(model.created_at),
         updated_at: new Date(model.updated_at),
@@ -244,31 +194,47 @@ function persist(next: Model[]): void {
     storage.save(STORAGE_KEY, state);
 }
 
+function cloneMapping(mapping: ModelMapping): ModelMapping {
+    return {
+        upstreams: mapping.upstreams.map(upstream => {
+            if (!Number.isSafeInteger(upstream.vendor_id) || upstream.vendor_id <= 0) {
+                throw new Error('模型上游供应商无效');
+            }
+            if (upstream.vendor_model_id !== undefined
+                && (!Number.isSafeInteger(upstream.vendor_model_id) || upstream.vendor_model_id <= 0)) {
+                throw new Error('模型上游模型无效');
+            }
+            return {
+                vendor_id: upstream.vendor_id,
+                ...(upstream.vendor_model_id === undefined ? {} : { vendor_model_id: upstream.vendor_model_id }),
+                enabled: upstream.enabled !== false,
+            };
+        }),
+    };
+}
+
 function normalizeRequest(data: CreateModelRequest | UpdateModelRequest): CreateModelRequest {
     if (typeof data.name !== 'string'
         || typeof data.enable !== 'boolean'
-        || !routingModes.includes(data.routing_mode)) {
+        || !data.mapping
+        || !Array.isArray(data.mapping.upstreams)) {
         throw new Error('模型字段无效');
     }
     const request = {
         name: data.name.trim(),
         enable: data.enable,
-        routing_mode: data.routing_mode,
-        routing_config: cloneRoutingConfig(data.routing_config),
+        mapping: cloneMapping(data.mapping),
         prices: normalizePrices(data.prices),
     };
     if (!request.name) {
         throw new Error('模型名称不能为空');
     }
-    if (request.enable && request.routing_config.upstreams.length === 0) {
+    if (request.enable && request.mapping.upstreams.length === 0) {
         throw new Error('至少需要配置一个上游');
     }
-    const enabledCount = request.routing_config.upstreams.filter(upstream => upstream.enabled).length;
+    const enabledCount = request.mapping.upstreams.filter(upstream => upstream.enabled).length;
     if (request.enable && enabledCount === 0) {
         throw new Error('至少需要启用一个上游');
-    }
-    if (request.enable && request.routing_mode === 'single' && enabledCount !== 1) {
-        throw new Error('固定上游模式只能启用一个上游');
     }
     return request;
 }
@@ -284,7 +250,7 @@ async function list(query: ModelQuery = {}): Promise<ListResponse<Model>> {
     const filtered = state.filter(model => (
         (!keyword || model.name.toLowerCase().includes(keyword))
         && (!query.vendor_id
-            || model.routing_config.upstreams.some(upstream => upstream.vendor_id === query.vendor_id))
+            || model.mapping.upstreams.some(upstream => upstream.vendor_id === query.vendor_id))
     ));
     const page = Math.max(1, query.page ?? 1);
     const pageSize = Math.max(1, query.pageSize ?? 10);
@@ -302,7 +268,10 @@ async function create(data: CreateModelRequest): Promise<Model> {
 
     const now = new Date();
     const model: Model = {
-        ...request,
+        name: request.name,
+        enable: request.enable,
+        prices: request.prices,
+        mapping: cloneMapping(request.mapping),
         id: Math.max(0, ...state.map(item => item.id)) + 1,
         created_at: now,
         updated_at: now,
@@ -321,7 +290,10 @@ async function update(id: number, data: UpdateModelRequest): Promise<Model> {
     assertUniqueName(request.name, id);
     const next: Model = {
         ...current,
-        ...request,
+        name: request.name,
+        enable: request.enable,
+        prices: request.prices,
+        mapping: cloneMapping(request.mapping),
         updated_at: new Date(),
     };
     persist(state.map(model => model.id === id ? next : model));
@@ -337,24 +309,21 @@ async function remove(id: number): Promise<{ success: boolean }> {
 }
 
 async function clearVendorReferences(vendorId: number): Promise<number> {
-    const affected = state.filter(model => model.routing_config.upstreams.some(upstream => upstream.vendor_id === vendorId));
+    const affected = state.filter(model => model.mapping.upstreams.some(upstream => upstream.vendor_id === vendorId));
     if (affected.length === 0) {
         return 0;
     }
 
     const next = state.map(model => {
-        if (!model.routing_config.upstreams.some(upstream => upstream.vendor_id === vendorId)) {
+        if (!model.mapping.upstreams.some(upstream => upstream.vendor_id === vendorId)) {
             return model;
         }
-        const upstreams = model.routing_config.upstreams.filter(upstream => upstream.vendor_id !== vendorId);
+        const upstreams = model.mapping.upstreams.filter(upstream => upstream.vendor_id !== vendorId);
         const hasEnabledUpstream = upstreams.some(upstream => upstream.enabled);
         return {
             ...model,
             enable: hasEnabledUpstream ? model.enable : false,
-            routing_config: {
-                ...model.routing_config,
-                upstreams,
-            },
+            mapping: { upstreams },
             updated_at: new Date(),
         };
     });
@@ -367,7 +336,7 @@ async function clearVendorModelReferences(vendorId: number, validVendorModelIds:
     let changed = 0;
     const next = state.map(model => {
         let modelChanged = false;
-        const upstreams = model.routing_config.upstreams.map(upstream => {
+        const upstreams = model.mapping.upstreams.map(upstream => {
             if (upstream.vendor_id !== vendorId
                 || upstream.vendor_model_id === undefined
                 || validIds.has(upstream.vendor_model_id)) {
@@ -382,7 +351,7 @@ async function clearVendorModelReferences(vendorId: number, validVendorModelIds:
         changed += 1;
         return {
             ...model,
-            routing_config: { ...model.routing_config, upstreams },
+            mapping: { upstreams },
             updated_at: new Date(),
         };
     });

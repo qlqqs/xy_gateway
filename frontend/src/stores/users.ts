@@ -1,6 +1,14 @@
 import { reactive } from 'vue';
 import type { ListResponse } from '@/types';
-import type { CreateUserRequest, UpdateUserRequest, User, UserQuery } from '@/types/user';
+import type {
+    CreateUserRequest,
+    UpdateUserKeyRequest,
+    UpdateUserRequest,
+    User,
+    UserKey,
+    UserKeyInput,
+    UserQuery,
+} from '@/types/user';
 import mockUsers from '@/repositories/mockUsers';
 
 const users = reactive<User[]>(mockUsers.all());
@@ -45,6 +53,27 @@ async function update(id: number, data: UpdateUserRequest): Promise<User | null>
     return user;
 }
 
+async function updateKeys(userId: number, keys: UserKeyInput[]): Promise<User | null> {
+    const user = await mockUsers.updateKeys(userId, keys);
+    if (user) {
+        syncUser(user);
+    }
+    return user;
+}
+
+async function updateKey(
+    userId: number,
+    keyId: number,
+    data: UpdateUserKeyRequest,
+): Promise<UserKey | null> {
+    const key = await mockUsers.updateKey(userId, keyId, data);
+    const user = mockUsers.get(userId);
+    if (user) {
+        syncUser(user);
+    }
+    return key;
+}
+
 async function adjustBalance(id: number, amount: number): Promise<User | null> {
     const user = await mockUsers.adjustBalance(id, amount);
     if (user) {
@@ -61,4 +90,4 @@ async function clearGroupReferences(groupId: number): Promise<number> {
     return changed;
 }
 
-export default { users, list, get, create, update, adjustBalance, clearGroupReferences };
+export default { users, list, get, create, update, updateKeys, updateKey, adjustBalance, clearGroupReferences };

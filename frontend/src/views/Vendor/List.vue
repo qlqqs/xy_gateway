@@ -175,10 +175,10 @@ function handleTest(record: Vendor) {
 }
 
 function handleDelete(record: Vendor) {
-    const referencedModels = modelsStore.models.filter(model => model.routing_config.upstreams
+    const referencedModels = modelsStore.models.filter(model => model.mapping.upstreams
         .some(upstream => upstream.vendor_id === record.id));
     const referenceHint = referencedModels.length > 0
-        ? `将同时从 ${referencedModels.length} 个模型路由中移除该供应商；没有其他上游的模型会自动停用。`
+        ? `将同时从 ${referencedModels.length} 个模型映射中移除该供应商；没有其他上游的模型会自动停用。`
         : '当前没有模型引用该供应商。';
 
     Modal.confirm({

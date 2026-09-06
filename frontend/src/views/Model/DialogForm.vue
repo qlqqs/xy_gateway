@@ -55,7 +55,6 @@
                 <UpstreamConfig
                     :upstreams="formState.upstreams"
                     mode="edit"
-                    :routing-mode="upstreamConfigRoutingMode"
                     :model-name="formState.name"
                     @update:upstreams="formState.upstreams = $event"
                 />
@@ -79,11 +78,8 @@ import modelsStore from '@/stores/models';
 import { useAppStore } from '@/stores/app';
 import type {
     CreateModelRequest,
-    LoadBalanceStrategy,
     Model,
     ModelPrices,
-    ModelRoutingMode,
-    ModelRoutingConfig,
     ModelUpstreamFormValue,
 } from '@/types/model';
 import { notifyError, notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
@@ -123,11 +119,7 @@ function createUpstream(data?: Partial<ModelUpstreamFormValue>): ModelUpstreamFo
 
 const formState = reactive({
     name: '',
-    // 路由模式仍随请求提交，但新建模型默认使用多上游负载均衡。
-    routing_mode: 'load_balance' as ModelRoutingMode,
-    load_balance_strategy: 'user' as LoadBalanceStrategy,
     upstreams: [createUpstream()] as ModelUpstreamFormValue[],
-    failoverEnabled: true,
     enable: true,
     prices: {
         billing_mode: 'token' as const,
@@ -140,19 +132,6 @@ const formState = reactive({
         per_request: undefined as number | undefined,
     } as ModelPrices,
 });
-
-// 单上游模型打开编辑时也显示多上游配置；只有真正添加第二个上游时才升级提交策略。
-const upstreamConfigRoutingMode = computed<ModelRoutingMode>(() => (
-    formState.routing_mode === 'single'
-        ? 'load_balance'
-        : formState.routing_mode
-));
-
-const requestRoutingMode = computed<ModelRoutingMode>(() => (
-    formState.routing_mode === 'single' && formState.upstreams.length > 1
-        ? 'load_balance'
-        : formState.routing_mode
-));
 
 const rules = {
     name: [{ required: true, message: '请输入模型名称' }],
@@ -192,16 +171,13 @@ function openEdit(model: Model) {
     dialogMode.value = 'edit';
     currentId.value = model.id;
     formState.name = model.name;
-    formState.routing_mode = model.routing_mode;
-    formState.load_balance_strategy = model.routing_config.load_balance_strategy ?? 'user';
-    const upstreams = model.routing_config.upstreams;
+    const upstreams = model.mapping.upstreams;
     formState.upstreams = upstreams.map(upstream => createUpstream({
         vendor_id: upstream.vendor_id,
         vendor_model_id: upstream.vendor_model_id,
         enabled: upstream.enabled,
     }));
     formState.enable = Boolean(model.enable);
-    formState.failoverEnabled = model.routing_config.failover?.enabled ?? true;
     formState.prices = {
         billing_mode: model.prices?.billing_mode ?? 'token',
         input: model.prices?.input ?? undefined,
@@ -228,10 +204,6 @@ async function handleOk() {
             notifyError('至少需要启用一个上游');
             return;
         }
-        if (formState.enable && requestRoutingMode.value === 'single' && enabledCount !== 1) {
-            notifyError('固定上游模式只能启用一个上游');
-            return;
-        }
 
         loading.value = true;
         const upstreams = formState.upstreams.map(upstream => {
@@ -244,18 +216,10 @@ async function handleOk() {
                 enabled: upstream.enabled,
             };
         });
-        const routingConfig: ModelRoutingConfig = {
-            upstreams,
-            failover: { enabled: formState.failoverEnabled },
-            ...(requestRoutingMode.value === 'load_balance'
-                ? { load_balance_strategy: formState.load_balance_strategy }
-                : {}),
-        };
         const requestData: CreateModelRequest = {
             name: formState.name,
             enable: formState.enable,
-            routing_mode: requestRoutingMode.value,
-            routing_config: routingConfig,
+            mapping: { upstreams },
             prices: toRequestPrices(formState.prices),
         };
 
@@ -278,10 +242,7 @@ async function handleOk() {
 
 function resetForm() {
     formState.name = '';
-    formState.routing_mode = 'load_balance';
-    formState.load_balance_strategy = 'user';
     formState.upstreams = [createUpstream()];
-    formState.failoverEnabled = true;
     formState.enable = true;
     formState.prices = {
         billing_mode: 'token',

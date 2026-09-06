@@ -1,9 +1,5 @@
 import type { BaseEntity, TableQuery } from './index';
 
-export type ModelRoutingMode = 'single' | 'load_balance' | 'first_available';
-
-export type LoadBalanceStrategy = 'user' | 'request';
-
 /** 模型价格的计费模式，与渠道定价保持一致。 */
 export type ModelBillingMode = 'token' | 'per_request' | 'image';
 
@@ -19,14 +15,9 @@ export interface ModelUpstreamFormValue {
     enabled: boolean;
 }
 
-export interface ModelFailoverConfig {
-    enabled: boolean;
-}
-
-export interface ModelRoutingConfig {
+/** 模型管理表单只维护供应商与上游模型的映射。 */
+export interface ModelMapping {
     upstreams: ModelUpstreamConfig[];
-    failover: ModelFailoverConfig;
-    load_balance_strategy?: LoadBalanceStrategy;
 }
 
 export interface ModelPrices {
@@ -42,16 +33,19 @@ export interface ModelPrices {
 
 export interface Model extends BaseEntity {
     name: string;
-    routing_mode: ModelRoutingMode;
-    routing_config: ModelRoutingConfig;
+    mapping: ModelMapping;
     enable: boolean;
     prices?: ModelPrices | null;
 }
 
-export type CreateModelRequest = Pick<
-    Model,
-    'name' | 'enable' | 'prices' | 'routing_mode' | 'routing_config'
->;
+export interface ModelMappingRequest {
+    name: string;
+    enable: boolean;
+    prices?: ModelPrices | null;
+    mapping: ModelMapping;
+}
+
+export type CreateModelRequest = ModelMappingRequest;
 
 export type UpdateModelRequest = CreateModelRequest;
 

@@ -44,7 +44,6 @@ function mountEditor(upstreams = [
     return mount(UpstreamConfig, {
         props: {
             mode: 'edit',
-            routingMode: 'first_available',
             modelName: 'gateway-model',
             upstreams,
         },
@@ -53,7 +52,7 @@ function mountEditor(upstreams = [
 }
 
 describe('UpstreamConfig', () => {
-    it('adds an enabled upstream in multi-upstream modes', async () => {
+    it('adds an enabled upstream mapping', async () => {
         const wrapper = mountEditor();
 
         await wrapper.get('button:not([aria-label])').trigger('click');
@@ -67,39 +66,21 @@ describe('UpstreamConfig', () => {
         ]]);
     });
 
-    it('moves first_available upstreams without modifying their configuration', async () => {
-        const wrapper = mountEditor();
-
-        await wrapper.get('button[aria-label="下移"]').trigger('click');
-
-        expect(wrapper.emitted('update:upstreams')).toEqual([[
-            [
-                { vendor_id: 2, vendor_model_id: 22, enabled: true },
-                { vendor_id: 1, vendor_model_id: 11, enabled: true },
-            ],
-        ]]);
-    });
-
-    it('sizes the actions column by content (auto) instead of hardcoded widths', () => {
+    it('keeps the mapping columns stable regardless of the number of upstreams', () => {
         const mountCases = [
-            { routingMode: 'single' as const, upstreams: [{ enabled: true }], hasEnabledColumn: false },
-            { routingMode: 'load_balance' as const, upstreams: [{ enabled: true }, { enabled: true }, { enabled: true }], hasEnabledColumn: true },
-            { routingMode: 'first_available' as const, upstreams: [{ enabled: true }, { enabled: true }, { enabled: true }], hasEnabledColumn: true },
+            [{ enabled: true }],
+            [{ enabled: true }, { enabled: true }, { enabled: true }],
         ];
 
-        for (const { routingMode, upstreams, hasEnabledColumn } of mountCases) {
+        for (const upstreams of mountCases) {
             const wrapper = mount(UpstreamConfig, {
-                props: { mode: 'edit', routingMode, modelName: 'gateway-model', upstreams },
+                props: { mode: 'edit', modelName: 'gateway-model', upstreams },
                 global,
             });
             const style = wrapper.get('.upstream-table').attributes('style') ?? '';
             expect(style).toContain('auto');
             expect(style).not.toContain('calc(');
-            if (hasEnabledColumn) {
-                expect(style).toContain('44px');
-            } else {
-                expect(style).not.toContain('44px');
-            }
+            expect(style).toContain('44px');
         }
     });
 });

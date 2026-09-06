@@ -8,7 +8,7 @@
                 <div class="upstream-table-header">
                     <span>供应商</span>
                     <span>上游模型</span>
-                    <span v-if="routingMode !== 'single'" class="centered-column">启用</span>
+                    <span class="centered-column">启用</span>
                     <span class="centered-column">操作</span>
                 </div>
                 <div
@@ -50,7 +50,7 @@
                             </a-select-option>
                         </a-select>
                     </div>
-                    <div v-if="routingMode !== 'single'" class="upstream-enabled">
+                    <div class="upstream-enabled">
                         <a-switch
                             :checked="upstream.enabled"
                             size="small"
@@ -59,28 +59,6 @@
                         />
                     </div>
                     <div class="upstream-actions">
-                        <a-tooltip v-if="routingMode === 'first_available'" title="上移">
-                            <a-button
-                                type="text"
-                                size="small"
-                                :disabled="mode === 'view' || index === 0"
-                                aria-label="上移"
-                                @click="moveUpstream(index, -1)"
-                            >
-                                <ArrowUpOutlined />
-                            </a-button>
-                        </a-tooltip>
-                        <a-tooltip v-if="routingMode === 'first_available'" title="下移">
-                            <a-button
-                                type="text"
-                                size="small"
-                                :disabled="mode === 'view' || index === upstreams.length - 1"
-                                aria-label="下移"
-                                @click="moveUpstream(index, 1)"
-                            >
-                                <ArrowDownOutlined />
-                            </a-button>
-                        </a-tooltip>
                         <a-tooltip title="测试">
                             <a-button
                                 type="text"
@@ -93,7 +71,7 @@
                             </a-button>
                         </a-tooltip>
                         <a-tooltip
-                            v-if="routingMode !== 'single' && upstreams.length > 1"
+                            v-if="upstreams.length > 1"
                             title="删除"
                         >
                             <a-button
@@ -111,7 +89,6 @@
                 </div>
             </div>
             <a-button
-                v-if="routingMode !== 'single'"
                 block
                 type="dashed"
                 :disabled="mode === 'view'"
@@ -129,29 +106,24 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import {
-    ArrowDownOutlined,
-    ArrowUpOutlined,
     DeleteOutlined,
     ExperimentOutlined,
     PlusOutlined,
 } from '@ant-design/icons-vue';
 import vendorsStore from '@/stores/vendors';
-import type { ModelRoutingMode, ModelUpstreamFormValue } from '@/types/model';
+import type { ModelUpstreamFormValue } from '@/types/model';
 import type { VendorModel } from '@/types/vendor';
 import DialogTest from '@/views/Vendor/DialogTest.vue';
 
 const props = defineProps<{
     mode: 'edit' | 'view';
-    routingMode: ModelRoutingMode;
     modelName: string;
     upstreams: ModelUpstreamFormValue[];
 }>();
 
 const gridStyle = computed(() => ({
     // 供应商/上游模型自适应撑开，启用列固定，操作列按内容自动撑开（auto）
-    gridTemplateColumns: props.routingMode === 'single'
-        ? 'minmax(0, 1fr) minmax(0, 1fr) auto'
-        : 'minmax(0, 1fr) minmax(0, 1fr) 44px auto',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) 44px auto',
 }));
 
 const emit = defineEmits<{
@@ -245,21 +217,6 @@ function addUpstream() {
 function removeUpstream(index: number) {
     if (props.upstreams.length > 1) {
         emit('update:upstreams', props.upstreams.filter((_, currentIndex) => currentIndex !== index));
-    }
-}
-
-
-function moveUpstream(index: number, offset: number) {
-    const targetIndex = index + offset;
-    if (targetIndex < 0 || targetIndex >= props.upstreams.length) {
-        return;
-    }
-
-    const next = [...props.upstreams];
-    const [upstream] = next.splice(index, 1);
-    if (upstream) {
-        next.splice(targetIndex, 0, upstream);
-        emit('update:upstreams', next);
     }
 }
 

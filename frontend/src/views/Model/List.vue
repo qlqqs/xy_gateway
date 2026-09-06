@@ -66,7 +66,7 @@
                 <template v-if="column.key === 'upstream_model'">
                     <a-space direction="vertical" size="small">
                         <UpstreamModel
-                            v-for="(upstream, index) in record.routing_config.upstreams"
+                            v-for="(upstream, index) in record.mapping.upstreams"
                             :key="`${upstream.vendor_id}-${upstream.vendor_model_id ?? 'auto'}-${index}`"
                             :vendor-name="getVendorName(upstream.vendor_id)"
                             :model-name="upstream.vendor_model_id ? getVendorModelName(upstream.vendor_model_id) : 'auto'"
@@ -256,7 +256,7 @@ function getVendorModelName(id: number): string {
 
 async function loadVendorModelsForPage(models: Model[]) {
     const ids = [...new Set(models.flatMap(model => (
-        model.routing_config.upstreams
+        model.mapping.upstreams
             .map(upstream => upstream.vendor_model_id)
             .filter((id): id is number => id != null)
     )))];
