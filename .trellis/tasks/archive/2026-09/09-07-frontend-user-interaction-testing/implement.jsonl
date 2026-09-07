@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"组件事件、props/emits、Ant Design 控件和可访问按钮约束"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Vitest/jsdom、异步失败恢复、反馈、timer 和构建门禁"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"页面→store→repository/API 数据流及 CRUD 缓存一致性"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"严格 TypeScript、DTO 边界和测试 mock 类型约束"}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"useResourceTable/useAutoRefresh 的测试和生命周期要求"}
+{"file":".trellis/tasks/09-07-frontend-user-interaction-testing/research/interaction-inventory.md","reason":"当前按钮清单、已有覆盖和新增测试矩阵"}

@@ -21,8 +21,7 @@ function toModelRequest(model: any) {
         name: model.name,
         enable: Boolean(model.enable),
         prices: model.prices ?? {},
-        routing_mode: model.routing_mode,
-        routing_config: model.routing_config,
+        mapping: model.mapping ?? { upstreams: [] },
     };
 }
 
@@ -30,8 +29,7 @@ function toModelRequest(model: any) {
 function withSingleUpstream(model: any, vendorId: number, vendorModelId?: number) {
     return {
         ...toModelRequest(model),
-        routing_mode: "single",
-        routing_config: {
+        mapping: {
             upstreams: [{
                 vendor_id: vendorId,
                 ...(vendorModelId ? { vendor_model_id: vendorModelId } : {}),
@@ -78,7 +76,7 @@ describe("Model API (Positive)", () => {
             expect(response.status).toBe(200);
             expect(response.body).toHaveProperty("id");
             expect(response.body.name).toBe("gpt-3.5-turbo");
-            expect(response.body.routing_config.upstreams[0].vendor_id).toBe(openaiVendorId);
+            expect(response.body.mapping.upstreams[0].vendor_id).toBe(openaiVendorId);
             expect(response.body).not.toHaveProperty("vendor_id");
             expect(response.body).not.toHaveProperty("vendor_model_id");
             expect(response.body).toHaveProperty("created_at");
@@ -102,7 +100,7 @@ describe("Model API (Positive)", () => {
 
             expect(response.status).toBe(200);
             expect(response.body.name).toBe("claude-3-haiku-20240307");
-            expect(response.body.routing_config.upstreams[0].vendor_id).toBe(anthropicVendorId);
+            expect(response.body.mapping.upstreams[0].vendor_id).toBe(anthropicVendorId);
         });
 
         it("should create a random model", async () => {
@@ -114,7 +112,7 @@ describe("Model API (Positive)", () => {
             );
 
             expect(response.status).toBe(200);
-            expect(response.body.routing_config.upstreams[0].vendor_id).toBe(openaiVendorId);
+            expect(response.body.mapping.upstreams[0].vendor_id).toBe(openaiVendorId);
             expect(response.body.name).toBeTruthy();
         });
     });
@@ -142,7 +140,7 @@ describe("Model API (Positive)", () => {
             expect(model).toHaveProperty("name");
             expect(model).not.toHaveProperty("vendor_id");
             expect(model).not.toHaveProperty("vendor_model_id");
-            expect(model).toHaveProperty("routing_config");
+            expect(model).toHaveProperty("mapping");
             expect(model).toHaveProperty("created_at");
             expect(model).toHaveProperty("updated_at");
             expect(model).toHaveProperty("enable");
@@ -155,7 +153,7 @@ describe("Model API (Positive)", () => {
             );
 
             const vendorIds = response.body.list.flatMap((model: any) => (
-                model.routing_config.upstreams.map((upstream: any) => upstream.vendor_id)
+                model.mapping.upstreams.map((upstream: any) => upstream.vendor_id)
             ));
             expect(vendorIds).toContain(openaiVendorId);
             expect(vendorIds).toContain(anthropicVendorId);
@@ -170,7 +168,7 @@ describe("Model API (Positive)", () => {
             expect(response.status).toBe(200);
             expect(response.body.list.length).toBeGreaterThan(0);
             expect(response.body.list.every((model: any) => (
-                model.routing_config.upstreams.some((upstream: any) => (
+                model.mapping.upstreams.some((upstream: any) => (
                     upstream.vendor_id === anthropicVendorId
                 ))
             ))).toBe(true);
@@ -259,7 +257,8 @@ describe("Model API (Positive)", () => {
 
             expect(response.status).toBe(200);
             expect(response.body.name).toBe("updated-gpt-3.5");
-            expect(response.body.routing_config).toEqual(modelToUpdate.routing_config);
+            expect(response.body.mapping.upstreams).toHaveLength(modelToUpdate.mapping.upstreams.length);
+            expect(response.body.mapping.upstreams[0]).toMatchObject(modelToUpdate.mapping.upstreams[0]);
             modelToUpdate = response.body;
         });
 
@@ -271,7 +270,7 @@ describe("Model API (Positive)", () => {
             );
 
             expect(response.status).toBe(200);
-            expect(response.body.routing_config.upstreams[0].vendor_id).toBe(anthropicVendorId);
+            expect(response.body.mapping.upstreams[0].vendor_id).toBe(anthropicVendorId);
             modelToUpdate = response.body;
         });
 
@@ -326,7 +325,7 @@ describe("Model API (Positive)", () => {
 
             expect(response.status).toBe(200);
             expect(response.body.name).toBe("multi-field-updated");
-            expect(response.body.routing_config.upstreams[0].vendor_id).toBe(anthropicVendorId);
+            expect(response.body.mapping.upstreams[0].vendor_id).toBe(anthropicVendorId);
             expect(response.body.enable).toBeFalsy();
         });
 
@@ -348,7 +347,7 @@ describe("Model API (Positive)", () => {
 
             expect(response.status).toBe(200);
             expect(response.body.name).toBe(originalName);
-            expect(response.body.routing_config.upstreams[0].vendor_id).toBe(anthropicVendorId);
+            expect(response.body.mapping.upstreams[0].vendor_id).toBe(anthropicVendorId);
         });
     });
 
@@ -420,7 +419,7 @@ describe("Model API (Positive)", () => {
         });
     });
 
-    describe("routing config vendor_model_id", () => {
+    describe("upstream mapping vendor_model_id", () => {
         let vendorModelId: number;
 
         beforeAll(async () => {
@@ -441,7 +440,7 @@ describe("Model API (Positive)", () => {
             );
 
             expect(response.status).toBe(200);
-            expect(response.body.routing_config.upstreams[0]).not.toHaveProperty("vendor_model_id");
+            expect(response.body.mapping.upstreams[0]).not.toHaveProperty("vendor_model_id");
         });
 
         it("should create a model with vendor_model_id set", async () => {
@@ -456,7 +455,7 @@ describe("Model API (Positive)", () => {
             );
 
             expect(response.status).toBe(200);
-            expect(response.body.routing_config.upstreams[0].vendor_model_id).toBe(vendorModelId);
+            expect(response.body.mapping.upstreams[0].vendor_model_id).toBe(vendorModelId);
         });
 
         it("should update model to set vendor_model_id", async () => {
@@ -466,7 +465,7 @@ describe("Model API (Positive)", () => {
                 adminToken,
             );
             const modelId = createRes.body.id;
-            expect(createRes.body.routing_config.upstreams[0]).not.toHaveProperty("vendor_model_id");
+            expect(createRes.body.mapping.upstreams[0]).not.toHaveProperty("vendor_model_id");
 
             const response = await requestHelper.put(
                 `/model/${modelId}`,
@@ -475,7 +474,7 @@ describe("Model API (Positive)", () => {
             );
 
             expect(response.status).toBe(200);
-            expect(response.body.routing_config.upstreams[0].vendor_model_id).toBe(vendorModelId);
+            expect(response.body.mapping.upstreams[0].vendor_model_id).toBe(vendorModelId);
         });
 
         it("should update model to clear vendor_model_id", async () => {
@@ -497,7 +496,7 @@ describe("Model API (Positive)", () => {
             );
 
             expect(response.status).toBe(200);
-            expect(response.body.routing_config.upstreams[0]).not.toHaveProperty("vendor_model_id");
+            expect(response.body.mapping.upstreams[0]).not.toHaveProperty("vendor_model_id");
         });
     });
 
@@ -516,19 +515,23 @@ describe("Model API (Positive)", () => {
             );
             const modelId = modelResponse.body.id;
 
-            const blockedVendorDelete = await requestHelper.del(`/vendor/${vendorId}`, adminToken);
-            expect(blockedVendorDelete.status).toBe(400);
+            const vendorDeleteResponse = await requestHelper.del(`/vendor/${vendorId}`, adminToken);
+            expect(vendorDeleteResponse.status).toBe(200);
+            expect(vendorDeleteResponse.body).toEqual({ success: true });
+
+            // 删除供应商会先清理规范化模型映射；没有可用上游的模型自动停用，
+            // 但模型实体仍可由管理端显式删除。
+            const getResponse = await requestHelper.get(`/model/${modelId}`, adminToken);
+            expect(getResponse.status).toBe(200);
+            expect(getResponse.body.mapping.upstreams).toEqual([]);
+            expect(getResponse.body.enable).toBe(false);
 
             const deleteResponse = await requestHelper.del(`/model/${modelId}`, adminToken);
             expect(deleteResponse.status).toBe(200);
             expect(deleteResponse.body).toEqual({ success: true });
 
-            const getResponse = await requestHelper.get(`/model/${modelId}`, adminToken);
-            expect(getResponse.status).toBe(404);
-
-            const vendorDeleteResponse = await requestHelper.del(`/vendor/${vendorId}`, adminToken);
-            expect(vendorDeleteResponse.status).toBe(200);
-            expect(vendorDeleteResponse.body).toEqual({ success: true });
+            const deletedModelResponse = await requestHelper.get(`/model/${modelId}`, adminToken);
+            expect(deletedModelResponse.status).toBe(404);
         });
     });
 });

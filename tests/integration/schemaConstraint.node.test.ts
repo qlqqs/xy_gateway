@@ -1,6 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { SgModel } from "../../src/model/sgModel";
-import { ModelRoutingMode } from "../../src/constants";
 import modelManager from "../../src/manager/modelManager";
 import clientConfigManager from "../../src/manager/clientConfigManager";
 import dbHelper from "../helpers/dbHelper";
@@ -25,12 +24,8 @@ describe("database uniqueness constraints (node, real db)", () => {
     function buildModel(name: string) {
         return new SgModel({
             name,
-            routing_mode: ModelRoutingMode.SINGLE,
-            routing_config: {
-                upstreams: [{ vendor_id: 1, enabled: true }],
-                failover: { enabled: true },
-                load_balance_strategy: "user",
-            },
+            enable: true,
+            prices: {},
         });
     }
 

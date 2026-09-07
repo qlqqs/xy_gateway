@@ -15,7 +15,7 @@ describe("GET /llm/v1/models", () => {
 
         await requestHelper.post(
             "/user/create.json",
-            { name: "Models User", token: normalToken, type: "normal" },
+            { name: "Models User", keys: [{ value: normalToken }], type: "normal" },
             adminToken,
         );
 

@@ -114,6 +114,7 @@ import {
 import { Modal } from 'ant-design-vue/es';
 import vendorsStore from '@/stores/vendors';
 import modelsStore from '@/stores/models';
+import groupsStore from '@/stores/groups';
 import { useResourceTable } from '@/composables/useResourceTable';
 import { formatDate } from '@/utils/format';
 import DialogCreate from './DialogCreate.vue';
@@ -151,7 +152,8 @@ function handleCreate() {
     createDialogRef.value?.open();
 }
 
-function handleCreateSuccess() {
+async function handleCreateSuccess() {
+    await Promise.allSettled([groupsStore.refresh()]);
     loadData();
 }
 
@@ -159,15 +161,12 @@ function handleEdit(record: Vendor) {
     editDialogRef.value?.open(record);
 }
 
-async function handleEditSuccess(vendor: Vendor) {
-    try {
-        const vendorModels = await vendorsStore.listModels(vendor.id);
-        await modelsStore.clearVendorModelReferences(vendor.id, vendorModels.map(model => model.id));
-    } catch (error) {
-        notifyRequestError(error, '同步模型引用失败');
-    } finally {
-        void loadData();
-    }
+async function handleEditSuccess() {
+    await Promise.allSettled([
+        modelsStore.refresh(),
+        groupsStore.refresh(),
+    ]);
+    void loadData();
 }
 
 function handleTest(record: Vendor) {
@@ -175,22 +174,22 @@ function handleTest(record: Vendor) {
 }
 
 function handleDelete(record: Vendor) {
-    const referencedModels = modelsStore.models.filter(model => model.mapping.upstreams
-        .some(upstream => upstream.vendor_id === record.id));
-    const referenceHint = referencedModels.length > 0
-        ? `将同时从 ${referencedModels.length} 个模型映射中移除该供应商；没有其他上游的模型会自动停用。`
-        : '当前没有模型引用该供应商。';
-
     Modal.confirm({
         title: '确认删除',
-        content: `确定要删除供应商 "${record.name}" 吗？${referenceHint}`,
+        content: `确定要删除供应商 "${record.name}" 吗？后端会自动清理模型映射和供应商模型。`,
         okText: '确定',
         cancelText: '取消',
         okType: 'danger',
         onOk: async () => {
             try {
-                await modelsStore.clearVendorReferences(record.id);
-                await vendorsStore.remove(record.id);
+                const result = await vendorsStore.remove(record.id);
+                if (!result.success) {
+                    throw new Error('供应商不存在');
+                }
+                await Promise.allSettled([
+                    modelsStore.refresh(),
+                    groupsStore.refresh(),
+                ]);
                 notifySuccess('删除成功');
                 void loadData();
             } catch (error) {

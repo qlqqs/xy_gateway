@@ -20,6 +20,13 @@ async function findByName(name: string): Promise<SgVendor | null> {
     return await SgVendor.query().where("name", name).first();
 }
 
+async function findByChannelCode(channelCode: string, excludeId?: number): Promise<SgVendor | null> {
+    if (!channelCode) return null;
+    const query = SgVendor.query().whereRaw("LOWER(channel_code) = LOWER(?)", [channelCode]);
+    if (excludeId !== undefined) query.where("id", "!=", excludeId);
+    return await query.first();
+}
+
 async function listAll(): Promise<SgVendor[]> {
     return (await SgVendor.query().get()).all();
 }
@@ -95,6 +102,7 @@ async function deleteById(vendorId: number): Promise<boolean> {
 export default {
     findById,
     findByName,
+    findByChannelCode,
     listAll,
     list,
     getByIds,

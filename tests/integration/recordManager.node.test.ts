@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { SgModel } from "../../src/model/sgModel";
-import { ModelRoutingMode, SgRecordStatus } from "../../src/constants";
+import { SgRecordStatus } from "../../src/constants";
 import modelManager from "../../src/manager/modelManager";
 import recordManager from "../../src/manager/recordManager";
 import userManager from "../../src/manager/userManager";
@@ -20,19 +20,14 @@ describe("recordManager (node, real db)", () => {
     function buildModel(name: string) {
         return new SgModel({
             name,
-            routing_mode: ModelRoutingMode.SINGLE,
-            routing_config: {
-                upstreams: [{ vendor_id: 1, enabled: true }],
-                failover: { enabled: true },
-                load_balance_strategy: "user",
-            },
+            enable: true,
+            prices: {},
         });
     }
 
     async function createTestUser() {
         return await userManager.create({
             name: "tester",
-            token: `token-${Math.random()}`,
             type: "normal" as any,
         });
     }

@@ -148,7 +148,8 @@ import {
 } from '@ant-design/icons-vue';
 import modelsStore from '@/stores/models';
 import vendorsStore from '@/stores/vendors';
-import groupStore from '@/stores/groups';
+import groupsStore from '@/stores/groups';
+import usersStore from '@/stores/users';
 import { useAppStore } from '@/stores/app';
 import { useResourceTable } from '@/composables/useResourceTable';
 import { formatDate } from '@/utils/format';
@@ -217,7 +218,11 @@ function handleEdit(record: Model) {
     dialogFormRef.value?.openEdit(record);
 }
 
-function handleSuccess() {
+async function handleSuccess() {
+    await Promise.allSettled([
+        groupsStore.refresh(),
+        usersStore.refresh(),
+    ]);
     loadData();
 }
 
@@ -234,8 +239,11 @@ function handleDelete(record: Model) {
         okType: 'danger',
         onOk: async () => {
             try {
-                await groupStore.clearModelReferences(record.name);
                 await modelsStore.remove(record.id);
+                await Promise.allSettled([
+                    groupsStore.refresh(),
+                    usersStore.refresh(),
+                ]);
                 notifySuccess('删除成功');
                 void loadData();
             } catch (error) {

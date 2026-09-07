@@ -1,6 +1,7 @@
 import { SgUser } from "../model/sgUser";
 import { ROOT_USER_ID, UserType, BALANCE_SCALE } from "../constants";
 import userManager from "../manager/userManager";
+import userKeyManager from "../manager/userKeyManager";
 import rechargeRecordManager from "../manager/rechargeRecordManager";
 import configService from "./configService";
 import customError from "../util/customErrorUtil";
@@ -36,18 +37,22 @@ async function isRootToken(token: string, rootToken?: string): Promise<boolean> 
     return constantTimeEqualBytes(tokenHash, rootHash);
 }
 
-async function getUserByToken(token: string, rootToken?: string): Promise<SgUser | null> {
-    if (await isRootToken(token, rootToken)) {
+async function getUserByApiKey(apiKey: string, rootToken?: string): Promise<SgUser | null> {
+    if (await isRootToken(apiKey, rootToken)) {
         const user = new SgUser();
         user.id = ROOT_USER_ID;
         user.name = "Root";
-        user.token = token;
         user.type = UserType.ROOT;
         user.balance = Number.MAX_SAFE_INTEGER; // Root has unlimited balance
         return user;
     }
 
-    return await userManager.findByToken(token);
+    if (!apiKey) return null;
+    const digest = await sha256(apiKey);
+    const keyHash = Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
+    const key = await userKeyManager.findByHash(keyHash);
+    if (!key) return null;
+    return await userManager.findById(Number(key.user_id));
 }
 
 async function adjustBalance(
@@ -104,12 +109,15 @@ async function checkBalance(userId: number, requiredAmount: number): Promise<boo
         return false;
     }
 
-    return user.balance >= toUnits(requiredAmount);
+    // `SgUser.balance` is exposed by the model in persisted micro-yuan
+    // units (the same representation used by the management API).  Compare
+    // like-for-like after converting the requested amount once.
+    return Number(user.balance) >= toUnits(requiredAmount);
 }
 
 export default {
     isRootToken,
-    getUserByToken,
+    getUserByApiKey,
     adjustBalance,
     deductBalance,
     checkBalance,

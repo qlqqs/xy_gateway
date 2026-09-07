@@ -305,7 +305,7 @@ describe("Vendor API (Positive)", () => {
     });
 
     describe("DELETE /vendor/:id", () => {
-        it("should reject deleting a vendor used by a model upstream", async () => {
+        it("should remove model mappings when deleting a referenced vendor", async () => {
             const vendorResponse = await requestHelper.post(
                 "/vendor/create.json",
                 vendorFixtures.createRandomVendor({ name: "Referenced Vendor" }),
@@ -318,8 +318,7 @@ describe("Vendor API (Positive)", () => {
                     name: `referenced-vendor-model-${Date.now()}`,
                     enable: true,
                     prices: {},
-                    routing_mode: "single",
-                    routing_config: {
+                    mapping: {
                         upstreams: [{ vendor_id: vendorId, enabled: true }],
                     },
                 },
@@ -328,8 +327,17 @@ describe("Vendor API (Positive)", () => {
 
             const response = await requestHelper.del(`/vendor/${vendorId}`, adminToken);
 
-            expect(response.status).toBe(400);
-            expect(response.body.error).toContain("associated models");
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual({ success: true });
+
+            const modelResponse = await requestHelper.get(
+                `/model/list.json?keyword=referenced-vendor-model-`,
+                adminToken,
+            );
+            expect(modelResponse.status).toBe(200);
+            expect(modelResponse.body.list).toHaveLength(1);
+            expect(modelResponse.body.list[0].mapping.upstreams).toEqual([]);
+            expect(modelResponse.body.list[0].enable).toBe(false);
         });
 
         it("should only delete the specified vendor, not others", async () => {
@@ -374,7 +382,10 @@ describe("Vendor API (Positive)", () => {
             );
 
             expect(response.status).toBe(200);
-            expect(response.body.config).toEqual({ auth_mode: "bearer_token", skip_tls_verify: false });
+            expect(response.body.config).toEqual(expect.objectContaining({
+                auth_mode: "bearer_token",
+                skip_tls_verify: false,
+            }));
         });
 
         it("should default config.auth_mode to bearer_token when not provided", async () => {
@@ -388,7 +399,10 @@ describe("Vendor API (Positive)", () => {
             );
 
             expect(response.status).toBe(200);
-            expect(response.body.config).toEqual({ auth_mode: "bearer_token", skip_tls_verify: false });
+            expect(response.body.config).toEqual(expect.objectContaining({
+                auth_mode: "bearer_token",
+                skip_tls_verify: false,
+            }));
         });
 
         it("should update vendor config.auth_mode", async () => {
@@ -411,7 +425,10 @@ describe("Vendor API (Positive)", () => {
             );
 
             expect(updateRes.status).toBe(200);
-            expect(updateRes.body.config).toEqual({ auth_mode: "api_key", skip_tls_verify: false });
+            expect(updateRes.body.config).toEqual(expect.objectContaining({
+                auth_mode: "api_key",
+                skip_tls_verify: false,
+            }));
         });
 
         it("should preserve other config fields when updating auth_mode", async () => {
@@ -441,8 +458,12 @@ describe("Vendor API (Positive)", () => {
             );
 
             expect(updateRes.status).toBe(200);
-            // 注意：当前实现会覆盖整个 config，SgVendorConfig 只认已知字段
-            expect(updateRes.body.config).toEqual({ auth_mode: "api_key", skip_tls_verify: false });
+            // 领域调度字段会随 config 一并序列化；未知字段不会进入 DTO。
+            expect(updateRes.body.config).toEqual(expect.objectContaining({
+                auth_mode: "api_key",
+                skip_tls_verify: false,
+            }));
+            expect(updateRes.body.config).not.toHaveProperty("custom_field");
         });
     });
 });

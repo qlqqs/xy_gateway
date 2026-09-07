@@ -43,7 +43,7 @@ describe("AI Chat API", () => {
             adminToken,
         );
         testUserId = userResponse.body.id;
-        testUserToken = userResponse.body.token;
+        testUserToken = userResponse.body.keys[0].value;
 
         // Create OpenAI vendor
         const openaiVendor = await requestHelper.post(
@@ -382,7 +382,7 @@ describe("AI Chat API", () => {
                 "/model/create.json",
                 {
                     ...modelFixtures.createRandomModel(openaiVendorId, "gateway-alias-model"),
-                    routing_config: {
+                    mapping: {
                         upstreams: [{
                             vendor_id: openaiVendorId,
                             vendor_model_id: vendorModelId,

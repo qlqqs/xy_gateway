@@ -78,7 +78,8 @@ const props = defineProps<{
 
 const { loading, data, pagination, searchForm, loadData, handleSearch, handleReset, handleTableChange } = useResourceTable<RechargeRecord, RechargeRecordsQuery>({
     initialSearchForm: {
-        user_id: undefined,
+        // 首次加载和后续 prop 变化都采用预选用户，避免记录页挂载时丢失筛选条件。
+        user_id: props.selectedUserId,
         type: undefined,
     },
     fetcher: listRechargeRecords,

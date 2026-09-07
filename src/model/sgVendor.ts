@@ -29,6 +29,10 @@ class SgVendorConfig extends CastsAttributes {
     status?: "active" | "disabled";
     remark?: string;
     available_models?: string[];
+    concurrency?: number;
+    load_factor?: number | null;
+    priority?: number;
+    group_id?: number | null;
 
     constructor(data?: Partial<SgVendorConfig>) {
         super();
@@ -43,6 +47,10 @@ class SgVendorConfig extends CastsAttributes {
             if (data.status !== undefined) this.status = data.status;
             if (data.remark !== undefined) this.remark = data.remark;
             if (data.available_models !== undefined) this.available_models = data.available_models;
+            if (data.concurrency !== undefined) this.concurrency = data.concurrency;
+            if (data.load_factor !== undefined) this.load_factor = data.load_factor;
+            if (data.priority !== undefined) this.priority = data.priority;
+            if (data.group_id !== undefined) this.group_id = data.group_id;
         }
     }
 
@@ -60,6 +68,10 @@ class SgVendorConfig extends CastsAttributes {
         if (this.status) result.status = this.status;
         if (this.remark) result.remark = this.remark;
         if (this.available_models?.length) result.available_models = this.available_models;
+        if (this.concurrency !== undefined) result.concurrency = this.concurrency;
+        if (this.load_factor !== undefined) result.load_factor = this.load_factor;
+        if (this.priority !== undefined) result.priority = this.priority;
+        if (this.group_id !== undefined) result.group_id = this.group_id;
         return result;
     }
 
@@ -88,9 +100,33 @@ class SgVendor extends Model {
     urls!: Record<string, string>;
     config!: SgVendorConfig;
 
+    // Formal scheduling/domain columns introduced in migrate_0031.  The
+    // nested config object remains the public transport shape for existing
+    // sender/plugin code; services keep these fields in sync on writes.
+    auth_mode!: VendorAuthMode;
+    skip_tls_verify!: boolean;
+    proxy!: { type: "http" | "socks5"; url: string } | null;
+    supplier_name!: string | null;
+    channel_code!: string | null;
+    api_type!: "openai" | "anthropic" | null;
+    openai_protocol!: "chat_completions" | "responses" | null;
+    status!: "active" | "disabled";
+    remark!: string | null;
+    available_models!: string[];
+    concurrency!: number;
+    load_factor!: number | null;
+    priority!: number;
+    group_id!: number | null;
+
     casts = {
         urls: 'json',
         config: SgVendorConfig,
+        proxy: 'json',
+        available_models: 'json',
+        skip_tls_verify: 'boolean',
+        concurrency: 'integer',
+        load_factor: 'float',
+        priority: 'integer',
     };
 
     created_at!: Date;
@@ -98,11 +134,62 @@ class SgVendor extends Model {
 
     constructor(attributes: Record<string, unknown> = {}) {
         super();
+        const inputConfig = attributes.config instanceof SgVendorConfig
+            ? attributes.config
+            : new SgVendorConfig((attributes.config ?? {}) as Partial<SgVendorConfig>);
         this.fill({
             urls: {},
-            config: new SgVendorConfig(),
+            config: inputConfig,
+            auth_mode: inputConfig.auth_mode,
+            skip_tls_verify: inputConfig.skip_tls_verify,
+            proxy: inputConfig.proxy ?? null,
+            supplier_name: inputConfig.supplier_name ?? null,
+            channel_code: inputConfig.channel_code ?? null,
+            api_type: inputConfig.api_type ?? null,
+            openai_protocol: inputConfig.openai_protocol ?? null,
+            status: inputConfig.status ?? "active",
+            remark: inputConfig.remark ?? null,
+            available_models: inputConfig.available_models ?? [],
+            concurrency: inputConfig.concurrency ?? 10,
+            load_factor: inputConfig.load_factor ?? null,
+            priority: inputConfig.priority ?? 1,
+            group_id: inputConfig.group_id ?? null,
             ...attributes,
         });
+        // A hydrated row may contain formal columns but an old/empty config
+        // JSON.  Reconstruct the nested runtime object from the columns so all
+        // callers observe one canonical value.
+        this.config = new SgVendorConfig({
+            ...(this.config ?? {}),
+            auth_mode: this.auth_mode,
+            skip_tls_verify: this.skip_tls_verify,
+            proxy: this.proxy,
+            supplier_name: this.supplier_name ?? undefined,
+            channel_code: this.channel_code ?? undefined,
+            api_type: this.api_type ?? undefined,
+            openai_protocol: this.openai_protocol ?? undefined,
+            status: this.status ?? undefined,
+            remark: this.remark ?? undefined,
+            available_models: this.available_models ?? [],
+            concurrency: this.concurrency,
+            load_factor: this.load_factor,
+            priority: this.priority,
+            group_id: this.group_id,
+        });
+    }
+
+    /** Effective scheduling weight used by the priority/weight scheduler. */
+    getEffectiveWeight(): number {
+        // Formal columns are the source of truth after migrate_0031.  Fall
+        // back to the nested transport object only for an object constructed
+        // before hydration (or by a legacy fixture); a persisted NULL
+        // load_factor must not resurrect a stale config value.
+        const explicit = this.load_factor !== undefined ? this.load_factor : this.config?.load_factor;
+        const concurrency = this.concurrency !== undefined
+            ? this.concurrency
+            : (this.config?.concurrency ?? 1);
+        const weight = explicit ?? concurrency;
+        return Number.isFinite(weight) && weight > 0 ? weight : 1;
     }
 
     /**
@@ -117,44 +204,73 @@ class SgVendor extends Model {
     }
 
     /**
+     * Return the protocol explicitly declared by the vendor domain fields.
+     *
+     * A null result means that the object predates the formal capability
+     * columns (for example an in-memory fixture) and URL discovery is used.
+     * Once `api_type` is present, however, it is the source of truth: a
+     * response-capable OpenAI channel must not accidentally become a Chat
+     * Completions channel merely because its vendor type has a preset URL for
+     * that protocol.
+     */
+    private getDeclaredFormat(): ApiFormat | null {
+        const apiType = this.api_type ?? this.config?.api_type;
+        const protocol = this.openai_protocol ?? this.config?.openai_protocol;
+        if (apiType === "anthropic") return ApiFormat.ANTHROPIC;
+        if (apiType === "openai") {
+            return protocol === "responses" ? ApiFormat.RESPONSES : ApiFormat.OPENAI;
+        }
+        return null;
+    }
+
+    /** Resolve a URL without applying the formal capability gate. */
+    private resolveUrlByFormat(format: ApiFormat): string | null {
+        const urls = this.getMergedUrls();
+
+        if (format === ApiFormat.RESPONSES) {
+            const responsesUrl = urls[ApiFormat.RESPONSES];
+            if (responsesUrl) {
+                return responsesUrl.includes("/responses")
+                    ? responsesUrl
+                    : responsesUrl.replace(/\/$/, "") + "/responses";
+            }
+            // A Responses channel may intentionally reuse an OpenAI base URL;
+            // derive the endpoint without recursively applying the capability
+            // gate (the gate is checked by getUrlByFormat itself).
+            const openaiUrl = this.resolveUrlByFormat(ApiFormat.OPENAI);
+            return openaiUrl === null ? null : urlUtil.convertOpenaiToResponses(openaiUrl);
+        }
+
+        if (format === ApiFormat.ANTHROPIC) {
+            const anthropicUrl = urls[ApiFormat.ANTHROPIC];
+            if (anthropicUrl) {
+                return anthropicUrl.includes("/v1/messages")
+                    ? anthropicUrl
+                    : anthropicUrl.replace(/\/$/, "") + "/v1/messages";
+            }
+        }
+
+        if (format === ApiFormat.OPENAI) {
+            const openaiUrl = urls[ApiFormat.OPENAI];
+            if (openaiUrl) {
+                return openaiUrl.includes("/chat/completions")
+                    ? openaiUrl
+                    : openaiUrl.replace(/\/$/, "") + "/chat/completions";
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * 根据 API 格式获取对应的 URL
      * @param format - API 格式（openai, anthropic, responses）
      * @returns 完整的 URL 字符串；无法解析（缺 URL 或无法派生）时返回 null，由调用方处理
      */
     getUrlByFormat(format: ApiFormat): string | null {
-        const urls = this.getMergedUrls();
-
-        if (format === ApiFormat.RESPONSES) {
-            // Responses 格式：优先使用 urls[RESPONSES]
-            const responsesUrl = urls[ApiFormat.RESPONSES];
-            if (responsesUrl) {
-                return responsesUrl.includes("/responses") ? responsesUrl : responsesUrl.replace(/\/$/, "") + "/responses";
-            }
-            // 没有 urls[RESPONSES]，从 OPENAI URL 派生；非标准 openai URL 无法派生时返回 null
-            const openaiUrl = this.getUrlByFormat(ApiFormat.OPENAI);
-            if (openaiUrl === null) {
-                return null;
-            }
-            return urlUtil.convertOpenaiToResponses(openaiUrl);
-        }
-
-        if (format === ApiFormat.ANTHROPIC) {
-            // Anthropic 格式：使用 urls[ANTHROPIC]
-            const anthropicUrl = urls[ApiFormat.ANTHROPIC];
-            if (anthropicUrl) {
-                return anthropicUrl.includes("/v1/messages") ? anthropicUrl : anthropicUrl.replace(/\/$/, "") + "/v1/messages";
-            }
-        }
-
-        if (format === ApiFormat.OPENAI) {
-            // OpenAI 格式：使用 urls[OPENAI]
-            const openaiUrl = urls[ApiFormat.OPENAI];
-            if (openaiUrl) {
-                return openaiUrl.includes("/chat/completions") ? openaiUrl : openaiUrl.replace(/\/$/, "") + "/chat/completions";
-            }
-        }
-
-        return null;
+        const declared = this.getDeclaredFormat();
+        if (declared !== null && declared !== format) return null;
+        return this.resolveUrlByFormat(format);
     }
 
     /**
@@ -164,6 +280,11 @@ class SgVendor extends Model {
      * @returns 支持的格式数组
      */
     getSupportedFormats(): ApiFormat[] {
+        const declared = this.getDeclaredFormat();
+        if (declared !== null) {
+            return this.resolveUrlByFormat(declared) === null ? [] : [declared];
+        }
+
         const formats: ApiFormat[] = [];
 
         if (this.getUrlByFormat(ApiFormat.OPENAI) !== null) {

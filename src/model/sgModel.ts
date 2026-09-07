@@ -1,6 +1,6 @@
-import { CastsAttributes, Model } from "sutando";
+import { Model } from "sutando";
 import { inspect, InspectOptions } from "util";
-import { ModelBillingMode, ModelRoutingMode, MIN_MODEL_PRICE, PRICE_UNIT_TOKENS } from "../constants";
+import { ModelBillingMode, MIN_MODEL_PRICE, PRICE_UNIT_TOKENS } from "../constants";
 import customError from "../util/customErrorUtil";
 
 const MODEL_BILLING_MODES = new Set<ModelBillingMode>(Object.values(ModelBillingMode));
@@ -9,11 +9,13 @@ class ModelUpstreamConfig {
     vendor_id: number = 0;
     vendor_model_id?: number;
     enabled: boolean = true;
+    sort_order?: number;
 
     constructor(data?: Partial<ModelUpstreamConfig>) {
         if (data?.vendor_id !== undefined) this.vendor_id = data.vendor_id;
         if (data?.vendor_model_id !== undefined) this.vendor_model_id = data.vendor_model_id;
         if (data?.enabled !== undefined) this.enabled = data.enabled;
+        if (data?.sort_order !== undefined) this.sort_order = data.sort_order;
     }
 
     toJSON() {
@@ -21,83 +23,55 @@ class ModelUpstreamConfig {
             vendor_id: this.vendor_id,
             ...(this.vendor_model_id !== undefined ? { vendor_model_id: this.vendor_model_id } : {}),
             enabled: this.enabled,
+            ...(this.sort_order !== undefined ? { sort_order: this.sort_order } : {}),
         };
     }
 }
 
+/**
+ * Scheduler value object kept as a type-level utility for internal callers.
+ * It is deliberately not mapped to a model column; routing is driven by the
+ * normalized `mapping.upstreams` relation.
+ */
 class ModelFailoverConfig {
-    enabled: boolean = true;
+    enabled = true;
 
     constructor(data?: Partial<ModelFailoverConfig>) {
-        if (data?.enabled !== undefined && typeof data.enabled === "boolean") {
-            this.enabled = data.enabled;
-        }
+        if (typeof data?.enabled === "boolean") this.enabled = data.enabled;
     }
 
     toJSON() {
-        return {
-            enabled: this.enabled,
-        };
+        return { enabled: this.enabled };
     }
 }
 
-// @ts-expect-error Sutando .d.ts 声明 static get/set() 无参，运行时传 4 个实参
-class ModelRoutingConfig extends CastsAttributes {
+class ModelRoutingConfig {
     upstreams: ModelUpstreamConfig[] = [];
-    failover: ModelFailoverConfig = new ModelFailoverConfig();
-    // 负载均衡策略：user = 按用户随机（用户 id 为种子，同用户路由稳定），request = 按请求随机
-    load_balance_strategy: "user" | "request" = "user";
+    failover = new ModelFailoverConfig();
+    load_balance_strategy: "user" | "request" = "request";
 
     constructor(data?: {
         upstreams?: Array<ModelUpstreamConfig | Partial<ModelUpstreamConfig>>;
         failover?: ModelFailoverConfig | Partial<ModelFailoverConfig>;
         load_balance_strategy?: "user" | "request";
     }) {
-        super();
-        if (Array.isArray(data?.upstreams)) {
-            this.upstreams = data.upstreams.map(upstream => (
-                upstream instanceof ModelUpstreamConfig
-                    ? upstream
-                    : new ModelUpstreamConfig(upstream)
-            ));
-        }
+        this.upstreams = (data?.upstreams ?? []).map(item => (
+            item instanceof ModelUpstreamConfig ? item : new ModelUpstreamConfig(item)
+        ));
         if (data?.failover) {
             this.failover = data.failover instanceof ModelFailoverConfig
                 ? data.failover
                 : new ModelFailoverConfig(data.failover);
         }
-        if (data?.load_balance_strategy === "user" || data?.load_balance_strategy === "request") {
-            this.load_balance_strategy = data.load_balance_strategy;
-        }
+        if (data?.load_balance_strategy) this.load_balance_strategy = data.load_balance_strategy;
     }
 
     toJSON() {
         return {
-            upstreams: this.upstreams.map(upstream => upstream.toJSON()),
+            upstreams: this.upstreams.map(item => item.toJSON()),
             failover: this.failover.toJSON(),
             load_balance_strategy: this.load_balance_strategy,
         };
-    }
-
-    static get(self: SgModel, key: string, value: string): ModelRoutingConfig {
-        let parsed: Record<string, any> = {};
-        try { parsed = value ? JSON.parse(value) : {}; } catch {}
-        return new ModelRoutingConfig(parsed);
-    }
-
-    static set(
-        self: SgModel,
-        key: string,
-        value: ModelRoutingConfig | {
-            upstreams?: Array<Partial<ModelUpstreamConfig>>;
-            failover?: Partial<ModelFailoverConfig>;
-            load_balance_strategy?: "user" | "request";
-        },
-    ): string {
-        const config = value instanceof ModelRoutingConfig
-            ? value
-            : new ModelRoutingConfig(value);
-        return JSON.stringify(config.toJSON());
     }
 }
 
@@ -119,12 +93,14 @@ class SgModel extends Model {
         per_request?: number;
         [key: string]: unknown;
     } | null;
-    routing_mode!: ModelRoutingMode;
-    routing_config!: ModelRoutingConfig;
+    /** Canonical management representation; hydrated by modelManager/modelService. */
+    // Hydrated relation, intentionally not persisted as a model column.
+    // Initializing it on the instance keeps Sutando's Proxy setter from
+    // treating assignments as an unknown database attribute.
+    mapping: { upstreams: ModelUpstreamConfig[] } = { upstreams: [] };
 
     casts = {
         prices: "json",
-        routing_config: ModelRoutingConfig,
     };
 
     created_at!: Date;
@@ -139,9 +115,19 @@ class SgModel extends Model {
         });
     }
 
+    getMapping(): { upstreams: ModelUpstreamConfig[] } {
+        return {
+            upstreams: (this.mapping?.upstreams ?? []).map(upstream => new ModelUpstreamConfig(upstream)),
+        };
+    }
 
+    /** @deprecated Use getMapping(); no legacy database field is consulted. */
     getRoutingConfig(): ModelRoutingConfig {
-        return this.routing_config ?? new ModelRoutingConfig();
+        return new ModelRoutingConfig({
+            upstreams: this.mapping?.upstreams ?? [],
+            failover: { enabled: true },
+            load_balance_strategy: "request",
+        });
     }
 
     // 价格单位为每百万 token；价格允许 0（免费）或 >= MIN_MODEL_PRICE，其余值拒绝
@@ -194,4 +180,4 @@ class SgModel extends Model {
     }
 }
 
-export { SgModel, ModelRoutingConfig, ModelUpstreamConfig, ModelFailoverConfig };
+export { SgModel, ModelUpstreamConfig, ModelRoutingConfig, ModelFailoverConfig };

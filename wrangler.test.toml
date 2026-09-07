@@ -6,6 +6,7 @@ compatibility_flags = [ "nodejs_compat", "no_handle_cross_request_promise_resolu
 
 [vars]
 ROOT_TOKEN = "root-token-123"
+KEY_ENCRYPTION_SECRET = "test-key-encryption-secret"
 TEST_MODE = "worker"
 
 [[d1_databases]]

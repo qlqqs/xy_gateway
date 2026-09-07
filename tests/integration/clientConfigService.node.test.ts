@@ -8,6 +8,7 @@ import SgClientConfig from "../../src/model/sgClientConfig";
 import { SgUser } from "../../src/model/sgUser";
 import { SgVendor } from "../../src/model/sgVendor";
 import { ClientName, ConnectionMode, RunMode, UserType, UserStatus } from "../../src/constants";
+import userKeyService from "../../src/service/userKeyService";
 import dbHelper from "../helpers/dbHelper";
 import ormTestHelper from "../helpers/ormTestHelper";
 
@@ -17,6 +18,7 @@ describe("clientConfigService", () => {
     let tempDir = "";
     let originalHome: string | undefined;
     let originalCodexHome: string | undefined;
+    let originalKeyEncryptionSecret: string | undefined;
     let originalOrmMode: RunMode;
     let testUserId = 0;
     let testVendorId = 0;
@@ -24,6 +26,12 @@ describe("clientConfigService", () => {
     beforeAll(async () => {
         originalHome = process.env.HOME;
         originalCodexHome = process.env.CODEX_HOME;
+        originalKeyEncryptionSecret = process.env.KEY_ENCRYPTION_SECRET;
+        // The API server receives this secret in its child-process binding,
+        // while this integration test invokes clientConfigService directly.
+        // Set the same explicit secret here so encrypted user keys can be
+        // resolved without falling back to the removed user.token column.
+        process.env.KEY_ENCRYPTION_SECRET = "test-key-encryption-secret";
         await ormTestHelper.connectNodeOrm();
         originalOrmMode = ormService.mode;
         tempRoot = await mkdtemp(join(tmpdir(), "gt-client-config-"));
@@ -40,12 +48,19 @@ describe("clientConfigService", () => {
         // Create a test user for GATEWAY mode
         const testUser = await SgUser.query().create({
             name: "test-user",
-            token: "test-token",
             type: UserType.NORMAL,
             balance: 10000,
             status: UserStatus.ACTIVE,
         });
         testUserId = Number(testUser.id);
+        // Gateway client configuration resolves users through the canonical
+        // user_key table.  Keep this integration fixture on the new hard-cut
+        // contract instead of relying on the removed user.token column.
+        await userKeyService.createForUser(
+            testUserId,
+            { value: "test-token", name: "client-config test key" },
+            "test-key-encryption-secret",
+        );
         // Create a test vendor for VENDOR mode
         const testVendor = await SgVendor.query().create({
             name: "test-vendor",
@@ -64,6 +79,11 @@ describe("clientConfigService", () => {
     });
 
     afterAll(async () => {
+        if (originalKeyEncryptionSecret === undefined) {
+            delete process.env.KEY_ENCRYPTION_SECRET;
+        } else {
+            process.env.KEY_ENCRYPTION_SECRET = originalKeyEncryptionSecret;
+        }
         await rm(tempRoot, { recursive: true, force: true });
     });
 

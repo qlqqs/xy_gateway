@@ -30,7 +30,7 @@ describe("Record API", () => {
             adminToken,
         );
         testUserId = user.body.id;
-        testUserToken = user.body.token;
+        testUserToken = user.body.keys[0].value;
 
         // Create test vendor
         const vendor = await requestHelper.post(
@@ -165,9 +165,9 @@ describe("Record API", () => {
                 requestHelper.post("/model/create.json", modelFixtures.createRandomModel(filterVendorId, modelBName), adminToken),
             ]);
             userAId = userA.body.id;
-            userAToken = userA.body.token;
+            userAToken = userA.body.keys[0].value;
             userBId = userB.body.id;
-            userBToken = userB.body.token;
+            userBToken = userB.body.keys[0].value;
             modelAId = modelA.body.id;
             modelBId = modelB.body.id;
 

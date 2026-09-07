@@ -120,6 +120,7 @@ class SgRecord extends Model {
         end_at: "datetime",
         // MySQL 下以整数微元存储（应用层仍以"元"读写），避免 DECIMAL 返回字符串
         cost: MicroAmountCast,
+        base_cost: MicroAmountCast,
         usage: SgRecordUsage,
     };
 
@@ -144,6 +145,16 @@ class SgRecord extends Model {
     start_at!: Date | null;
     end_at!: Date | null;
     cost!: number;
+    /** 模型原始报价（倍率前，应用层单位为元）。 */
+    base_cost!: number;
+    /** 分组倍率快照。 */
+    rate_multiplier!: number;
+    key_id!: number | null;
+    group_id!: number | null;
+    requested_model!: string | null;
+    billing_mode!: string | null;
+    /** pending / settled / skipped。 */
+    settlement_status!: string;
 
     created_at!: Date;
     updated_at!: Date;
@@ -157,6 +168,8 @@ const RECORD_SUMMARY_COLUMNS = [
     "id", "user_id", "model_id", "vendor_id", "vendor_model_name",
     "status", "failed_code", "client_format", "upstream_format",
     "usage", "first_token_latency", "start_at", "end_at", "cost",
+    "key_id", "group_id", "requested_model", "billing_mode", "base_cost",
+    "rate_multiplier", "settlement_status",
     "created_at", "updated_at"
 ];
 

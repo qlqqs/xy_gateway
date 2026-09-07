@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"后端测试分类、隔离规则和提交前验证门禁"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"API 错误 JSON、状态码和 controller/service 边界断言"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Node/SQLite migration、事务和 ORM 测试约束（D1/Worker 不在范围内）"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"前端 Vitest、类型、lint、构建和无障碍回归要求"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Key→策略→路由→结算→记录及前后端 DTO 数据流"}
+{"file":".trellis/tasks/09-07-comprehensive-automated-testing/research/test-inventory.md","reason":"当前测试数量、改动面和覆盖缺口的代码证据"}

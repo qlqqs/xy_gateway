@@ -27,7 +27,7 @@ describe("Gateway - Model Enable Filter", () => {
             "/user/create.json",
             {
                 name: "Normal User",
-                token: normalToken,
+                keys: [{ value: normalToken }],
                 type: "normal",
             },
             adminToken,

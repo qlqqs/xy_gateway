@@ -1,6 +1,7 @@
 import { SgRecord, RECORD_SUMMARY_COLUMNS } from "../model/sgRecord";
 import { SgRecordStatus } from "../constants";
 import billingUtil from "../util/protocol/billingUtil";
+import dateUtil from "../util/dateUtil";
 
 interface RecordListOptions {
     status?: string;
@@ -25,6 +26,13 @@ interface RecordCreateData {
     start_at: Date;
     end_at: Date | null;
     cost: number;
+    key_id?: number | null;
+    group_id?: number | null;
+    requested_model?: string | null;
+    billing_mode?: string | null;
+    base_cost?: number;
+    rate_multiplier?: number;
+    settlement_status?: string;
 }
 
 /**
@@ -49,6 +57,14 @@ async function update(recordId: number, data: RecordUpdateData) {
     const { response_data: _omit, ...tableData } = data as any;
     if (tableData.cost !== undefined) {
         tableData.cost = billingUtil.toUnits(tableData.cost);
+    }
+    if (tableData.base_cost !== undefined) {
+        tableData.base_cost = billingUtil.toUnits(tableData.base_cost);
+    }
+    for (const field of ["start_at", "end_at"]) {
+        if (tableData[field] instanceof Date) {
+            tableData[field] = dateUtil.toDatabaseTimestamp(tableData[field] as Date);
+        }
     }
     return SgRecord.query().where("id", recordId).update(tableData);
 }

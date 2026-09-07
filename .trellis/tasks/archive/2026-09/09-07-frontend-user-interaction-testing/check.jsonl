@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"复核组件交互、可访问性和 Ant Design 使用方式"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"复核测试隔离、失败反馈、类型/lint/build 门禁"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"复核 store/API 状态更新和失败后恢复"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"复核测试与生产代码的严格类型边界"}
+{"file":".trellis/tasks/09-07-frontend-user-interaction-testing/prd.md","reason":"按验收标准检查覆盖范围和缺陷修复证据"}
+{"file":".trellis/tasks/09-07-frontend-user-interaction-testing/design.md","reason":"按技术设计检查测试分层、mock 和回归顺序"}

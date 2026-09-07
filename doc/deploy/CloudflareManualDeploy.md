@@ -89,24 +89,40 @@ npx wrangler kv namespace create CACHE
 
 ---
 
-## 5. 初始化数据库表结构
+## 5. 备份并初始化数据库表结构
+
+硬切迁移会把旧用户 Token 导入 `user_key`，并在 `migrate_0032` 中删除
+`user.token`、`model.routing_mode` 和 `model.routing_config`。执行前请先导出
+D1 备份，并准备一个长期保存的 `KEY_ENCRYPTION_SECRET`（不要使用
+`ROOT_TOKEN` 代替）：
+
+```bash
+npx wrangler d1 export gt_ai_gateway --remote --output=gt_ai_gateway-before-domain-rebuild.sql
+export KEY_ENCRYPTION_SECRET='请使用密码管理器生成的随机高熵字符串'
+```
+
+同一个加密密钥必须在后续所有部署中保持不变，否则管理端无法回显已有 Key。
 
 将数据库的 Schema 和表结构应用到远程生产环境：
 ```bash
 npm run db:migrate:worker-cloud
 ```
-该命令会通过 `wrangler.toml` 中的 `DB` binding 连接远程 D1，并执行项目内置的 `resource/migrate` 迁移脚本。
+该命令会通过 `wrangler.toml` 中的 `DB` binding 连接远程 D1，并执行项目内置的
+`resource/migrate` 迁移脚本。迁移发现旧用户 Token 时会使用上面的环境变量加密导入；
+缺少密钥会在删除旧列前中止，原数据库仍可回滚。
 
 ---
 
-## 6. 配置 ROOT_TOKEN
+## 6. 配置运行时 Secrets
 
 在 Cloudflare Workers 中，我们通过 Secrets 来安全地存储环境变量：
 
 ```bash
+npx wrangler secret put KEY_ENCRYPTION_SECRET
 npx wrangler secret put ROOT_TOKEN
 ```
-*输入命令后，终端会提示您输入秘钥值，请设置一个强密码并牢记。*
+输入命令后，终端会提示您输入秘钥值。`KEY_ENCRYPTION_SECRET` 用于 API Key
+加密/解密，`ROOT_TOKEN` 仅用于根管理员认证；两者必须使用不同的随机值。
 
 ---
 

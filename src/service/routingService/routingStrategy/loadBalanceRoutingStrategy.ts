@@ -31,24 +31,17 @@ function seededShuffle<T>(items: T[], seed: number): T[] {
 
 class LoadBalanceRoutingStrategy extends BaseRoutingStrategy {
     selectUpstream(
-        model: SgModel,
+        _model: SgModel,
         candidates: ModelRoutingResult[],
         routingContext?: RoutingContext,
         seed: number = 0,
     ): ModelRoutingResult {
         const untried = candidates.filter(candidate => !this.isTried(candidate, routingContext));
 
-        // 按请求随机：等概率随机选一个可用上游（保持原行为）
-        if (model.getRoutingConfig().load_balance_strategy === "request") {
-            const available = untried.filter(candidate => !this.isDown(candidate));
-            if (available.length === 0) {
-                return ModelRoutingResult.none();
-            }
-            return available[Math.floor(Math.random() * available.length)];
-        }
-
-        // 按用户随机（默认）：以用户 id 为种子确定性乱序，
-        // 逐个跳过冷却中的上游，取第一个可用
+        // Canonical models no longer carry a per-model routing strategy.  The
+        // scheduler always uses the same priority/weight policy; this legacy
+        // strategy adapter is retained only for callers that still construct
+        // strategy objects directly.
         const shuffled = seededShuffle(untried, seed);
         return shuffled.find(candidate => !this.isDown(candidate)) ?? ModelRoutingResult.none();
     }

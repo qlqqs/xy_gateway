@@ -100,6 +100,25 @@ create one owner for:
 
 Rendering code may format fields, but it must not redefine the payload contract.
 
+### Mistake 5：DTO 命名与联合请求边界未收敛
+
+**问题**：后端管理接口可能仍返回 `snake_case`（例如 `group_id`），而前端领域对象使用 `camelCase`（`groupId`）。如果 repository 只读取其中一种命名，关系字段会在列表和编辑 round-trip 中丢失；如果对创建/更新联合 request 直接读取只存在于部分成员的字段，严格类型检查会在构建阶段失败。
+
+**正确做法**：repository 是唯一的传输边界，先按明确优先级归一化字段，再用成员能力类型守卫序列化。`undefined` 表示字段缺失，可以回退旧命名；显式 `null` 表示解绑，不应被旧字段覆盖。
+
+```typescript
+const rawGroupId = raw.groupId !== undefined ? raw.groupId : raw.group_id;
+const groupId = rawGroupId === null || rawGroupId === undefined
+    ? null
+    : (apiUtils.toPositiveId(rawGroupId) || null);
+
+if ('type' in request && request.type !== undefined) {
+    payload.type = request.type;
+}
+```
+
+**预防**：每次新增或修改 repository DTO 映射时，同时添加 snake/camel、数字字符串、`null`/非法值和联合 request 序列化断言，并运行 `vue-tsc -b` 与官方前端构建；不要用 `any` 或非空断言绕过边界错误。
+
 ---
 
 ## Checklist for Cross-Layer Features
@@ -120,6 +139,8 @@ After implementation:
       casting payload fields locally
 - [ ] Checked that derived state points back to the source event identifier
       (`seq`, `id`, `version`) instead of inventing a second cursor
+- [ ] Verified DTO naming aliases and explicit `null` semantics at the repository boundary
+- [ ] Verified create/update union fields with type guards and a strict type/build check
 
 ---
 

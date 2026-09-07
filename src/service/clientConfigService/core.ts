@@ -4,6 +4,8 @@ import vendorService from "../vendorService";
 import clientConfigManager from "../../manager/clientConfigManager";
 import vendorManager from "../../manager/vendorManager";
 import userManager from "../../manager/userManager";
+import userKeyManager from "../../manager/userKeyManager";
+import userKeyUtil from "../../util/userKeyUtil";
 import { ClientName, ConnectionMode } from "../../constants";
 import type {
     ApplyClientConfigParams,
@@ -63,7 +65,7 @@ async function enrichGatewayUser(config: ClientConfigContent | null): Promise<Cu
     if (!config) {
         return null;
     }
-    const gatewayUser = await configAdapterUtils.findGatewayUserByToken(config.apiKey);
+    const gatewayUser = await configAdapterUtils.findGatewayUserByApiKey(config.apiKey);
     return {
         ...config,
         configPaths: [],
@@ -221,8 +223,16 @@ async function resolveApiKey(connectionMode?: ConnectionMode, vendorId?: number,
         if (vendor?.token) return vendor.token;
     }
     if (connectionMode === ConnectionMode.GATEWAY && userId) {
-        const user = await userManager.findById(userId);
-        if (user?.token) return user.token;
+        const keys = await userKeyManager.listByUser(Number(userId));
+        const key = keys.find(item => item.status === "active");
+        if (key) {
+            if (key.value) return key.value;
+            const secret = userKeyUtil.resolveEncryptionSecret();
+            if (secret && key.encrypted_value) {
+                const value = await userKeyUtil.decryptKey(key.encrypted_value, secret);
+                if (value) return value;
+            }
+        }
     }
     return '';
 }

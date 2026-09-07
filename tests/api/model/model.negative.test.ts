@@ -57,12 +57,11 @@ describe("Model API (Negative)", () => {
             expect(response.status).toBeGreaterThanOrEqual(400);
         });
 
-        it("should return error when routing config is missing", async () => {
+        it("should return error when mapping is missing", async () => {
             const modelData = {
                 name: "test-model",
                 enable: true,
                 prices: {},
-                routing_mode: "single",
             };
             const response = await requestHelper.post(
                 "/model/create.json",
@@ -82,7 +81,7 @@ describe("Model API (Negative)", () => {
             expect(response.status).toBeGreaterThanOrEqual(400);
         });
 
-        it("should return error when vendor_id does not exist", async () => {
+        it("should return error when an upstream vendor_id does not exist", async () => {
             const modelData = modelFixtures.createRandomModel(99999, "test-model");
             const response = await requestHelper.post(
                 "/model/create.json",
@@ -209,7 +208,7 @@ describe("Model API (Negative)", () => {
             expect(response.body).toHaveProperty("error");
         });
 
-        it("should return error when routing vendor does not exist", async () => {
+        it("should return error when a mapped vendor does not exist", async () => {
             const response = await requestHelper.put(
                 `/model/${updateModelId}`,
                 modelFixtures.createRandomModel(99999, "update-test-model"),

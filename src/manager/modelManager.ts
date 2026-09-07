@@ -1,5 +1,7 @@
 import type { Builder } from "sutando";
-import { SgModel } from "../model/sgModel";
+import { SgModel, ModelUpstreamConfig } from "../model/sgModel";
+import modelUpstreamManager from "./modelUpstreamManager";
+import ormService from "../service/ormService";
 
 interface ModelListOptions {
     vendorId?: number;
@@ -10,21 +12,23 @@ interface ModelListOptions {
 
 
 function filterByVendor(query: Builder<SgModel>, vendorId: number): void {
-    if (process.env.DB_DRIVER === "mysql") {
-        // MySQL 8：JSON_TABLE 展开 upstreams 数组后按 vendor_id 过滤。
-        // 注意：须用「外层在 IN 子查询中加入别名」的形式；直接对同表做相关 EXISTS + JSON_TABLE
-        // 会在部分 MySQL 版本（如 8.4）报 "Invalid JSON text ... document is empty"。
-        query.whereRaw(
-            "model.id IN (SELECT sub.id FROM model AS sub, JSON_TABLE(sub.routing_config, '$.upstreams[*]' COLUMNS (vendor_id BIGINT PATH '$.vendor_id')) AS t WHERE t.vendor_id = ?)",
-            [vendorId],
-        );
-    } else {
-        // SQLite JSON1：json_each + json_extract
-        query.whereRaw(
-            "EXISTS (SELECT 1 FROM json_each(model.routing_config, '$.upstreams') AS upstream WHERE json_extract(upstream.value, '$.vendor_id') = ?)",
-            [vendorId],
-        );
-    }
+    // Mapping rows are the canonical routing source.  Keeping the filter in a
+    // relational subquery works on SQLite/D1 and MySQL without JSON-specific
+    // functions or driver branches.
+    query.whereRaw("EXISTS (SELECT 1 FROM model_upstream mu WHERE mu.model_id = model.id AND mu.vendor_id = ?)", [vendorId]);
+}
+
+async function hydrateMapping(model: SgModel): Promise<SgModel> {
+    const rows = await modelUpstreamManager.listByModel(Number(model.id));
+    model.mapping = {
+        upstreams: rows.map(row => new ModelUpstreamConfig({
+            vendor_id: Number(row.vendor_id),
+            ...(row.vendor_model_id == null ? {} : { vendor_model_id: Number(row.vendor_model_id) }),
+            enabled: Boolean(row.enabled),
+            sort_order: Number(row.sort_order ?? 0),
+        })),
+    };
+    return model;
 }
 
 
@@ -38,12 +42,14 @@ async function getModel(modelName: string, enable?: boolean): Promise<SgModel | 
         query.where("enable", enable);
     }
 
-    return await query.first();
+    const model = await query.first();
+    return model ? hydrateMapping(model) : null;
 }
 
 
 async function findById(modelId: number): Promise<SgModel | null> {
-    return await SgModel.query().find(modelId);
+    const model = await SgModel.query().find(modelId);
+    return model ? hydrateMapping(model) : null;
 }
 
 
@@ -51,7 +57,7 @@ async function getByIds(ids: number[]): Promise<SgModel[]> {
     if (ids.length === 0) {
         return [];
     }
-    return (await SgModel.query().whereIn("id", ids).get()).all();
+    return Promise.all((await SgModel.query().whereIn("id", ids).get()).all().map(hydrateMapping));
 }
 
 
@@ -66,17 +72,26 @@ async function listModels(options: ModelListOptions) {
 
     const total = Number(await query.clone().count() || 0);
     const models = await query.limit(options.pageSize).offset(options.offset).get();
+    const list = await Promise.all(models.all().map(hydrateMapping));
     return {
-        list: models.all(),
+        list,
         total,
     };
 }
 
 
 async function hasModelsUsingVendor(vendorId: number): Promise<boolean> {
-    const query = SgModel.query();
-    filterByVendor(query, vendorId);
-    return Number(await query.count() || 0) > 0;
+    const row = await ormService.getKnex()("model_upstream").where("vendor_id", vendorId).first();
+    return !!row;
+}
+
+async function disableWithoutUpstreams(modelIds: number[]): Promise<void> {
+    for (const modelId of modelIds) {
+        const remaining = await modelUpstreamManager.listByModel(modelId);
+        if (!remaining.some(mapping => Boolean(mapping.enabled))) {
+            await SgModel.query().where("id", modelId).update({ enable: 0 });
+        }
+    }
 }
 
 
@@ -92,6 +107,14 @@ async function listEnabledModels() {
         created: Math.floor(new Date(model.created_at).getTime() / 1000),
         owned_by: "gateway",
     }));
+}
+
+async function listEnabledModelEntities(): Promise<SgModel[]> {
+    const models = await SgModel.query()
+        .where("enable", 1)
+        .orderBy("id", "asc")
+        .get();
+    return Promise.all(models.all().map(hydrateMapping));
 }
 
 
@@ -120,6 +143,7 @@ async function deleteModel(modelId: number): Promise<boolean> {
         return false;
     }
 
+    await modelUpstreamManager.removeByModel(modelId);
     await SgModel.query().where("id", modelId).delete();
     return true;
 }
@@ -136,7 +160,9 @@ export default {
     getByIds,
     listModels,
     hasModelsUsingVendor,
+    disableWithoutUpstreams,
     listEnabledModels,
+    listEnabledModelEntities,
     checkDuplicateModel,
     deleteModel,
     filterByVendor,

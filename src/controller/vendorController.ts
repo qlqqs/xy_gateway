@@ -4,7 +4,6 @@ import vendorManager from "../manager/vendorManager";
 import vendorService from "../service/vendorService";
 import vendorDefaultUrls from "../util/vendorDefaultUrlsUtil";
 import vendorTestService from "../service/vendorTestService";
-import modelManager from "../manager/modelManager";
 import customError from "../util/customErrorUtil";
 import { createListResponse, parsePaginationQuery } from "../util/paginationUtil";
 
@@ -81,15 +80,25 @@ async function getVendorsByIds(c: Context) {
 
 async function createVendor(c: Context) {
     const body = await c.req.json();
-    const vendor = new SgVendor(body);
+    const normalizedConfig = vendorService.normalizeDomainConfig(body.config);
+    const vendor = new SgVendor({ ...body, config: normalizedConfig });
 
     // Validation - 不验证 urls，允许为空
-    if (!vendor.type || !vendor.name || !vendor.token) {
+    if (typeof vendor.type !== "string" || !vendor.type.trim()
+        || typeof vendor.name !== "string" || !vendor.name.trim()
+        || typeof vendor.token !== "string" || !vendor.token.trim()) {
         throw new customError.AppError("Missing required fields");
     }
 
+    vendor.name = vendor.name.trim();
+    vendor.token = vendor.token.trim();
     vendorService.validateProxyConfig(vendor.config);
+    vendorService.validateSchedulingConfig(normalizedConfig);
+    await vendorService.validateDomainConfig(normalizedConfig);
 
+    // Canonical scheduling/domain fields are formal vendor columns.  The model
+    // constructor has already copied config values into those columns; this
+    // explicit check prevents silently accepting malformed frontend payloads.
     const instance = await vendorManager.create(vendor);
 
     return c.json(formatVendor(instance));
@@ -137,11 +146,7 @@ async function deleteVendor(c: Context) {
         throw new customError.NotFoundError("Vendor not found");
     }
 
-    if (await modelManager.hasModelsUsingVendor(vendorId)) {
-        throw new customError.AppError("Cannot delete vendor with associated models");
-    }
-
-    const deleted = await vendorManager.deleteById(vendorId);
+    const deleted = await vendorService.deleteVendor(vendorId);
     if (!deleted) {
         throw new customError.NotFoundError("Vendor not found");
     }

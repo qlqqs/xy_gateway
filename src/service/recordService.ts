@@ -1,5 +1,5 @@
 import { SgRecord } from "../model/sgRecord";
-import { SgRecordStatus, ApiFormat, ConfigKey } from "../constants";
+import { SgRecordStatus, ApiFormat, ConfigKey, ROOT_USER_ID } from "../constants";
 import recordManager, { type RecordUpdateData } from "../manager/recordManager";
 import objectStorageService from "./objectStorageService";
 import configService from "./configService";
@@ -7,6 +7,16 @@ import configService from "./configService";
 interface RecordPayload {
     request: string | null;
     response: string | null;
+}
+
+export interface RecordCreateMetadata {
+    keyId?: number | null;
+    groupId?: number | null;
+    requestedModel?: string | null;
+    billingMode?: string | null;
+    baseCost?: number;
+    rateMultiplier?: number;
+    settlementStatus?: string;
 }
 
 const RECORD_PAYLOAD_PREFIX = "record/";
@@ -58,20 +68,26 @@ async function clearPayloads(): Promise<number> {
 // 一条用户请求 = 一条 record：进入路由循环前创建，此时还不知道命中的上游
 // 上游信息（vendor_id / vendor_model_name / upstream_format）由后续每次上游尝试 update 覆盖
 async function create(
-    userId: number,
+    userId: number | null,
     modelId: number | null,
     requestData: string | null,
     clientFormat: string | null = null,
+    metadata: RecordCreateMetadata = {},
 ) {
+    // The legacy record schema keeps user_id NOT NULL and has no foreign key
+    // to the user table.  Root/diagnostic requests have no persisted user
+    // row, so use the reserved ROOT_USER_ID sentinel instead of attempting to
+    // insert SQL NULL (which would fail before a failed request can be logged).
+    const persistedUserId = userId ?? ROOT_USER_ID;
     if (isLogEnabled()) {
-        console.log(`[RecordService] Creating record: user=${userId}, model=${modelId}`);
+        console.log(`[RecordService] Creating record: user=${persistedUserId}, model=${modelId}`);
         if (requestData) {
             console.log(`[RecordService] Request data: ${requestData}`);
         }
     }
 
     const record = await recordManager.create({
-        user_id: userId,
+        user_id: persistedUserId,
         model_id: modelId,
         vendor_id: null,
         vendor_model_name: null,
@@ -82,6 +98,13 @@ async function create(
         start_at: new Date(),
         end_at: null,
         cost: 0,
+        key_id: metadata.keyId ?? null,
+        group_id: metadata.groupId ?? null,
+        requested_model: metadata.requestedModel ?? null,
+        billing_mode: metadata.billingMode ?? null,
+        base_cost: metadata.baseCost ?? 0,
+        rate_multiplier: metadata.rateMultiplier ?? 1,
+        settlement_status: metadata.settlementStatus ?? "pending",
     });
 
     if (await isPayloadRecordingEnabled()) {
@@ -121,23 +144,33 @@ async function latest(limit: number = 10, summaryOnly: boolean = false) {
 }
 
 async function recordFailedRequest(
-    userId: number,
+    userId: number | null,
     modelName: string | null,
     body: string,
     clientFormat: ApiFormat,
     failedCode: string,
-    modelId: number | null = null
+    modelId: number | null = null,
+    metadata: RecordCreateMetadata = {},
 ) {
     try {
         const record = await create(
             userId,
             modelId,
             body,
-            clientFormat
+            clientFormat,
+            {
+                ...metadata,
+                requestedModel: metadata.requestedModel ?? modelName,
+                settlementStatus: "skipped",
+                baseCost: 0,
+                rateMultiplier: metadata.rateMultiplier ?? 1,
+            },
         );
         await update(record.id, {
             status: SgRecordStatus.FAILED,
             failed_code: failedCode,
+            settlement_status: "skipped",
+            cost: 0,
             end_at: new Date(),
         });
     } catch (e) {

@@ -33,6 +33,7 @@ function printHelp() {
     console.log("  --auto-create-r2  Create the configured R2 bucket if it does not exist.");
     console.log("  --auto-migrate    Apply D1 migrations before deploy.");
     console.log("  --auto-create-root-token Set ROOT_TOKEN from the ROOT_TOKEN environment variable.");
+    console.log("  KEY_ENCRYPTION_SECRET must be provided to encrypt and recover API keys.");
     console.log("  --help, -h        Show this help message.");
     console.log("");
     console.log("Environment variables (override wrangler.toml names):");
@@ -367,6 +368,20 @@ function setupRootToken() {
     console.log("✅ ROOT_TOKEN has been securely set.");
 }
 
+function setupKeyEncryptionSecret() {
+    const providedSecret = process.env.KEY_ENCRYPTION_SECRET;
+    if (!providedSecret) {
+        throw new Error("KEY_ENCRYPTION_SECRET is required to deploy the API key domain");
+    }
+
+    console.log("Setting KEY_ENCRYPTION_SECRET from environment...");
+    run("npx", ["wrangler", "secret", "put", "KEY_ENCRYPTION_SECRET", ...prepareSecretWranglerArgs()], {
+        input: `${providedSecret}\n`,
+        stdio: ["pipe", "inherit", "inherit"],
+    });
+    console.log("✅ KEY_ENCRYPTION_SECRET has been securely set.");
+}
+
 function runDeploySetup() {
     if (hasDeploySetupFlags()) {
         console.log("Running Cloudflare deploy setup...");
@@ -457,6 +472,7 @@ function checkEnvironmentVariables() {
     if (!process.env.CLOUDFLARE_API_TOKEN) missing.push("CLOUDFLARE_API_TOKEN");
     if (!process.env.CLOUDFLARE_ACCOUNT_ID) missing.push("CLOUDFLARE_ACCOUNT_ID");
     if (!process.env.ROOT_TOKEN) missing.push("ROOT_TOKEN");
+    if (!process.env.KEY_ENCRYPTION_SECRET) missing.push("KEY_ENCRYPTION_SECRET");
 
     if (missing.length > 0) {
         console.error("\n==========================================");
@@ -480,6 +496,7 @@ function main() {
         run("npm", ["ci", "--prefix", "frontend", "--progress=false"]);
         run("npm", ["run", "frontend:build"]);
         run("npx", ["wrangler", "deploy", "--minify", ...prepareDeployWranglerArgs()]);
+        setupKeyEncryptionSecret();
         setupRootToken();
 
         console.log("\n==========================================");

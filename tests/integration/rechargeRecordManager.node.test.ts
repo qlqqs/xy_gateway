@@ -17,7 +17,6 @@ describe("rechargeRecordManager (node, real db)", () => {
     async function createTestUser() {
         return await userManager.create({
             name: "tester",
-            token: `token-${Math.random()}`,
             type: "normal" as any,
         });
     }

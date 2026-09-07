@@ -64,7 +64,7 @@ async function setupModel(): Promise<void> {
         adminToken,
     );
     expect(user.status).toBe(200);
-    testUserToken = user.body.token;
+    testUserToken = user.body.keys[0].value;
 
     const vendor = await requestHelper.post(
         "/vendor/create.json",

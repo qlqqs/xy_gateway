@@ -274,6 +274,11 @@ function handleAutoRefreshChange(checked: boolean): void {
 async function loadSystemData() {
     loading.value = true;
     try {
+        await Promise.allSettled([
+            userStore.ensureLoaded(),
+            vendorsStore.ensureLoaded(),
+            modelsStore.ensureLoaded(),
+        ]);
         const systemStatusData = await status().catch(() => null);
 
         systemStats.value = {

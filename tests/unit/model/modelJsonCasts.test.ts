@@ -1,59 +1,35 @@
 import { describe, expect, it } from "vitest";
-import {
-    ModelFailoverConfig,
-    ModelRoutingConfig,
-    ModelUpstreamConfig,
-    SgModel,
-} from "../../../src/model/sgModel";
+import { ModelUpstreamConfig, SgModel } from "../../../src/model/sgModel";
 
-describe("model JSON custom casts", () => {
-    it("casts routing_config to ModelRoutingConfig and nested upstream classes", () => {
+
+describe("canonical model mapping value objects", () => {
+    it("hydrates mapping.upstreams into ModelUpstreamConfig instances", () => {
         const model = new SgModel({
-            routing_config: {
-                upstreams: [{ vendor_id: 3, vendor_model_id: 7, enabled: true }],
-            },
+            name: "canonical-model",
         });
-        const config = model.getRoutingConfig();
+        model.mapping = {
+            upstreams: [new ModelUpstreamConfig({ vendor_id: 3, vendor_model_id: 7, enabled: true, sort_order: 2 })],
+        };
 
-        expect(config).toBeInstanceOf(ModelRoutingConfig);
-        expect(config.upstreams[0]).toBeInstanceOf(ModelUpstreamConfig);
-        expect(config.failover).toBeInstanceOf(ModelFailoverConfig);
-        expect(config.toJSON()).toEqual({
-            upstreams: [{ vendor_id: 3, vendor_model_id: 7, enabled: true }],
-            failover: { enabled: true },
-            load_balance_strategy: "user",
+        const mapping = model.getMapping();
+        expect(mapping.upstreams[0]).toBeInstanceOf(ModelUpstreamConfig);
+        expect(mapping).toEqual({
+            upstreams: [{ vendor_id: 3, vendor_model_id: 7, enabled: true, sort_order: 2 }],
         });
     });
 
-    it("defaults failover.enabled to true and respects an explicit value", () => {
-        const model = new SgModel({
-            routing_config: {
-                upstreams: [{ vendor_id: 3, enabled: true }],
-                failover: { enabled: false },
-            },
-        });
-
-        expect(model.getRoutingConfig().failover.enabled).toBe(false);
-        expect(model.getRoutingConfig().toJSON()).toEqual({
-            upstreams: [{ vendor_id: 3, enabled: true }],
-            failover: { enabled: false },
-            load_balance_strategy: "user",
-        });
+    it("defaults to an empty canonical mapping", () => {
+        const model = new SgModel();
+        expect(model.getMapping()).toEqual({ upstreams: [] });
     });
 
-    it("parses load_balance_strategy and defaults to user", () => {
-        const explicit = new SgModel({
-            routing_config: {
-                upstreams: [{ vendor_id: 3, enabled: true }],
-                load_balance_strategy: "request",
-            },
+    it("does not expose removed routing fields in the model data", () => {
+        const model = new SgModel({
+            name: "canonical-model",
+            mapping: { upstreams: [{ vendor_id: 3, enabled: true }] },
         });
-        expect(explicit.getRoutingConfig().load_balance_strategy).toBe("request");
-        expect(explicit.getRoutingConfig().toJSON().load_balance_strategy).toBe("request");
-
-        const defaulted = new SgModel({
-            routing_config: { upstreams: [{ vendor_id: 3, enabled: true }] },
-        });
-        expect(defaulted.getRoutingConfig().load_balance_strategy).toBe("user");
+        const data = model.toData() as Record<string, unknown>;
+        expect(data).not.toHaveProperty("routing_mode");
+        expect(data).not.toHaveProperty("routing_config");
     });
 });

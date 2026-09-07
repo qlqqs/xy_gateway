@@ -14,7 +14,7 @@ describe("GET /llm/v1/models authentication", () => {
 
         const user = await requestHelper.post(
             "/user/create.json",
-            { name: "Disabled Models User", token: disabledToken, type: "normal" },
+            { name: "Disabled Models User", keys: [{ value: disabledToken }], type: "normal" },
             adminToken,
         );
         await requestHelper.put(

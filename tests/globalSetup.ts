@@ -25,7 +25,7 @@ let mockLogStream: ReturnType<typeof createWriteStream> | null = null;
 function globalCleanup(): void {
     console.log("[CLEANUP] Interrupted, stopping servers...");
     if (testServerProcess) {
-        testServerProcess.kill("SIGTERM");
+        signalTestServer(testServerProcess, "SIGTERM");
     }
     if (mockServerProcess) {
         mockServer.stopMockServer(mockServerProcess);
@@ -36,6 +36,25 @@ function globalCleanup(): void {
     if (mockSocksProcess) {
         mockSocks.stopMockSocks(mockSocksProcess);
     }
+}
+
+
+/**
+ * `npx tsx` starts a second Node process for the actual HTTP server.  Killing
+ * only the launcher can therefore leave port 9720 bound after a test file
+ * exits.  On POSIX, run the launcher in its own process group and signal the
+ * whole group; Windows falls back to ChildProcess.kill().
+ */
+function signalTestServer(child: ChildProcess, signal: NodeJS.Signals): void {
+    if (process.platform !== "win32" && child.pid) {
+        try {
+            process.kill(-child.pid, signal);
+            return;
+        } catch {
+            // The group may already have exited; try the direct child below.
+        }
+    }
+    child.kill(signal);
 }
 
 // Register cleanup handlers for process interruption
@@ -49,8 +68,13 @@ process.on("SIGTERM", globalCleanup);
 async function setupAdminUser(): Promise<string> {
     const rootToken = "root-token-123";
     const adminToken = userFixtures.ADMIN_TOKEN;
-    const adminUser = { name: "Admin User", token: adminToken, type: "admin" };
-    console.log("Creating admin user:", adminUser);
+    const adminUser = {
+        name: "Admin User",
+        type: "admin",
+        keys: [{ value: adminToken, name: "Test admin key", status: "active" }],
+    };
+    // Never print a plaintext API key into the test log.
+    console.log("Creating canonical admin user with one API key");
 
     const maxRetries = 5;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -204,6 +228,7 @@ function startTestServer(): Promise<void> {
             env.PORT = port.toString();
             env.DB_PATH = config.DB_CONFIG.path;
             env.ROOT_TOKEN = "root-token-123";
+            env.KEY_ENCRYPTION_SECRET = "test-key-encryption-secret";
             env.TEST_MODE = "node";
         }
 
@@ -217,6 +242,7 @@ function startTestServer(): Promise<void> {
         testServerProcess = spawn("npx", command, {
             env,
             stdio: ["ignore", "pipe", "pipe"],
+            detached: process.platform !== "win32",
         });
 
         let serverStarted = false;
@@ -347,19 +373,21 @@ function stopTestServer(): Promise<void> {
         if (testServerProcess) {
             console.log("Stopping test server...");
 
+            const child = testServerProcess;
+
             // Try graceful shutdown with SIGTERM
-            testServerProcess.kill("SIGTERM");
+            signalTestServer(child, "SIGTERM");
 
             // Wait for process to exit (up to 5 seconds)
             const timeout = setTimeout(() => {
                 // If process doesn't exit, use SIGKILL as last resort
                 console.log("[CLEANUP] Force killing test server...");
-                testServerProcess!.kill("SIGKILL");
+                signalTestServer(child, "SIGKILL");
                 testServerProcess = null;
                 resolve();
             }, 5000);
 
-            testServerProcess.once("exit", () => {
+            child.once("exit", () => {
                 clearTimeout(timeout);
                 testServerProcess = null;
                 console.log("Test server stopped");

@@ -347,13 +347,17 @@ async function initDatabase(): Promise<void> {
 async function dropAllMysqlTables(): Promise<void> {
     // 关闭外键检查，避免因表间外键（如 recharge_records -> user）导致 DROP 顺序报错
     await getMysqlPool().query("SET FOREIGN_KEY_CHECKS = 0");
-    const [tables] = await getMysqlPool().query(
-        "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE()",
-    );
-    for (const t of tables as any[]) {
-        await getMysqlPool().query(`DROP TABLE IF EXISTS ${t.name}`);
+    try {
+        const [tables] = await getMysqlPool().query(
+            "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE()",
+        );
+        for (const t of tables as any[]) {
+            await getMysqlPool().query(`DROP TABLE IF EXISTS ${t.name}`);
+        }
+    } finally {
+        // 即使发现残留表或某条 DROP 失败，也不能把连接池留在关闭外键检查的状态。
+        await getMysqlPool().query("SET FOREIGN_KEY_CHECKS = 1");
     }
-    await getMysqlPool().query("SET FOREIGN_KEY_CHECKS = 1");
 }
 
 /**
@@ -361,19 +365,26 @@ async function dropAllMysqlTables(): Promise<void> {
  * This is the primary entry point for database cleanup in tests
  */
 async function clearDatabase(shouldCleanup: boolean = true): Promise<void> {
-    if (!shouldCleanup) {
-        return;
-    }
+    try {
+        if (!shouldCleanup) {
+            return;
+        }
 
-    if (isWorkerMode) {
-        console.log("[CLEAR_DATABASE] Worker mode: Cleaning up D1 local database...");
-        clearD1LocalDatabase();
-        console.log("[CLEAR_DATABASE] D1 local database cleaned up");
-    } else {
-        console.log("Cleaning up test database...");
-        await cleanup();
-        removeDatabaseFile();
-        console.log("[CLEAR_DATABASE] Database cleaned up and file deleted");
+        if (isWorkerMode) {
+            console.log("[CLEAR_DATABASE] Worker mode: Cleaning up D1 local database...");
+            clearD1LocalDatabase();
+            console.log("[CLEAR_DATABASE] D1 local database cleaned up");
+        } else {
+            console.log("Cleaning up test database...");
+            await cleanup();
+            removeDatabaseFile();
+            console.log("[CLEAR_DATABASE] Database cleaned up and file deleted");
+        }
+    } finally {
+        // 这里关闭 adapter 对 MySQL 很重要：即使表已删除，mysql2 仍会保持空闲
+        // socket，导致 Vitest 退出时挂起。SQLite/D1 关闭无副作用，也能覆盖
+        // TEST_CLEANUP=false 的连接清理。
+        await close();
     }
 }
 
@@ -416,11 +427,32 @@ async function cleanup(): Promise<void> {
 
     const tables = await listBusinessTables(false);
 
-    for (const table of tables) {
-        try {
-            await adapter.exec(`DROP TABLE IF EXISTS ${table.name}`);
-        } catch (e) {
-            console.error(`Failed to drop table ${table.name}:`, e);
+    // MySQL 即使子表在 information_schema 排在后面，也不允许直接删除被引用的
+    // 父表。这里只是测试收尾，整个删除窗口临时关闭检查，并在 finally 中恢复，
+    // 避免清理失败时泄漏连接状态。
+    if (isMysql) {
+        await adapter.exec("SET FOREIGN_KEY_CHECKS = 0");
+    }
+
+    // SQLite 删除表和删除行时都会检查外键，而 catalog 顺序不考虑依赖关系；如果
+    // 中途失败，Sutando 会看到半删除 schema。仅在收尾窗口关闭检查，并始终恢复。
+    if (!isMysql && !isWorkerMode) {
+        await adapter.exec("PRAGMA foreign_keys = OFF");
+    }
+    try {
+        for (const table of tables) {
+            try {
+                await adapter.exec(`DROP TABLE IF EXISTS ${table.name}`);
+            } catch (e) {
+                console.error(`Failed to drop table ${table.name}:`, e);
+            }
+        }
+    } finally {
+        if (!isMysql && !isWorkerMode) {
+            await adapter.exec("PRAGMA foreign_keys = ON");
+        }
+        if (isMysql) {
+            await adapter.exec("SET FOREIGN_KEY_CHECKS = 1");
         }
     }
 
@@ -461,14 +493,18 @@ async function truncate(): Promise<void> {
     if (isMysql) {
         // MySQL 清表：关闭外键检查后 DELETE，避免外键约束导致顺序问题
         await getMysqlPool().query("SET FOREIGN_KEY_CHECKS = 0");
-        for (const table of tables) {
-            try {
-                await getMysqlPool().query(`DELETE FROM ${table.name}`);
-            } catch (e) {
-                console.error(`Failed to truncate table ${table.name}:`, e);
+        try {
+            for (const table of tables) {
+                try {
+                    await getMysqlPool().query(`DELETE FROM ${table.name}`);
+                } catch (e) {
+                    console.error(`Failed to truncate table ${table.name}:`, e);
+                }
             }
+        } finally {
+            // 保证后续同一连接池中的业务查询恢复正常外键约束。
+            await getMysqlPool().query("SET FOREIGN_KEY_CHECKS = 1");
         }
-        await getMysqlPool().query("SET FOREIGN_KEY_CHECKS = 1");
     } else {
         for (const table of tables) {
             try {
@@ -572,9 +608,10 @@ async function close(): Promise<void> {
         await adapter.close();
         adapter = null;
         console.log("Database connection closed");
-    }
-
-    if (localDb) {
+        // LocalDBAdapter 与 localDb 共享同一个 better-sqlite3 句柄；adapter.close()
+        // 后不要再次关闭。
+        localDb = null;
+    } else if (localDb) {
         localDb.close();
         localDb = null;
     }

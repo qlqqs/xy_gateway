@@ -6,6 +6,10 @@ class ModelRoutingResult {
         readonly vendor: SgVendor | null,
         readonly vendorModelName: string | null,
         readonly upstreamFormat: ApiFormat,
+        readonly priority: number = 1,
+        readonly weight: number = 1,
+        readonly sortOrder: number = 0,
+        readonly vendorModelId: number | null = null,
     ) {}
 
     static none(): ModelRoutingResult {

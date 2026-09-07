@@ -13,7 +13,7 @@ const allowCors = cors({
         }
         return null;
     },
-    allowHeaders: ["Content-Type", "Authorization", "x-api-key"],
+    allowHeaders: ["Content-Type", "Authorization", "x-api-key", "x-goog-api-key"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
 });

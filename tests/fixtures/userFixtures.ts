@@ -10,40 +10,40 @@ const ADMIN_TOKEN = "admin-token-for-test";
 const USER_FIXTURES = {
     basic: {
         name: "Test User",
-        token: randomUUID(),
+        keys: [{ value: randomUUID() }],
     },
     admin: {
         name: "Admin User",
-        token: ADMIN_TOKEN,
+        keys: [{ value: ADMIN_TOKEN }],
         type: "admin",
     },
-    withCustomToken: {
-        name: "Test User with Custom Token",
-        token: "custom-token-123",
+    withCustomKey: {
+        name: "Test User with Custom API Key",
+        keys: [{ value: "custom-key-123" }],
     },
     duplicateName1: {
         name: "Duplicate User",
-        token: randomUUID(),
+        keys: [{ value: randomUUID() }],
     },
     duplicateName2: {
         name: "Duplicate User",
-        token: randomUUID(),
+        keys: [{ value: randomUUID() }],
     },
     longName: {
         name: "A".repeat(255),
-        token: randomUUID(),
+        keys: [{ value: randomUUID() }],
     },
-    // 空字符串 token 会被自动生成新的 UUID（在 userController 中处理）
-    emptyToken: {
+    // 缺省 value 会由 userKeyService 生成新的随机 API key。
+    emptyKey: {
         name: "Test User",
-        token: "",
+        keys: [{}],
     },
 };
 
-function createRandomUser(name?: string, token?: string) {
+function createRandomUser(name?: string, keyValue?: string) {
     return {
         name: name || `Test User ${Date.now()}`,
-        token: token || randomUUID(),
+        keys: [{ value: keyValue || randomUUID() }],
     };
 }
 

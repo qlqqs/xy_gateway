@@ -52,7 +52,7 @@ class ORMService {
 
             const migrateAdapter = new MySQLDBAdapter(conn);
             await dbMigrationService.migrate(migrateAdapter, "node");
-            migrateAdapter.close();
+            await migrateAdapter.close();
         } else {
             if (!dbPath) {
                 throw new customError.AppError("dbPath is required for node mode", 500);
@@ -209,8 +209,11 @@ class ORMService {
         "recharge_records",
         "record",
         "user",
+        "user_group",
+        "user_key",
         "vendor",
-        "vendor_model"
+        "vendor_model",
+        "model_upstream",
     ];
 
     async verifySchema(): Promise<void> {

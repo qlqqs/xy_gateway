@@ -53,7 +53,7 @@ async function setupResponsesFixture(): Promise<ResponsesFixture> {
 
     return {
         adminToken,
-        testUserToken: userResponse.body.token,
+        testUserToken: userResponse.body.keys[0].value,
         responsesModelName,
     };
 }

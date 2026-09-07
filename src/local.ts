@@ -106,6 +106,7 @@ async function startServer() {
     const bindings: Env = {
         DB: (ormService.dbAdapter as any).db,
         ROOT_TOKEN: process.env.ROOT_TOKEN || "",
+        KEY_ENCRYPTION_SECRET: process.env.KEY_ENCRYPTION_SECRET || "",
     };
 
     // Static file serving (frontend) - skip in API-only mode (desktop sidecar)

@@ -51,10 +51,15 @@
 ### 第三步：配置 GitHub Secrets
 回到您刚才 Fork 的 GitHub 仓库页面：
 1. 点击顶部的 `Settings` -> 左侧菜单的 `Secrets and variables` -> `Actions`。
-2. 点击 `New repository secret`，添加以下两个 Secret：
+2. 点击 `New repository secret`，添加以下四个 Secret：
    - Name: `CLOUDFLARE_ACCOUNT_ID`，Value 填入您刚才复制的 Account ID。
    - Name: `CLOUDFLARE_API_TOKEN`，Value 填入您刚才生成的 API Token。
    - Name: `ROOT_TOKEN`，请填入您自定义的后台管理员密码。
+   - Name: `KEY_ENCRYPTION_SECRET`，请填入密码管理器生成的长期随机密钥。
+
+`KEY_ENCRYPTION_SECRET` 用于加密管理端 API Key 的可回显值，部署后不能随意更换；
+它不能与 `ROOT_TOKEN` 共用。首次迁移旧数据库时，Action 会在删除旧列前使用该密钥
+完成一次性导入。
 
 <img src="../../images/set_github_action_secret.png" width="50%" alt="配置 GitHub Secrets">
 

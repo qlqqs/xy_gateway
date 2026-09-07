@@ -135,9 +135,16 @@ function handleTypeChange() {
     }
 }
 
-function handleProtocolChange() {
+function handleProtocolChange(value?: 'chat_completions' | 'responses') {
     if (formState.api_type !== 'openai') {
         return;
+    }
+
+    // Some select implementations emit `change` in the same tick as
+    // `update:value`; use the event value so the endpoint is derived from the
+    // user's selection rather than the previous protocol.
+    if (value === 'chat_completions' || value === 'responses') {
+        formState.openai_protocol = value;
     }
 
     const endpoint = formState.openai_protocol === 'responses' ? 'responses' : 'chat_completions';
@@ -149,9 +156,10 @@ function handleProtocolChange() {
 function toEndpoint(url: string, endpoint: 'responses' | 'chat_completions'): string {
     const clean = url.replace(/\/$/, '');
     if (endpoint === 'responses') {
-        return clean.replace(/\/chat\/completions$/, '') + '/responses';
+        return clean.replace(/(\/chat\/completions)+$/, '')
+            .replace(/\/responses$/, '') + '/responses';
     }
-    return clean.replace(/\/responses$/, '') + '/chat/completions';
+    return clean.replace(/(\/chat\/completions)+$/, '').replace(/\/responses$/, '') + '/chat/completions';
 }
 
 const rules = {

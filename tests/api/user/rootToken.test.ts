@@ -26,7 +26,7 @@ describe("Root Token Tests", () => {
             "/user/create.json",
             {
                 name: "Admin User",
-                token: adminToken,
+                keys: [{ value: adminToken }],
                 type: "admin",
             },
         );
@@ -148,7 +148,7 @@ describe("Root Token Tests", () => {
                 "/user/create.json",
                 {
                     name: "Normal User",
-                    token: "normal-token-123",
+                    keys: [{ value: "normal-token-123" }],
                     type: "normal",
                 },
                 ROOT_TOKEN,
@@ -208,7 +208,7 @@ describe("Root Token Tests", () => {
                     "/user/create.json",
                     {
                         name: "Another User",
-                        token: "another-user-token",
+                        keys: [{ value: "another-user-token" }],
                         type: "normal",
                     },
                     ROOT_TOKEN,
@@ -322,7 +322,7 @@ describe("Root Token Tests", () => {
                 "/user/create.json",
                 {
                     name: "Normal User 2",
-                    token: normalToken,
+                    keys: [{ value: normalToken }],
                     type: "normal",
                 },
                 adminToken,

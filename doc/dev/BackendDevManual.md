@@ -56,6 +56,8 @@ npm install
 ```bash
 # .dev.vars
 ROOT_TOKEN=root-token-123
+# API Key 加密密钥（不要与 ROOT_TOKEN 相同）
+KEY_ENCRYPTION_SECRET=local-development-encryption-secret
 PORT=8720
 RECORD_LOG_ENABLED=false
 ```
@@ -72,8 +74,11 @@ RECORD_LOG_ENABLED=false
 | `DB_PASSWORD` | - | `DB_DRIVER=mysql` 时：密码 |
 | `DB_NAME` | - | `DB_DRIVER=mysql` 时：库名（必填） |
 | `DB_URL` | - | `DB_DRIVER=mysql` 时：可选连接串 `mysql://user:pass@host:port/db`，设置后优先于离散变量 |
+| `KEY_ENCRYPTION_SECRET` | - | API Key 可回显值的 AES-GCM 密钥；生产环境必填，不能使用 `ROOT_TOKEN` |
 
 设置 `DB_DRIVER=mysql` 并配置连接参数后，Node 模式会通过 `mysql2` 连接 MySQL，启动时自动建表并执行与 SQLite 等价的迁移。不设置或为 `sqlite` 时行为与旧版完全一致。示例：
+
+> **MySQL 运行边界**：当前迁移链最低要求 **MySQL 8.0.13**（建议使用 8.0.34+ 或 8.4）。历史迁移使用 `LONGTEXT` 括号表达式默认值，领域迁移还使用 CTE、窗口函数和 `JSON_TABLE`；MySQL 5.7、MariaDB 不在支持范围内。Node 启动、`db:migrate`、`db:status` 和 `db:clear` 会在执行前检查版本，避免在不兼容服务器上留下半迁移 schema。
 
 ```bash
 # .dev.vars
@@ -152,7 +157,7 @@ Wrangler 会启动本地开发服务器，模拟 Cloudflare Workers 环境
 | `npm run backend:dev` | Cloudflare Workers 开发模式 |
 | `npm run backend:dev:local` | Node 本地开发模式（watch 自动重启） |
 | `npm run backend:start` | Node 生产模式 |
-| `npm run deploy` | 部署到 Cloudflare Workers，部署前自动执行 D1 migrations，并在缺失时创建 ROOT_TOKEN |
+| `npm run deploy` | 部署到 Cloudflare Workers，部署前自动执行 D1 migrations，并设置 ROOT_TOKEN 与 KEY_ENCRYPTION_SECRET |
 | `npm run deploy -- --auto-create-db --auto-create-r2` | 如果当前账号下没有可用 D1 / R2 桶，则自动创建后部署 |
 | `npm run deploy:cloudflare` | 底层 Cloudflare 部署脚本；不带参数时要求 `wrangler.toml` 已配置 `database_id` 和可用的 R2 桶 |
 | `npm run backend:test` | 运行后端测试 |
@@ -228,6 +233,9 @@ log/                      # 或 LOG_DIR 指定的目录
 | `migrate` | 执行待应用的数据库迁移 |
 | `status` | 查看所有迁移文件的应用状态 |
 | `clear` | 清空数据库（删除所有自定义表） |
+
+`clear` 会连同 `_migrations` 一起删除；MySQL 和 Node SQLite 会在删除带外键的表时
+临时关闭外键检查并在结束时恢复。执行前请确认已有可恢复备份。
 
 #### 环境（`--env`）
 

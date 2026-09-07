@@ -1,5 +1,6 @@
 import { SgVendorModel } from "../model/sgVendorModel";
 import customError from "../util/customErrorUtil";
+import modelUpstreamManager from "./modelUpstreamManager";
 
 async function listByVendor(vendorId: number): Promise<SgVendorModel[]> {
     return (await SgVendorModel.query()
@@ -37,6 +38,10 @@ async function create(vendorId: number, modelId: string): Promise<SgVendorModel>
  * @returns 同步后的完整模型列表（按 model_id 升序）
  */
 async function syncByVendor(vendorId: number, modelIds: string[]): Promise<SgVendorModel[]> {
+    const existing = await listByVendor(vendorId);
+    for (const record of existing) {
+        await modelUpstreamManager.clearVendorModelReference(Number(record.id));
+    }
     await SgVendorModel.query().where("vendor_id", vendorId).delete();
 
     if (modelIds.length > 0) {
@@ -97,6 +102,7 @@ async function remove(recordId: number, vendorId: number): Promise<boolean> {
         return false;
     }
 
+    await modelUpstreamManager.clearVendorModelReference(recordId);
     await SgVendorModel.query().where("id", recordId).delete();
     return true;
 }
@@ -106,6 +112,14 @@ async function getByIds(ids: number[]): Promise<SgVendorModel[]> {
         return [];
     }
     return (await SgVendorModel.query().whereIn("id", ids).get()).all();
+}
+
+async function removeByVendor(vendorId: number): Promise<void> {
+    const existing = await listByVendor(vendorId);
+    for (const record of existing) {
+        await modelUpstreamManager.clearVendorModelReference(Number(record.id));
+    }
+    await SgVendorModel.query().where("vendor_id", vendorId).delete();
 }
 
 /**
@@ -128,5 +142,6 @@ export default {
     update,
     remove,
     getByIds,
+    removeByVendor,
     findVendorModel,
 };

@@ -12,6 +12,7 @@ export enum FailedCode {
     UPSTREAM_ERROR = "upstream_error",
     NO_AVAILABLE_UPSTREAM = "no_available_upstream",
     INSUFFICIENT_BALANCE = "insufficient_balance",
+    BILLING_ERROR = "billing_error",
 }
 
 export enum RequestActivityStage {

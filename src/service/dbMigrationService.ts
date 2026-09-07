@@ -16,6 +16,8 @@ import {
 import { SQLiteDBAdapter } from "../util/db/sqliteDBAdapter";
 import { MySQLDBAdapter, MySQLConnOptions } from "../util/db/mysqlDBAdapter";
 import { WranglerDBAdapter } from "../util/db/wranglerDBAdapter";
+import customError from "../util/customErrorUtil";
+import userKeyMigrationService from "./userKeyMigrationService";
 
 const LOCAL_DB_PATH = process.env.DB_PATH || join(process.cwd(), "local.db");
 const TMP_DIR = join(process.cwd(), ".tmp");
@@ -24,6 +26,222 @@ export interface Migration {
     id?: number;
     name: string;
     applied_at?: string;
+}
+
+const LEGACY_KEY_CUTOVER_MIGRATION = "migrate_0032";
+const MIN_MYSQL_VERSION = [8, 0, 13] as const;
+
+/**
+ * 现有 MySQL 迁移使用 LONGTEXT 括号表达式默认值，领域切换还使用
+ * CTE、JSON_TABLE 和窗口函数；这些能力在 MySQL 5.7 中不可用。先检查版本，
+ * 再创建迁移标记，避免不支持的服务器留下半成品 schema。
+ */
+export async function ensureSupportedMySqlVersion(adapter: DBAdapter): Promise<void> {
+    let rawVersion = "";
+    try {
+        const rows = await adapter.query<{ version?: string }>(
+            "SELECT VERSION() AS version",
+        );
+        rawVersion = String(rows[0]?.version ?? "");
+    } catch {
+        throw new customError.AppError(
+            "无法读取 MySQL 版本；请确认连接目标是受支持的 MySQL 服务",
+            500,
+            "mysql_version_check_failed",
+        );
+    }
+
+    if (/mariadb/i.test(rawVersion)) {
+        throw new customError.AppError(
+            "当前项目的 MySQL 迁移不支持 MariaDB，请使用 MySQL 8.0.13 或更高版本",
+            500,
+            "mysql_version_unsupported",
+        );
+    }
+
+    const match = rawVersion.match(/^(\d+)\.(\d+)\.(\d+)/);
+    const version = match ? match.slice(1).map(Number) : [];
+    // 按组件逐段比较；转换成浮点数会错误排序 8.0.9 这类版本。
+    const [major, minor, patch] = version;
+    const isSupported = version.length === 3
+        && (major > MIN_MYSQL_VERSION[0]
+            || (major === MIN_MYSQL_VERSION[0] && minor > MIN_MYSQL_VERSION[1])
+            || (major === MIN_MYSQL_VERSION[0]
+                && minor === MIN_MYSQL_VERSION[1]
+                && patch >= MIN_MYSQL_VERSION[2]));
+
+    if (!isSupported) {
+        throw new customError.AppError(
+            `当前 MySQL 版本 ${rawVersion || "未知"} 不受支持；需要 MySQL 8.0.13 或更高版本`,
+            500,
+            "mysql_version_unsupported",
+        );
+    }
+}
+
+/**
+ * 领域切换包含连接中断后不能安全重放的 DDL（MySQL 可能隐式提交单条
+ * ALTER TABLE，D1 也会逐条执行）。因此不能只依赖迁移标记：执行切换前
+ * 先检查 schema，遇到无法判断的半迁移状态就停止，要求从迁移前备份恢复。
+ */
+interface SchemaSnapshot {
+    tables: Set<string>;
+    columns: Map<string, Set<string>>;
+}
+
+const DOMAIN031_TABLES = ["user_group", "user_key", "model_upstream"];
+const DOMAIN031_VENDOR_COLUMNS = [
+    "auth_mode",
+    "skip_tls_verify",
+    "proxy",
+    "supplier_name",
+    "channel_code",
+    "api_type",
+    "openai_protocol",
+    "status",
+    "remark",
+    "available_models",
+    "concurrency",
+    "load_factor",
+    "priority",
+    "group_id",
+];
+const DOMAIN031_RECORD_COLUMNS = [
+    "key_id",
+    "group_id",
+    "requested_model",
+    "billing_mode",
+    "base_cost",
+    "rate_multiplier",
+    "settlement_status",
+];
+
+async function readSchemaSnapshot(adapter: DBAdapter, dialect: "sqlite" | "mysql"): Promise<SchemaSnapshot> {
+    const tables = new Set<string>();
+    const columns = new Map<string, Set<string>>();
+
+    if (dialect === "mysql") {
+        const tableRows = await adapter.query<{ name?: string; TABLE_NAME?: string }>(
+            "SELECT TABLE_NAME AS name FROM information_schema.tables WHERE table_schema = DATABASE()",
+        );
+        for (const row of tableRows) {
+            const name = String(row.name ?? row.TABLE_NAME ?? "");
+            if (name) tables.add(name.toLowerCase());
+        }
+        const columnRows = await adapter.query<{ table_name?: string; TABLE_NAME?: string; name?: string; COLUMN_NAME?: string }>(
+            "SELECT TABLE_NAME AS table_name, COLUMN_NAME AS name FROM information_schema.columns WHERE table_schema = DATABASE()",
+        );
+        for (const row of columnRows) {
+            const table = String(row.table_name ?? row.TABLE_NAME ?? "").toLowerCase();
+            const column = String(row.name ?? row.COLUMN_NAME ?? "").toLowerCase();
+            if (!table || !column) continue;
+            if (!columns.has(table)) columns.set(table, new Set());
+            columns.get(table)!.add(column);
+        }
+        return { tables, columns };
+    }
+
+    const tableRows = await adapter.query<{ name?: string }>(
+        "SELECT name FROM sqlite_master WHERE type='table'",
+    );
+    for (const row of tableRows) {
+        const name = String(row.name ?? "");
+        if (name) tables.add(name.toLowerCase());
+    }
+    // PRAGMA 不能使用参数绑定；这里的表名是固定常量，引用方式对 SQLite/D1 均安全。
+    for (const table of ["user", "model", "vendor", "record", ...DOMAIN031_TABLES]) {
+        if (!tables.has(table)) continue;
+        const rows = await adapter.query<{ name?: string }>(`PRAGMA table_info("${table}")`);
+        columns.set(table, new Set(rows.map(row => String(row.name ?? "").toLowerCase()).filter(Boolean)));
+    }
+    return { tables, columns };
+}
+
+function hasAllColumns(snapshot: SchemaSnapshot, table: string, expected: string[]): boolean {
+    const actual = snapshot.columns.get(table.toLowerCase());
+    return Boolean(actual && expected.every(column => actual.has(column.toLowerCase())));
+}
+
+function hasAnyColumns(snapshot: SchemaSnapshot, table: string, expected: string[]): boolean {
+    const actual = snapshot.columns.get(table.toLowerCase());
+    return Boolean(actual && expected.some(column => actual.has(column.toLowerCase())));
+}
+
+async function validateDomainCutoverState(
+    adapter: DBAdapter,
+    dialect: "sqlite" | "mysql",
+    appliedNames: Set<string>,
+    pendingNames: string[],
+): Promise<void> {
+    const needsCheck = appliedNames.has("migrate_0031")
+        || appliedNames.has("migrate_0032")
+        || pendingNames.includes("migrate_0031")
+        || pendingNames.includes("migrate_0032");
+    if (!needsCheck) return;
+
+    const snapshot = await readSchemaSnapshot(adapter, dialect);
+    const newTables = DOMAIN031_TABLES.filter(table => snapshot.tables.has(table));
+    const allNewTables = newTables.length === DOMAIN031_TABLES.length;
+    const anyNewTables = newTables.length > 0;
+    const vendorFormalComplete = hasAllColumns(snapshot, "vendor", DOMAIN031_VENDOR_COLUMNS);
+    const vendorFormalPartial = hasAnyColumns(snapshot, "vendor", DOMAIN031_VENDOR_COLUMNS);
+    const recordFormalComplete = hasAllColumns(snapshot, "record", DOMAIN031_RECORD_COLUMNS);
+    const recordFormalPartial = hasAnyColumns(snapshot, "record", DOMAIN031_RECORD_COLUMNS);
+    const domain031Complete = allNewTables && vendorFormalComplete && recordFormalComplete;
+    const domain031Partial = anyNewTables || vendorFormalPartial || recordFormalPartial;
+
+    if (appliedNames.has("migrate_0031") && !domain031Complete) {
+        throw new customError.AppError(
+            "Migration state is inconsistent: migrate_0031 is marked applied but its domain tables/columns are incomplete. Restore the pre-migration backup before retrying.",
+            500,
+            "migration_schema_inconsistent",
+        );
+    }
+    if (!appliedNames.has("migrate_0031") && pendingNames.includes("migrate_0031") && domain031Partial) {
+        throw new customError.AppError(
+            "Detected a partial migrate_0031 schema (some new domain tables or columns already exist without a migration marker). Restore the pre-migration backup; the cutover will not be replayed automatically.",
+            500,
+            "migration_partial_schema",
+        );
+    }
+
+    const userColumns = snapshot.columns.get("user") ?? new Set<string>();
+    const modelColumns = snapshot.columns.get("model") ?? new Set<string>();
+    const legacyColumnsPresent = ["token"].every(column => userColumns.has(column))
+        && ["routing_mode", "routing_config"].every(column => modelColumns.has(column));
+    const legacyColumnsAbsent = !userColumns.has("token")
+        && !modelColumns.has("routing_mode")
+        && !modelColumns.has("routing_config");
+    const legacyColumnsPartial = !legacyColumnsPresent && !legacyColumnsAbsent;
+
+    if (appliedNames.has("migrate_0032") && !legacyColumnsAbsent) {
+        throw new customError.AppError(
+            "Migration state is inconsistent: migrate_0032 is marked applied but legacy authentication/routing columns remain. Restore the pre-migration backup before retrying.",
+            500,
+            "migration_schema_inconsistent",
+        );
+    }
+    if (!appliedNames.has("migrate_0032") && pendingNames.includes("migrate_0032")
+        && (legacyColumnsPartial || (!legacyColumnsPresent && domain031Complete))) {
+        throw new customError.AppError(
+            "Detected a partial migrate_0032 cutover (legacy columns are neither fully present nor fully removed). Restore the pre-migration backup; the destructive DDL will not be replayed automatically.",
+            500,
+            "migration_partial_schema",
+        );
+    }
+}
+
+async function runPreMigrationHook(name: string, adapter: DBAdapter): Promise<void> {
+    if (name !== LEGACY_KEY_CUTOVER_MIGRATION) return;
+
+    // migrate_0032 会删除 user.token 和 model.routing_* 列。执行 DDL 前先导入
+    // 旧凭据，使升级可重试，并确保请求链路不会继续读取旧 schema。
+    const report = await userKeyMigrationService.importLegacyUserKeys(adapter);
+    if (report.imported > 0 || report.skipped > 0) {
+        console.log(
+            `Imported ${report.imported} legacy API keys; skipped ${report.skipped} already migrated rows.`,
+        );
+    }
 }
 
 // 从环境变量读取 MySQL 连接参数（DB_URL 优先于离散变量）
@@ -69,6 +287,9 @@ export async function migrate(
     let success = false;
 
     try {
+        if (dialect === "mysql") {
+            await ensureSupportedMySqlVersion(adapter);
+        }
         console.log(`Initializing migrations table in ${env}...`);
         await adapter.exec(migrationsTableDdl(dialect));
 
@@ -102,14 +323,21 @@ export async function migrate(
             `Applied: ${applied.length}, Available: ${availableCount}, Pending: ${pendingMigrations.length}`,
         );
 
+        // 在判断数据库已是最新或执行待处理脚本前，先校验领域切换状态。
+        // 这也能发现只提交了部分 DDL 却已经写入迁移标记的情况。
+        await validateDomainCutoverState(adapter, dialect, appliedNames, pendingMigrations);
+
         if (pendingMigrations.length === 0) {
             console.log("Database is up to date.");
             success = true;
             return;
         }
 
-        // Worker mode: 合并所有 pending migrations 为一个文件，一次执行
-        if (!adapter.execTransaction) {
+        // Worker 模式通常把待处理迁移合并成一个 D1 命令。旧 Key 切换需要在
+        // migrate_0031 与 migrate_0032 之间执行应用层加密导入，因此必须逐个执行，
+        // 不能直接拼接成一个文件。
+        const requiresSequentialWorkerMigrations = pendingMigrations.includes(LEGACY_KEY_CUTOVER_MIGRATION);
+        if (!adapter.execTransaction && !requiresSequentialWorkerMigrations) {
             console.log(`\n📦 Merging ${pendingMigrations.length} migrations into single file:`);
             pendingMigrations.forEach((name, i) => console.log(`   ${i + 1}. ${name}`));
 
@@ -132,10 +360,25 @@ export async function migrate(
             console.log(`\n🚀 Executing combined migration file...`);
             execSync(cmd, { stdio: "inherit" });
             console.log(`✅ Successfully applied ${pendingMigrations.length} migrations in one batch`);
-        } else {
-            // Node mode: 用事务逐个执行
+        } else if (!adapter.execTransaction) {
             for (const name of pendingMigrations) {
                 console.log(`\nApplying migration: ${name}...`);
+                await runPreMigrationHook(name, adapter);
+                const sql = readFileSync(migrationSqlFile(join(MIGRATION_DIR, name), dialect), "utf-8");
+                try {
+                    await adapter.exec(sql);
+                    await adapter.exec(`INSERT INTO _migrations (name) VALUES ('${name}')`);
+                    console.log(`✅ Successfully applied: ${name}`);
+                } catch (e) {
+                    console.error(`❌ Failed to apply migration ${name}:`, e);
+                    throw e;
+                }
+            }
+        } else {
+            // Node/MySQL 模式：每个迁移分别使用一个事务。
+            for (const name of pendingMigrations) {
+                console.log(`\nApplying migration: ${name}...`);
+                await runPreMigrationHook(name, adapter);
                 const sql = readFileSync(migrationSqlFile(join(MIGRATION_DIR, name), dialect), "utf-8");
                 const insertRecord = `INSERT INTO _migrations (name) VALUES ('${name}')`;
 
@@ -159,6 +402,9 @@ export async function migrate(
 
 export async function status(adapter: DBAdapter, env: string) {
     const dialect = getDialect(env);
+    if (dialect === "mysql") {
+        await ensureSupportedMySqlVersion(adapter);
+    }
     console.log("Initializing migrations table...");
     await adapter.exec(migrationsTableDdl(dialect));
 
@@ -205,6 +451,9 @@ export async function status(adapter: DBAdapter, env: string) {
 
 export async function clear(adapter: DBAdapter, env: string) {
     const dialect = getDialect(env);
+    if (dialect === "mysql") {
+        await ensureSupportedMySqlVersion(adapter);
+    }
     // 注意：这个操作很危险
     console.warn(
         `\n⚠️  WARNING: You are about to CLEAR the database in environment: ${env}`,
@@ -216,7 +465,9 @@ export async function clear(adapter: DBAdapter, env: string) {
     // 按方言列出业务表：sqlite 用 sqlite_master，mysql 用 information_schema
     const listSql =
         dialect === "mysql"
-            ? "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name NOT LIKE '\\_%'"
+            // `_migrations` 也属于可恢复的应用 schema；如果保留它而删除业务表，
+            // 下次 migrate 会把已应用标记与空 schema 判定为半迁移状态。
+            ? "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'"
             : "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name NOT LIKE 'd1_%'";
 
     let tables: any[] = [];
@@ -254,12 +505,30 @@ export async function clear(adapter: DBAdapter, env: string) {
         return;
     }
 
-    for (const table of tables) {
-        try {
-            console.log(`Dropping table: ${table.name}...`);
-            await adapter.exec(`DROP TABLE IF EXISTS ${table.name}`);
-        } catch (e) {
-            console.error(`Failed to drop table ${table.name}:`, e);
+    const disableForeignKeys = dialect === "mysql"
+        || (dialect === "sqlite" && env === "node");
+    let foreignKeysDisabled = false;
+    try {
+        if (disableForeignKeys) {
+            await adapter.exec(dialect === "mysql"
+                ? "SET FOREIGN_KEY_CHECKS = 0"
+                : "PRAGMA foreign_keys = OFF");
+            foreignKeysDisabled = true;
+        }
+
+        for (const table of tables) {
+            try {
+                console.log(`Dropping table: ${table.name}...`);
+                await adapter.exec(`DROP TABLE IF EXISTS ${table.name}`);
+            } catch (e) {
+                console.error(`Failed to drop table ${table.name}:`, e);
+            }
+        }
+    } finally {
+        if (foreignKeysDisabled) {
+            await adapter.exec(dialect === "mysql"
+                ? "SET FOREIGN_KEY_CHECKS = 1"
+                : "PRAGMA foreign_keys = ON");
         }
     }
 
@@ -286,6 +555,7 @@ export default {
     init,
     createDBAdapter,
     mysqlConnFromEnv,
+    ensureSupportedMySqlVersion,
     clearTempDir,
     MIGRATION_DIR,
 };

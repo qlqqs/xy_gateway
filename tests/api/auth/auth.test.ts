@@ -29,7 +29,7 @@ describe("Auth API Tests", () => {
             "/user/create.json",
             {
                 name: "Normal User",
-                token: normalToken,
+                keys: [{ value: normalToken }],
                 type: "normal",
             },
             adminToken,
@@ -40,7 +40,7 @@ describe("Auth API Tests", () => {
             "/user/create.json",
             {
                 name: "Disabled User",
-                token: disabledToken,
+                keys: [{ value: disabledToken }],
                 type: "normal",
             },
             adminToken,

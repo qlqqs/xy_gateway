@@ -12,6 +12,8 @@ export interface GroupRecord {
     rateMultiplier: number;
     status: GroupStatus;
     updatedAt: string;
+    /** 后端按供应商关联实时统计的通道数量。 */
+    channelCount?: number;
 }
 
-export type GroupDraft = Omit<GroupRecord, 'id' | 'updatedAt'>;
+export type GroupDraft = Omit<GroupRecord, 'id' | 'updatedAt' | 'channelCount'>;

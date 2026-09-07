@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端入口与请求链路规范"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "MVC 分层与文件职责"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLite/D1/MySQL schema、migration 与 ORM 约束"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "JSON 错误与 controller/service 边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端测试分类与验证要求"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨前端 DTO、API、service、DB 数据流"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "复用现有协议、记录和计费组件"}
+{"file": ".trellis/tasks/09-06-backend-domain-rebuild/research/backend-inventory.md", "reason": "前后端断点与 sub2api 语义对照"}

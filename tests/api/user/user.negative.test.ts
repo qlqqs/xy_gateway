@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import requestHelper from "../../helpers/requestHelper";
-import mockHelper from "../../helpers/mockHelper";
 import dbHelper from "../../helpers/dbHelper"
-import { setupAdminUser } from "../../globalSetup";
 
 /**
  * User Endpoint Negative Tests
@@ -14,7 +12,7 @@ describe("User API (Negative)", () => {
     });
     describe("POST /user/create.json", () => {
         it("should return error when name is missing", async () => {
-            const userData = { token: "some-token" };
+            const userData = { keys: [{ value: "some-key" }] };
             const response = await requestHelper.post(
                 "/user/create.json",
                 userData,
@@ -23,7 +21,7 @@ describe("User API (Negative)", () => {
             expect(response.status).toBeGreaterThanOrEqual(400);
         });
 
-        it("should return error when both name and token are missing", async () => {
+        it("should return error when both name and API key are missing", async () => {
             const userData = {};
             const response = await requestHelper.post(
                 "/user/create.json",
@@ -72,7 +70,7 @@ describe("User API (Negative)", () => {
             const { setupAdminUser } = await import("../../globalSetup");
             adminToken = await setupAdminUser();
 
-            const userData = { name: "Test User", token: "test-token-123" };
+            const userData = { name: "Test User", keys: [{ value: "test-key-123" }] };
             const response = await requestHelper.post(
                 "/user/create.json",
                 userData,

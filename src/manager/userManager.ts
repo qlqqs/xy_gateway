@@ -8,14 +8,13 @@ interface UserListOptions {
     offset: number;
 }
 
-async function findByToken(token: string): Promise<SgUser | null> {
-    if (token == null) return null;
-
-    return await SgUser.query().where("token", token).first();
-}
-
 async function findById(userId: number): Promise<SgUser | null> {
     return await SgUser.query().find(userId);
+}
+
+async function findByName(name: string): Promise<SgUser | null> {
+    if (!name) return null;
+    return await SgUser.query().whereRaw("LOWER(name) = LOWER(?)", [name]).first();
 }
 
 async function getByIds(ids: number[]): Promise<SgUser[]> {
@@ -44,7 +43,7 @@ async function list(options: UserListOptions) {
     };
 }
 
-async function create(data: Pick<SgUser, "name" | "token" | "type">) {
+async function create(data: Pick<SgUser, "name" | "type">) {
     return await SgUser.query().create({
         ...data,
         balance: 0,                    // 新用户余额固定 0，由 manager 兜底
@@ -66,13 +65,21 @@ async function count(): Promise<number> {
     return Number(await SgUser.query().count() || 0);
 }
 
+async function deleteById(userId: number): Promise<boolean> {
+    const user = await findById(userId);
+    if (!user) return false;
+    await SgUser.query().where("id", userId).delete();
+    return true;
+}
+
 export default {
-    findByToken,
     findById,
+    findByName,
     getByIds,
     list,
     create,
     update,
     incrementBalance,
     count,
+    deleteById,
 };

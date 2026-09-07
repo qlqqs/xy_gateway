@@ -292,6 +292,55 @@ describe("SgVendor.getUrlByFormat — URL merge & resolution", () => {
             });
             expect(v.getSupportedFormats()).toEqual([ApiFormat.OPENAI, ApiFormat.RESPONSES]);
         });
+
+        it("uses the formal OpenAI chat capability instead of URL/preset discovery", () => {
+            const v = new SgVendor({
+                type: "deepseek",
+                urls: {
+                    openai: "https://chat.example.com/v1",
+                    anthropic: "https://messages.example.com",
+                },
+                config: {
+                    api_type: "openai",
+                    openai_protocol: "chat_completions",
+                },
+            });
+
+            expect(v.getSupportedFormats()).toEqual([ApiFormat.OPENAI]);
+            expect(v.getUrlByFormat(ApiFormat.OPENAI)).toContain("chat.example.com");
+            expect(v.getUrlByFormat(ApiFormat.ANTHROPIC)).toBeNull();
+            expect(v.getUrlByFormat(ApiFormat.RESPONSES)).toBeNull();
+        });
+
+        it("uses the formal OpenAI Responses capability and still derives its endpoint", () => {
+            const v = new SgVendor({
+                type: "other",
+                urls: { openai: "https://responses.example.com/v1" },
+                config: {
+                    api_type: "openai",
+                    openai_protocol: "responses",
+                },
+            });
+
+            expect(v.getSupportedFormats()).toEqual([ApiFormat.RESPONSES]);
+            expect(v.getUrlByFormat(ApiFormat.RESPONSES)).toBe("https://responses.example.com/v1/responses");
+            expect(v.getUrlByFormat(ApiFormat.OPENAI)).toBeNull();
+        });
+
+        it("uses only Anthropic when the formal API type is anthropic", () => {
+            const v = new SgVendor({
+                type: "deepseek",
+                urls: {
+                    openai: "https://chat.example.com/v1",
+                    anthropic: "https://messages.example.com",
+                },
+                config: { api_type: "anthropic" },
+            });
+
+            expect(v.getSupportedFormats()).toEqual([ApiFormat.ANTHROPIC]);
+            expect(v.getUrlByFormat(ApiFormat.ANTHROPIC)).toBe("https://messages.example.com/v1/messages");
+            expect(v.getUrlByFormat(ApiFormat.OPENAI)).toBeNull();
+        });
     });
 
     describe("config (SgVendorConfig cast)", () => {

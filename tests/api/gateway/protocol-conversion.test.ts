@@ -31,7 +31,7 @@ describe("Protocol Conversion Integration", () => {
         );
         expect(userResponse.status).toBe(200);
         userId = userResponse.body.id;
-        userToken = userResponse.body.token;
+        userToken = userResponse.body.keys[0].value;
 
         const mockBaseUrl = config.UPSTREAM_CONFIG.mock.url;
 

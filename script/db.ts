@@ -81,7 +81,7 @@ async function main() {
         console.error(e);
         process.exit(1);
     } finally {
-        adapter.close();
+        await adapter.close();
         await dbMigrationService.clearTempDir?.();
     }
 }

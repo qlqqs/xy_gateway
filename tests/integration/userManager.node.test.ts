@@ -16,16 +16,13 @@ describe("userManager (node, real db)", () => {
     async function createUser(name = "tester") {
         return await userManager.create({
             name,
-            token: `token-${Math.random()}`,
             type: "normal" as any,
         });
     }
 
-    it("create + findByToken + findById", async () => {
+    it("create + findById", async () => {
         const user = await createUser();
 
-        expect((await userManager.findByToken(user.token))?.id).toBe(user.id);
-        expect((await userManager.findByToken(null as any))).toBeNull();
         expect((await userManager.findById(user.id))?.name).toBe("tester");
     });
 
@@ -64,7 +61,7 @@ describe("userManager (node, real db)", () => {
 
     it("list: type filter", async () => {
         await createUser("normal-user");
-        await userManager.create({ name: "admin-user", token: "t-admin", type: "admin" as any });
+        await userManager.create({ name: "admin-user", type: "admin" as any });
         const { total } = await userManager.list({ type: "admin", pageSize: 10, offset: 0 });
         expect(total).toBe(1);
     });

@@ -10,11 +10,15 @@ import config from "../config";
  * Generate a mock user
  */
 function generateUser(
-    overrides: Partial<{ name: string; token: string }> = {},
+    overrides: Partial<{ name: string; keyValue: string }> = {},
 ) {
     return {
-        name: overrides.name || `Test User ${Date.now()}`,
-        token: overrides.token || randomUUID(),
+        // Requests in a few API tests intentionally create users in parallel.
+        // A millisecond timestamp alone can produce the same unique name for
+        // both requests, making one request fail before the test reaches the
+        // behavior under test.
+        name: overrides.name || `Test User ${Date.now()}-${randomUUID()}`,
+        keys: [{ value: overrides.keyValue || randomUUID() }],
     };
 }
 
@@ -80,7 +84,11 @@ function generateModel(
 ) {
     return {
         name: overrides.name || `test-model-${Date.now()}`,
-        vendor_id: vendorId,
+        enable: true,
+        prices: {},
+        mapping: {
+            upstreams: [{ vendor_id: vendorId, enabled: true }],
+        },
     };
 }
 

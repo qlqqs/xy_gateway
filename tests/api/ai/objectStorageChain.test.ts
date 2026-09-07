@@ -31,7 +31,7 @@ describe.skipIf(config.TEST_MODE === "worker")("record object storage chain", ()
             mockHelper.generateUser(),
             adminToken,
         );
-        testUserToken = userResponse.body.token;
+        testUserToken = userResponse.body.keys[0].value;
 
         const vendor = await requestHelper.post(
             "/vendor/create.json",

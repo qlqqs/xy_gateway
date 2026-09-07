@@ -31,7 +31,7 @@ describe("AI Chat API (Negative)", () => {
             mockHelper.generateUser(),
             adminToken,
         );
-        testUserToken = userResponse.body.token;
+        testUserToken = userResponse.body.keys[0].value;
 
         // Create disabled test user
         const disabledUserResponse = await requestHelper.post(
@@ -39,7 +39,7 @@ describe("AI Chat API (Negative)", () => {
             mockHelper.generateUser(),
             adminToken,
         );
-        disabledUserToken = disabledUserResponse.body.token;
+        disabledUserToken = disabledUserResponse.body.keys[0].value;
         await requestHelper.put(
             `/user/${disabledUserResponse.body.id}`,
             { status: "disabled" },
@@ -84,10 +84,21 @@ describe("AI Chat API (Negative)", () => {
             adminToken,
         );
 
-        // Insert an invalid routing config to verify unavailable-upstream handling.
-        await dbHelper.execute(
-            `INSERT INTO model (name, enable, routing_mode, routing_config)
-             VALUES ('vendor-not-found-model', 1, 'single', '{"upstreams":[{"vendor_id":999999,"enabled":true}]}')`,
+        // A disabled vendor is represented through the canonical mapping API;
+        // no test fixture may write the removed routing columns directly.
+        const unavailableVendor = await requestHelper.post(
+            "/vendor/create.json",
+            {
+                ...vendorFixtures.VENDOR_FIXTURES.openai(),
+                name: "Disabled routing vendor",
+                config: { status: "disabled" },
+            },
+            adminToken,
+        );
+        await requestHelper.post(
+            "/model/create.json",
+            modelFixtures.createRandomModel(unavailableVendor.body.id, "vendor-disabled-model"),
+            adminToken,
         );
     });
 
@@ -166,7 +177,7 @@ describe("AI Chat API (Negative)", () => {
             expect(response.status).toBe(401);
             expect(response.body).toEqual({
                 error: {
-                    message: expect.stringContaining("user not found"),
+                    message: "Invalid API key",
                     type: "authentication_error",
                     param: null,
                     code: "authentication_error"
@@ -288,7 +299,7 @@ describe("AI Chat API (Negative)", () => {
 
         it("should return 503 when no upstream is available", async () => {
             const chatRequest = mockHelper.generateOpenAIChatRequest({
-                model: "vendor-not-found-model",
+                model: "vendor-disabled-model",
             });
 
             const response = await requestHelper.post(
@@ -347,7 +358,7 @@ describe("AI Chat API (Negative)", () => {
                 type: "error",
                 error: {
                     type: "authentication_error",
-                    message: expect.stringContaining("user not found")
+                    message: "Invalid API key",
                 }
             });
         }, 30000);
@@ -423,7 +434,7 @@ describe("AI Chat API (Negative)", () => {
 
         it("should return 503 when no upstream is available", async () => {
             const messageRequest = mockHelper.generateAnthropicMessageRequest({
-                model: "vendor-not-found-model",
+                model: "vendor-disabled-model",
             });
 
             const response = await requestHelper.postWithAnthropicStyleApiKey(
@@ -479,7 +490,7 @@ describe("AI Chat API (Negative)", () => {
 
         it("should return 503 when no upstream is available", async () => {
             const responsesRequest = {
-                model: "vendor-not-found-model",
+                model: "vendor-disabled-model",
                 messages: [{ role: "user", content: "Hello" }]
             };
 

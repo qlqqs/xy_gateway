@@ -102,7 +102,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import type { TableColumnsType } from 'ant-design-vue';
 import type { FormInstance } from 'ant-design-vue/es';
 import { Modal, message } from 'ant-design-vue/es';
@@ -158,17 +158,9 @@ const rules = {
 };
 
 const groupsWithChannelCount = computed<GroupRow[]>(() => {
-    const counts = new Map<number, number>();
-    vendorsStore.vendors.forEach(vendor => {
-        const groupId = vendor.config.group_id;
-        if (groupId !== null && groupId !== undefined) {
-            counts.set(groupId, (counts.get(groupId) ?? 0) + 1);
-        }
-    });
-
     return groups.value.map(group => ({
         ...group,
-        channelCount: counts.get(group.id) ?? 0,
+        channelCount: group.channelCount ?? 0,
     }));
 });
 
@@ -233,12 +225,14 @@ async function saveGroup() {
             status: formState.status as GroupStatus,
         };
         if (editingId.value === null) {
-            groupStore.create(payload);
+            await groupStore.create(payload);
             message.success('分组已创建');
-        } else if (groupStore.update(editingId.value, payload)) {
-            message.success('分组已更新');
         } else {
-            throw new Error('分组不存在');
+            const updated = await groupStore.update(editingId.value, payload);
+            if (!updated) {
+                throw new Error('分组不存在');
+            }
+            message.success('分组已更新');
         }
         closeDialog();
     } catch (error) {
@@ -250,35 +244,22 @@ function closeDialog() {
     dialogOpen.value = false;
 }
 
-async function removeGroupReferences(groupId: number): Promise<void> {
-    await Promise.all([
-        usersStore.clearGroupReferences(groupId),
-        vendorsStore.clearGroupReferences(groupId),
-    ]);
-}
-
 function removeGroup(group: GroupRecord) {
-    const userReferences = usersStore.users.reduce(
-        (count, user) => count + (user.keys.some(key => key.groupId === group.id) ? 1 : 0),
-        0,
-    );
-    const vendorReferences = vendorsStore.vendors.filter(vendor => vendor.config.group_id === group.id).length;
-    const referenceHint = userReferences + vendorReferences > 0
-        ? `将同时解除 ${userReferences} 个用户和 ${vendorReferences} 个供应商的分组引用。`
-        : '当前没有发现关联的用户或供应商。';
-
     Modal.confirm({
         title: '确认删除',
-        content: `确定要删除分组“${group.name}”吗？${referenceHint}`,
+        content: `确定要删除分组“${group.name}”吗？删除后后端会自动解除关联的 Key 和供应商分组。`,
         okText: '删除',
         cancelText: '取消',
         okType: 'danger',
         onOk: async () => {
             try {
-                await removeGroupReferences(group.id);
-                if (!groupStore.remove(group.id)) {
+                if (!await groupStore.remove(group.id)) {
                     throw new Error('分组不存在');
                 }
+                await Promise.allSettled([
+                    usersStore.refresh(),
+                    vendorsStore.refresh(),
+                ]);
                 message.success('分组已删除');
             } catch {
                 message.error('分组删除失败，请稍后重试');
@@ -286,6 +267,13 @@ function removeGroup(group: GroupRecord) {
         },
     });
 }
+
+onMounted(() => {
+    void Promise.allSettled([
+        groupStore.ensureLoaded(),
+        modelsStore.ensureLoaded(),
+    ]);
+});
 
 </script>
 

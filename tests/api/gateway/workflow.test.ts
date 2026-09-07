@@ -57,7 +57,7 @@ describe("Integration Tests", () => {
             );
             expect(userResponse.status).toBe(200);
             userId = userResponse.body.id;
-            userToken = userResponse.body.token;
+            userToken = userResponse.body.keys[0].value;
             expect(userId).toBeGreaterThan(0);
             expect(userToken).toBeTruthy();
 
@@ -161,7 +161,7 @@ describe("Integration Tests", () => {
     });
 
     describe("Multi-User, Multi-Model Workflow", () => {
-        let users: Array<{ id: number; token: string }> = [];
+        let users: Array<{ id: number; key: string }> = [];
         let models: Array<{ id: number; name: string }> = [];
 
         it("should create multiple users and models", async () => {
@@ -182,7 +182,7 @@ describe("Integration Tests", () => {
                 expect(userResponse.status).toBe(200);
                 users.push({
                     id: userResponse.body.id,
-                    token: userResponse.body.token,
+                    key: userResponse.body.keys[0].value,
                 });
             }
 
@@ -217,7 +217,7 @@ describe("Integration Tests", () => {
                     const response = await requestHelper.post(
                         "/llm/v1/chat/completions",
                         chatRequest,
-                        user.token,
+                        user.key,
                     );
 
                     expect(response.status).toBe(200);

@@ -14,10 +14,13 @@ PORT=8720
 # HOST=127.0.0.1
 # Root 用户的鉴权 Token，用于管理员接口访问（必填，务必修改为自己的）
 ROOT_TOKEN=root-token-123
+# API Key 回显值的独立加密密钥（必须与 ROOT_TOKEN 分开，生产环境请使用随机长字符串）
+KEY_ENCRYPTION_SECRET=replace-with-a-random-encryption-secret
 # 业务数据库文件路径（Node 模式，DB_DRIVER=sqlite 时生效），默认为项目根目录的 local.db
 DB_PATH=./local.db
 # 数据库驱动（Node 模式）：sqlite（默认）/ mysql。
 # 不设置或为 sqlite 时行为与旧版完全一致；设为 mysql 时需配置下方 MySQL 连接参数。
+# MySQL 运行要求 8.0.13+（5.7 / MariaDB 不在支持范围内）。
 # DB_DRIVER=mysql
 # --- mysql 连接参数（DB_DRIVER=mysql 时生效）---
 # DB_HOST=127.0.0.1

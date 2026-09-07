@@ -47,7 +47,7 @@ describe("Stream Failure Handling", () => {
             mockHelper.generateUser(),
             adminToken,
         );
-        testUserToken = userResponse.body.token;
+        testUserToken = userResponse.body.keys[0].value;
 
         // --- OpenAI stream_incomplete vendor/model ---
         const openaiIncompleteVendor = await requestHelper.post(

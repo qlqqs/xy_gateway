@@ -22,10 +22,13 @@ docker run -d \
     -p 8787:8787 \
     -v $(pwd)/data:/app/data \
     -e ROOT_TOKEN=your-secret-root-token \
+    -e KEY_ENCRYPTION_SECRET=your-long-random-encryption-secret \
     ghcr.io/alexazhou/gt_ai_gateway:latest
 ```
 
-> **注意**：`ROOT_TOKEN` 是系统最高权限 Token，用于登录管理后台。请务必将其修改为强密码。
+> **注意**：`ROOT_TOKEN` 是系统最高权限 Token，`KEY_ENCRYPTION_SECRET` 用于 API Key
+> 加密。请使用两个不同的高熵随机值，并持久化保存 `KEY_ENCRYPTION_SECRET`；丢失后无法
+> 回显已有 Key。
 
 服务启动后，访问 `http://localhost:8787` 即可登录进入管理后台。
 

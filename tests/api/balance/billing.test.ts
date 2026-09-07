@@ -34,11 +34,11 @@ describe("Billing API", () => {
         // Create test user
         const testUser = await requestHelper.post(
             "/user/create.json",
-            userFixtures.USER_FIXTURES.withCustomToken,
+            userFixtures.USER_FIXTURES.withCustomKey,
             adminToken,
         );
         testUserId = testUser.body.id;
-        testUserToken = testUser.body.token;
+        testUserToken = testUser.body.keys[0].value;
     });
 
     describe("Model Pricing", () => {
@@ -84,8 +84,7 @@ describe("Billing API", () => {
                 {
                     name: modelConfig.name,
                     enable: Boolean(modelConfig.enable),
-                    routing_mode: modelConfig.routing_mode,
-                    routing_config: modelConfig.routing_config,
+                    mapping: modelConfig.mapping,
                     prices: {
                         input: 1.0,
                         output: 2.0,
@@ -388,7 +387,7 @@ describe("Billing API", () => {
                 adminToken,
             );
             expect(freshUser.body.balance).toBe(0);
-            const userToken = freshUser.body.token;
+            const userToken = freshUser.body.keys[0].value;
 
             // 第一次请求：余额 0 未为负，预检放行，正常返回并扣成负余额
             const first = await requestHelper.post(
@@ -446,7 +445,7 @@ describe("Billing API", () => {
             const paidFirst = await requestHelper.post(
                 "/llm/v1/chat/completions",
                 mockHelper.generateOpenAIChatRequest({ model: modelConfig.name, stream: false }),
-                user.body.token,
+                user.body.keys[0].value,
             );
             expect(paidFirst.status).toBe(200);
             const userAfter = await requestHelper.get(
@@ -459,7 +458,7 @@ describe("Billing API", () => {
             const freeResp = await requestHelper.post(
                 "/llm/v1/chat/completions",
                 mockHelper.generateOpenAIChatRequest({ model: freeModel.body.name, stream: false }),
-                user.body.token,
+                user.body.keys[0].value,
             );
             expect(freeResp.status).toBe(200);
 
@@ -467,7 +466,7 @@ describe("Billing API", () => {
             const paidBlocked = await requestHelper.post(
                 "/llm/v1/chat/completions",
                 mockHelper.generateOpenAIChatRequest({ model: modelConfig.name, stream: false }),
-                user.body.token,
+                user.body.keys[0].value,
             );
             expect(paidBlocked.status).toBe(400);
             expect(paidBlocked.body.error.message).toBe("Insufficient balance");

@@ -1,12 +1,13 @@
 import { Context } from "hono";
-import { SgModel } from "../model/sgModel";
 import { ApiFormat } from "../constants";
+import { SgModel } from "../model/sgModel";
 import modelManager from "../manager/modelManager";
 import modelService from "../service/modelService";
 import sender from "../service/senderService";
-import userService from "../service/userService";
 import customError from "../util/customErrorUtil";
 import { createListResponse, parsePaginationQuery } from "../util/paginationUtil";
+import accessPolicyService from "../service/accessPolicyService";
+import routingService from "../service/routingService/core";
 
 
 function parseJsonLike(text: string): unknown {
@@ -43,28 +44,36 @@ function buildTestRequestBody(format: ApiFormat, model: string): string {
 }
 
 
-function createModelFromRequest(body: unknown): SgModel {
-    if (
-        !body
-        || typeof body !== "object"
-        || !("routing_mode" in body)
-        || !("routing_config" in body)
-    ) {
-        throw new customError.AppError("routing_mode and routing_config are required");
-    }
-
-    return new SgModel(body as Record<string, unknown>);
+function serializeModel(model: any) {
+    const mapping = model.getMapping ? model.getMapping() : (model.mapping ?? { upstreams: [] });
+    return {
+        id: Number(model.id),
+        name: model.name,
+        // `sort_order` is an internal persistence detail.  The frontend owns
+        // array order and should receive the canonical mapping contract only.
+        mapping: {
+            upstreams: (mapping.upstreams ?? []).map((upstream: any) => ({
+                vendor_id: Number(upstream.vendor_id),
+                ...(upstream.vendor_model_id === undefined || upstream.vendor_model_id === null
+                    ? {}
+                    : { vendor_model_id: Number(upstream.vendor_model_id) }),
+                enabled: Boolean(upstream.enabled),
+            })),
+        },
+        enable: Boolean(model.enable),
+        prices: model.prices ?? {},
+        created_at: model.created_at,
+        updated_at: model.updated_at,
+    };
 }
 
 
 async function createModel(c: Context) {
-    const model = createModelFromRequest(await c.req.json());
-    console.log("[modelController] Creating model:", model);
-
-    const instance = await modelService.createModel(model);
+    const body = await c.req.json();
+    const instance = await modelService.createModel(body);
 
     console.log("[modelController] Model created successfully:", instance);
-    return c.json(instance);
+    return c.json(serializeModel(instance));
 }
 
 
@@ -78,15 +87,35 @@ async function listModels(c: Context) {
         pageSize,
         offset,
     });
-    return c.json(createListResponse(result.list, result.total));
+    return c.json(createListResponse(result.list.map(serializeModel), result.total));
 }
 
 
 async function listLlmModels(c: Context) {
-    const models = await modelManager.listEnabledModels();
+    const entities = await modelManager.listEnabledModelEntities();
+    const authContext = c.get("authContext");
+    const format = c.get("api_format") ?? ApiFormat.OPENAI;
+    const context = authContext ?? { user: { id: -1 } } as any;
+    const visible = accessPolicyService.visibleModels(entities, context, format);
+    // Keep the catalogue aligned with the same group/protocol routing pool as
+    // an actual request.  Without this check an ungrouped key could see a
+    // model whose only upstream belongs to another group and then receive a
+    // confusing 503 at invocation time.
+    const models = context.user.id < 0
+        ? visible
+        : (await Promise.all(visible.map(async model => {
+            const groupId = context.group?.id == null ? null : Number(context.group.id);
+            const candidates = await routingService.resolveAvailableCandidates(model, format, groupId);
+            return candidates.length > 0 ? model : null;
+        }))).filter((model): model is SgModel => model !== null);
     return c.json({
         object: "list",
-        data: models,
+        data: models.map(model => ({
+            id: model.name,
+            object: "model",
+            created: Math.floor(new Date(model.created_at).getTime() / 1000),
+            owned_by: "gateway",
+        })),
     });
 }
 
@@ -105,7 +134,7 @@ async function getModel(c: Context) {
         throw new customError.NotFoundError("Model not found");
     }
 
-    return c.json(model);
+    return c.json(serializeModel(model));
 }
 
 async function getModelsByIds(c: Context) {
@@ -122,7 +151,7 @@ async function getModelsByIds(c: Context) {
     }
 
     const models = await modelManager.getByIds(idList);
-    return c.json(models);
+    return c.json(models.map(serializeModel));
 }
 
 
@@ -142,10 +171,10 @@ async function testModelRoute(c: Context) {
     }
     const format = formatRaw as ApiFormat;
 
-    // requireAdmin 中间件只设置了 user_type，这里从 token 解析完整用户（与 llmApiMiddleware 做法一致）
-    const authHeader = c.req.header("Authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
-    const user = await userService.getUserByToken(token, c.env.ROOT_TOKEN);
+    // requireAdmin 已经解析了统一 AuthContext；把它传入 sender。路由
+    // 测试由管理员专用标记触发诊断池，不套用 LLM Key/分组/计费策略。
+    const authContext = c.get("authContext");
+    const user = authContext?.user;
     if (!user) {
         throw new customError.NotFoundError("User not found");
     }
@@ -167,7 +196,10 @@ async function testModelRoute(c: Context) {
 
     let response: Response;
     try {
-        response = await sender.sendRequest(c, user, modelConfig, format, body, { inspect: true });
+        response = await sender.sendRequest(c, user, modelConfig, format, body, {
+            inspect: true,
+            skipBilling: true,
+        });
     } catch (e: any) {
         const errorMessage = e instanceof Error ? e.message : String(e);
         const snapshot = c.get("upstreamRequestSnapshot") as any;
@@ -218,18 +250,14 @@ async function updateModel(c: Context) {
         throw new customError.AppError("Invalid ID format");
     }
 
-    const model = createModelFromRequest(await c.req.json());
-    model.id = modelId;
-    console.log("[modelController] Updating model:", model);
-
-    const updatedModel = await modelService.updateModel(model);
+    const updatedModel = await modelService.updateModel(modelId, await c.req.json());
 
     if (!updatedModel) {
         throw new customError.NotFoundError("Model not found");
     }
 
     console.log("[modelController] Model updated successfully:", updatedModel);
-    return c.json(updatedModel);
+    return c.json(serializeModel(updatedModel));
 }
 
 
@@ -241,7 +269,7 @@ async function deleteModel(c: Context) {
         throw new customError.AppError("Invalid ID format");
     }
 
-    const deleted = await modelManager.deleteModel(modelId);
+    const deleted = await modelService.deleteModel(modelId);
 
     if (!deleted) {
         throw new customError.NotFoundError("Model not found");

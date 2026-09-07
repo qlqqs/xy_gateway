@@ -24,8 +24,7 @@ function createModel(name: string, vendorId: number) {
         name,
         enable: true,
         prices: {},
-        routing_mode: "single" as const,
-        routing_config: {
+        mapping: {
             upstreams: [{
                 vendor_id: vendorId,
                 enabled: true,

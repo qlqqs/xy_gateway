@@ -42,12 +42,19 @@ cp .dev.vars.template .dev.vars
 # 超级管理员的登录密码，建议修改为您的专属密码
 ROOT_TOKEN=your-secret-root-token
 
+# API Key 回显值的加密密钥；必须与 ROOT_TOKEN 使用不同的随机值
+KEY_ENCRYPTION_SECRET=your-long-random-encryption-secret
+
 # 服务运行端口，默认 8720
 PORT=8720
 
 # SQLite 数据库的存放路径（默认为根目录的 local.db）
 DB_PATH=local.db
 ```
+
+升级已有数据库时，请先备份 `DB_PATH` 指向的 SQLite 文件。启动时会自动执行一次性
+领域迁移：把旧用户 Token 加密导入 `user_key`，随后删除旧认证/路由列；缺少
+`KEY_ENCRYPTION_SECRET` 时迁移会中止，不会继续删除旧列。
 
 ---
 

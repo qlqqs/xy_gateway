@@ -18,6 +18,8 @@ import routingService, { type ModelRoutingResult } from "./routingService/core";
 import configService from "./configService";
 import upstreamHealthService from "./upstreamHealthService";
 import RoutingContext from "./routingService/routingContext";
+import concurrencyService from "./concurrencyService";
+import type { AuthContext } from "./authContextService";
 
 
 // 可重试的 HTTP 错误响应转成异常，与网络异常汇入同一个失败处理点
@@ -66,6 +68,8 @@ async function sendRequestToUpstream(
     clientFormat: ApiFormat,
     upstreamFormat: ApiFormat,
     body: string,
+    onComplete?: () => void,
+    onStreamComplete?: () => void,
 ): Promise<Response> {
     // 客户端格式与最终上游格式已在 sendRequest 解析好，这里直接使用
     const needsConversion = clientFormat !== upstreamFormat;
@@ -130,8 +134,12 @@ async function sendRequestToUpstream(
         }
     }
 
+    const vendorAuthMode = vendor.auth_mode ?? vendor.config?.auth_mode ?? VendorAuthMode.BEARER_TOKEN;
+    const vendorProxy = vendor.proxy !== undefined ? vendor.proxy : (vendor.config?.proxy ?? null);
+    const vendorSkipTlsVerify = vendor.skip_tls_verify ?? vendor.config?.skip_tls_verify ?? false;
+
     if (upstreamFormat === ApiFormat.ANTHROPIC) {
-        if (vendor.config.auth_mode === VendorAuthMode.BEARER_TOKEN) {
+        if (vendorAuthMode === VendorAuthMode.BEARER_TOKEN) {
             finalHeaders.set("Authorization", vendor.token.startsWith("Bearer ") ? vendor.token : `Bearer ${vendor.token}`);
         } else {
             finalHeaders.set("x-api-key", vendor.token);
@@ -234,7 +242,7 @@ async function sendRequestToUpstream(
             upstream_format: upstreamFormat,
             vendor: { id: vendor.id, name: vendor.name },
             vendor_model_name: vendorModelName,
-            proxy: vendor.config.proxy ?? null,
+            proxy: vendorProxy,
         });
     }
 
@@ -250,7 +258,10 @@ async function sendRequestToUpstream(
     let upstreamRes: Response;
     try {
         // 如果该 vendor 配置了跳过 TLS 验证（内网自签证书场景），注入 undici Agent
-        const dispatcher = await fetchUtil.getDispatcher(vendor.config);
+        const dispatcher = await fetchUtil.getDispatcher({
+            skip_tls_verify: vendorSkipTlsVerify,
+            proxy: vendorProxy,
+        });
         upstreamRes = await fetch(url, {
             method: "POST",
             headers: finalHeaders,
@@ -264,6 +275,8 @@ async function sendRequestToUpstream(
         await recordService.update(recordId, {
             status: SgRecordStatus.FAILED,
             response_data: String(e),
+            settlement_status: "skipped",
+            cost: 0,
             end_at: new Date(),
         });
         await requestActivityService.append(recordId, RequestActivityStage.UPSTREAM_ATTEMPT, "上游请求失败", {
@@ -272,6 +285,7 @@ async function sendRequestToUpstream(
             url,
             error: e instanceof Error ? e.message : String(e),
         }, ActivityLevel.ERROR);
+        onComplete?.();
         throw e;
     }
     console.log("upstream response status:", upstreamRes.status);
@@ -282,9 +296,22 @@ async function sendRequestToUpstream(
 
     // 8. 按响应类型分发处理（三种协议统一走 responseHandlerService，按 clientFormat 选累加器/解析口径）
     if (isStream) {
-        return responseHandlerService.handleStreamResponse(c, upstreamRes, record, modelConfig, user, clientFormat, upstreamFormat, converter);
+        return responseHandlerService.handleStreamResponse(
+            c,
+            upstreamRes,
+            record,
+            modelConfig,
+            user,
+            clientFormat,
+            upstreamFormat,
+            converter,
+            () => {
+                onComplete?.();
+                onStreamComplete?.();
+            },
+        );
     }
-    return responseHandlerService.handleNonStreamResponse(c, upstreamRes, record, modelConfig, user, upstreamFormat, converter);
+    return responseHandlerService.handleNonStreamResponse(c, upstreamRes, record, modelConfig, user, upstreamFormat, converter, onComplete);
 }
 
 
@@ -294,146 +321,213 @@ async function sendRequest(
     modelConfig: SgModel,
     clientFormat: ApiFormat,
     body: string,
-    options: { inspect?: boolean } = {},
+    options: { inspect?: boolean; skipBilling?: boolean } = {},
 ): Promise<Response> {
     // inspect 模式：在 c 上打标记，sendRequestToUpstream 据此把上游请求快照注入 c（供专用测试接口使用）
     if (options.inspect) {
         c.set("inspectUpstream", true);
     }
-
-    // 预检：仅全局计费开启时检查余额（module_billing_enabled 关闭则完全不拦）。
-    // 余额为负的用户阻止请求，不向上游发起（负余额在完成时扣减产生，充值前不再放行）
-    // balance 为整数微元，负值即欠费；但未启用计费（价格未设置或为 0）的模型不拦截
-    const billingEnabled = await configService.isModuleBillingEnabled();
-    if (billingEnabled && user.balance < 0 && modelConfig.hasBilling()) {
-        await recordService.recordFailedRequest(
-            user.id,
-            modelConfig.name,
-            body,
-            clientFormat,
-            FailedCode.INSUFFICIENT_BALANCE,
-            modelConfig.id,
-        );
-        throw new customError.AppError("Insufficient balance", 400);
+    if (options.skipBilling) {
+        // Internal management diagnostics may exercise the real routing pool
+        // without charging the administrator's account.  The marker is set
+        // only by the protected route-test controller, never from an HTTP
+        // header or request body.
+        c.set("skipBilling", true);
     }
 
-    // 一条用户请求 = 一条 record：进入路由循环前创建一次，跨上游尝试更新同一条记录
-    const record = await recordService.create(user.id, modelConfig.id, body, clientFormat);
-    const recordId = Number(record.id);
+    const authContext = c.get("authContext") as AuthContext | null | undefined;
+    const key = authContext?.key ?? null;
+    const keyLease = key
+        ? concurrencyService.acquire("key", Number(key.id), Number(key.concurrency_limit ?? 0))
+        : null;
+    if (key && Number(key.concurrency_limit ?? 0) > 0 && !keyLease) {
+        throw new customError.AppError("API key concurrency limit reached", 429, "rate_limit_error");
+    }
+    let keyReleased = false;
+    const releaseKey = () => {
+        if (keyReleased) return;
+        keyReleased = true;
+        keyLease?.release();
+    };
+    let streamLeasePending = false;
 
-    // 每个原始请求一个路由上下文，记录已用后端，避免重试循环
-    const routingContext = new RoutingContext();
-    // 失败切换开关在请求内不变，循环外取一次
-    const failoverEnabled = modelConfig.getRoutingConfig().failover.enabled;
-    let lastFailure: Response | null = null;
-
-    while (true) {
-        let routingResult: ModelRoutingResult;
-        try {
-            routingResult = await routingService.selectUpstream(
-                modelConfig,
-                clientFormat,
-                routingContext,
-                c,   // 从请求 context 读取用户，供负载均衡"按用户随机"模式做种子
-            );
-        } catch (e) {
-            // 路由阶段异常（如配置错误无启用上游）：同样是一次失败请求，不留 init 孤儿记录
-            await recordService.update(recordId, {
-                status: SgRecordStatus.FAILED,
-                end_at: new Date(),
-            });
-            throw e;
-        }
-        // 无可用上游时 selectUpstream 返回上游为 null 的空结果
-        if (!routingResult.hasUpstream()) {
-            // 全部后端已用尽（lastFailure 非空）或一开始就无可用上游，都属于一次真实请求，记 FAILED
-            const exhausted = lastFailure !== null;
-            await recordService.update(recordId, {
-                status: SgRecordStatus.FAILED,
-                ...(exhausted ? {} : { failed_code: FailedCode.NO_AVAILABLE_UPSTREAM }),
-                end_at: new Date(),
-            });
-            await requestActivityService.append(
-                recordId,
-                RequestActivityStage.ROUTING,
-                exhausted ? "所有上游均已尝试，无可用上游" : "无可用上游",
-                exhausted ? undefined : { failed_code: FailedCode.NO_AVAILABLE_UPSTREAM },
-                ActivityLevel.ERROR,
-            );
-            // 全部后端已用尽：统一回传最后一次失败（HTTP 错误原样 / 网络异常 502 响应）
-            if (lastFailure) {
-                return lastFailure;
-            }
-            // 一开始就没有可用上游（全部冷却中 / 未启用）
-            throw new customError.AppError("No available upstream", 503);
-        }
-
-        // vendor 与上游模型/最终格式已在选择阶段解析，结果直接携带，无需再查库
-        const vendor = routingResult.vendor;
-        const vendorModelName = routingResult.vendorModelName;
-        const upstreamFormat = routingResult.upstreamFormat;
-
-        await requestActivityService.append(recordId, RequestActivityStage.ROUTING, "路由选择", {
-            strategy: modelConfig.routing_mode,
-            client: {
-                model: modelConfig.name,
-                format: clientFormat,
-            },
-            upstream: {
-                vendor: vendor.name,
-                vendor_model: vendorModelName,
-                format: upstreamFormat,
-            },
-        });
-
-        try {
-            const response = await sendRequestToUpstream(
-                c,
-                user,
-                modelConfig,
-                record,
-                vendor,
-                vendorModelName,
-                clientFormat,
-                upstreamFormat,
+    try {
+        // 预检：仅全局计费开启时检查余额（module_billing_enabled 关闭则完全不拦）。
+        const billingEnabled = !options.skipBilling && await configService.isModuleBillingEnabled();
+        const groupMultiplier = Math.max(0, Number(authContext?.group?.rate_multiplier ?? 1));
+        const billingMode = modelConfig.prices?.billing_mode;
+        const knownSingleCost = Number(modelConfig.prices?.per_request ?? 0);
+        const requiresBalance = groupMultiplier > 0 && (
+            billingMode === "per_request" || billingMode === "image"
+                ? knownSingleCost > 0
+                : modelConfig.hasBilling()
+        );
+        if (billingEnabled && user.balance < 0 && requiresBalance) {
+            await recordService.recordFailedRequest(
+                user.id >= 0 ? user.id : null,
+                modelConfig.name,
                 body,
+                clientFormat,
+                FailedCode.INSUFFICIENT_BALANCE,
+                modelConfig.id,
+                {
+                    keyId: key?.id ?? null,
+                    groupId: authContext?.group?.id ?? null,
+                    requestedModel: modelConfig.name,
+                    billingMode: typeof modelConfig.prices?.billing_mode === "string"
+                        ? modelConfig.prices.billing_mode
+                        : null,
+                },
             );
-
-            // 上游返回非成功响应，转成异常统一走下面的失败处理点，尝试下一个上游
-            if (!response.ok) {
-                throw new UpstreamResponseError(response);
-            }
-
-            return response;
-        } catch (e: any) {
-            if (c.req.raw.signal.aborted || e instanceof customError.AppError) {
-                throw e;
-            }
-
-            // 唯一的失败处理点：HTTP 错误与网络异常在这里汇合
-            const httpFailure = e instanceof UpstreamResponseError;
-
-            // 全局冷却：仅上游自身故障才标记（5xx、402 余额不足、网络不可达），
-            // 4xx 请求侧错误不惩罚上游，避免健康上游被无辜跳过（本请求的循环防护由 routingContext 承担）
-            const failureStatus = httpFailure ? e.response.status : null;
-            if (upstreamHealthService.shouldMarkFailure(failureStatus)) {
-                upstreamHealthService.markFailure(vendor.id, vendorModelName, upstreamFormat);
-            }
-
-            // failover 关闭：HTTP 错误直接回传响应，网络异常抛原始异常，不继续尝试
-            if (!failoverEnabled) {
-                if (httpFailure) {
-                    return e.response;
-                }
-                throw e;
-            }
-
-            // 切换动作由时间线自然体现（上一次尝试的结果 → 下一次路由选择），不再单独记 failover 活动
-            lastFailure = httpFailure
-                ? e.response
-                : buildUpstreamFailureResponse(c, e);
-            c.status(200);   // 复位上下文状态，避免上次失败的 error 状态影响下一次尝试
+            throw new customError.AppError("Insufficient balance", 400, "insufficient_balance");
         }
+
+        // 一条用户请求 = 一条 record：进入路由循环前创建一次，跨上游尝试更新同一条记录
+        const record = await recordService.create(user.id, modelConfig.id, body, clientFormat, {
+            keyId: key?.id ?? null,
+            groupId: authContext?.group?.id ?? null,
+            requestedModel: modelConfig.name,
+            billingMode: typeof modelConfig.prices?.billing_mode === "string"
+                ? modelConfig.prices.billing_mode
+                : null,
+            rateMultiplier: Number(authContext?.group?.rate_multiplier ?? 1),
+        });
+        const recordId = Number(record.id);
+
+        // 每个原始请求一个路由上下文，记录已用后端，避免重试循环
+        const routingContext = new RoutingContext();
+        let lastFailure: Response | null = null;
+
+        while (true) {
+            let routingResult: ModelRoutingResult;
+            try {
+                routingResult = await routingService.selectUpstream(
+                    modelConfig,
+                    clientFormat,
+                    routingContext,
+                    c,
+                );
+            } catch (e) {
+                await recordService.update(recordId, {
+                    status: SgRecordStatus.FAILED,
+                    settlement_status: "skipped",
+                    cost: 0,
+                    end_at: new Date(),
+                });
+                throw e;
+            }
+
+            if (!routingResult.hasUpstream()) {
+                const exhausted = lastFailure !== null;
+                await recordService.update(recordId, {
+                    status: SgRecordStatus.FAILED,
+                    ...(exhausted ? {} : { failed_code: FailedCode.NO_AVAILABLE_UPSTREAM }),
+                    settlement_status: "skipped",
+                    cost: 0,
+                    end_at: new Date(),
+                });
+                await requestActivityService.append(
+                    recordId,
+                    RequestActivityStage.ROUTING,
+                    exhausted ? "所有上游均已尝试，无可用上游" : "无可用上游",
+                    exhausted ? undefined : { failed_code: FailedCode.NO_AVAILABLE_UPSTREAM },
+                    ActivityLevel.ERROR,
+                );
+                if (lastFailure) return lastFailure;
+                throw new customError.AppError("No available upstream", 503);
+            }
+
+            const vendor = routingResult.vendor;
+            const vendorModelName = routingResult.vendorModelName;
+            const upstreamFormat = routingResult.upstreamFormat;
+
+            await requestActivityService.append(recordId, RequestActivityStage.ROUTING, "路由选择", {
+                strategy: "priority_weight",
+                priority: routingResult.priority,
+                weight: routingResult.weight,
+                client: { model: modelConfig.name, format: clientFormat },
+                upstream: {
+                    vendor: vendor.name,
+                    vendor_model: vendorModelName,
+                    format: upstreamFormat,
+                },
+            });
+
+            const vendorConcurrency = Number(vendor.concurrency ?? vendor.config?.concurrency ?? 0);
+            const vendorLease = concurrencyService.acquire("vendor", Number(vendor.id), vendorConcurrency);
+            if (vendorConcurrency > 0 && !vendorLease) {
+                routingContext.markTried(vendor.id, vendorModelName, upstreamFormat);
+                await requestActivityService.append(recordId, RequestActivityStage.ROUTING, "供应商并发已满", {
+                    vendor_id: vendor.id,
+                    concurrency: vendorConcurrency,
+                }, ActivityLevel.WARN);
+                continue;
+            }
+            let vendorReleased = false;
+            const releaseVendor = () => {
+                if (vendorReleased) return;
+                vendorReleased = true;
+                vendorLease?.release();
+            };
+
+            try {
+                const response = await sendRequestToUpstream(
+                    c,
+                    user,
+                    modelConfig,
+                    record,
+                    vendor,
+                    vendorModelName,
+                    clientFormat,
+                    upstreamFormat,
+                    body,
+                    releaseVendor,
+                    releaseKey,
+                );
+
+                if (!response.ok) {
+                    throw new UpstreamResponseError(response);
+                }
+
+                const isStream = response.headers.get("content-type")?.startsWith("text/event-stream") === true;
+                if (isStream) {
+                    // The stream finalizer owns both leases from this point on.
+                    streamLeasePending = true;
+                } else {
+                    releaseVendor();
+                    releaseKey();
+                }
+                return response;
+            } catch (e: any) {
+                releaseVendor();
+                if (c.req.raw.signal.aborted || e instanceof customError.AppError) {
+                    await recordService.update(recordId, {
+                        status: SgRecordStatus.FAILED,
+                        settlement_status: "skipped",
+                        cost: 0,
+                        end_at: new Date(),
+                    }).catch(() => undefined);
+                    throw e;
+                }
+
+                const httpFailure = e instanceof UpstreamResponseError;
+                const failureStatus = httpFailure ? e.response.status : null;
+                if (upstreamHealthService.shouldMarkFailure(failureStatus)) {
+                    upstreamHealthService.markFailure(vendor.id, vendorModelName, upstreamFormat);
+                }
+
+                // Canonical model routing always permits failover; the old
+                // model-level failover flag is intentionally gone.
+                lastFailure = httpFailure
+                    ? e.response
+                    : buildUpstreamFailureResponse(c, e);
+                c.status(200);
+            }
+        }
+    } finally {
+        // A stream finalizer releases the key after it has consumed the body;
+        // every other path releases it here or in the non-stream handler.
+        if (!streamLeasePending) releaseKey();
     }
 }
 

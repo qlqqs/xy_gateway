@@ -31,7 +31,7 @@ describe("Model multi-upstream routing", () => {
         secondaryVendorId = secondary.body.id;
     });
 
-    it("accepts one enabled upstream for load balance mode", async () => {
+    it("accepts one enabled canonical upstream mapping", async () => {
         await requestHelper.post(
             `/vendor/${primaryVendorId}/model/add.json`,
             { model_id: "one-upstream-load-balance" },
@@ -41,8 +41,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "one-upstream-load-balance",
-                routing_mode: "load_balance",
-                routing_config: {
+                mapping: {
                     upstreams: [{ vendor_id: primaryVendorId, enabled: true }],
                 },
             },
@@ -50,12 +49,11 @@ describe("Model multi-upstream routing", () => {
         );
 
         expect(response.status).toBe(200);
-        expect(response.body.routing_mode).toBe("load_balance");
-        expect(response.body.routing_config).toEqual({
+        expect(response.body.mapping).toEqual({
             upstreams: [{ vendor_id: primaryVendorId, enabled: true }],
-            failover: { enabled: true },
-            load_balance_strategy: "user",
         });
+        expect(response.body).not.toHaveProperty("routing_mode");
+        expect(response.body).not.toHaveProperty("routing_config");
         expect(response.body).not.toHaveProperty("vendor_id");
         expect(response.body).not.toHaveProperty("vendor_model_id");
     });
@@ -66,8 +64,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: modelName,
-                routing_mode: "load_balance",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         { vendor_id: primaryVendorId, enabled: true },
                         { vendor_id: secondaryVendorId, enabled: true },
@@ -87,7 +84,7 @@ describe("Model multi-upstream routing", () => {
         const upstreamResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: modelName, stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
 
         expect(upstreamResponse.status).toBe(200);
@@ -105,13 +102,12 @@ describe("Model multi-upstream routing", () => {
         expect(secondaryVendorModels.body.some((item: any) => item.model_id === modelName)).toBe(false);
     });
 
-    it("rejects multiple enabled upstreams in single mode", async () => {
+    it("accepts multiple enabled upstreams in the canonical mapping", async () => {
         const response = await requestHelper.post(
             "/model/create.json",
             {
                 name: "invalid-single",
-                routing_mode: "single",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         { vendor_id: primaryVendorId, enabled: true },
                         { vendor_id: secondaryVendorId, enabled: true },
@@ -121,8 +117,8 @@ describe("Model multi-upstream routing", () => {
             adminToken,
         );
 
-        expect(response.status).toBe(400);
-        expect(response.body.error).toContain("exactly one");
+        expect(response.status).toBe(200);
+        expect(response.body.mapping.upstreams).toHaveLength(2);
     });
 
     it("normalizes omitted upstream enabled state and rejects invalid full configurations", async () => {
@@ -141,15 +137,14 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "implicit-enabled-upstream",
-                routing_mode: "single",
-                routing_config: {
+                mapping: {
                     upstreams: [{ vendor_id: primaryVendorId }],
                 },
             },
             adminToken,
         );
         expect(defaultEnabledResponse.status).toBe(200);
-        expect(defaultEnabledResponse.body.routing_config.upstreams).toEqual([
+        expect(defaultEnabledResponse.body.mapping.upstreams).toEqual([
             { vendor_id: primaryVendorId, enabled: true },
         ]);
 
@@ -157,8 +152,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "wrong-vendor-model",
-                routing_mode: "single",
-                routing_config: {
+                mapping: {
                     upstreams: [{
                         vendor_id: primaryVendorId,
                         vendor_model_id: secondaryVendorModel.body.id,
@@ -175,8 +169,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "duplicate-explicit-upstream",
-                routing_mode: "load_balance",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: primaryVendorId,
@@ -194,7 +187,7 @@ describe("Model multi-upstream routing", () => {
             adminToken,
         );
         expect(duplicateResponse.status).toBe(400);
-        expect(duplicateResponse.body.error).toContain("Duplicate enabled upstream");
+        expect(duplicateResponse.body.error).toContain("Duplicate upstream mapping");
 
         const incompleteUpdateResponse = await requestHelper.put(
             `/model/${defaultEnabledResponse.body.id}`,
@@ -202,7 +195,7 @@ describe("Model multi-upstream routing", () => {
             adminToken,
         );
         expect(incompleteUpdateResponse.status).toBe(400);
-        expect(incompleteUpdateResponse.body.error).toContain("routing_mode and routing_config are required");
+        expect(incompleteUpdateResponse.body.error).toContain("mapping.upstreams must be an array");
     });
 
     it("creates one request record for each failover attempt", async () => {
@@ -238,8 +231,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "failover-model",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: unavailableVendor.body.id,
@@ -266,7 +258,7 @@ describe("Model multi-upstream routing", () => {
         const response = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "failover-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
 
         expect(response.status).toBe(200);
@@ -323,8 +315,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "cooldown-failover-model",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: unavailableVendor.body.id,
@@ -350,14 +341,14 @@ describe("Model multi-upstream routing", () => {
         const firstResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: model.body.name, stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         expect(firstResponse.status).toBe(200);
 
         const secondResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: model.body.name, stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         expect(secondResponse.status).toBe(200);
 
@@ -408,8 +399,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "non-retryable-failover-model",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: invalidRequestVendor.body.id,
@@ -435,7 +425,7 @@ describe("Model multi-upstream routing", () => {
         const response = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: model.body.name, stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         // 第一个上游返回 400，任何非成功响应都会切换到下一个上游
         expect(response.status).toBe(200);
@@ -456,7 +446,7 @@ describe("Model multi-upstream routing", () => {
         expect(vendorModels.body[0]).not.toHaveProperty("health");
     });
 
-    it("returns the failure directly when failover is disabled", async () => {
+    it("returns the failure directly when the only upstream fails", async () => {
         const failingVendor = await requestHelper.post(
             "/vendor/create.json",
             {
@@ -475,8 +465,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "no-failover-model",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: failingVendor.body.id,
@@ -484,7 +473,6 @@ describe("Model multi-upstream routing", () => {
                             enabled: true,
                         },
                     ],
-                    failover: { enabled: false },
                 },
             },
             adminToken,
@@ -499,7 +487,7 @@ describe("Model multi-upstream routing", () => {
         const response = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "no-failover-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
 
         expect(response.status).toBe(503);
@@ -511,7 +499,7 @@ describe("Model multi-upstream routing", () => {
         expect(records.body.total).toBe(1);
     });
 
-    it("records upstream failure even when failover is disabled", async () => {
+    it("records upstream failure for a single configured upstream", async () => {
         const failingVendor = await requestHelper.post(
             "/vendor/create.json",
             {
@@ -530,8 +518,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "mark-anyway-model",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: failingVendor.body.id,
@@ -539,7 +526,6 @@ describe("Model multi-upstream routing", () => {
                             enabled: true,
                         },
                     ],
-                    failover: { enabled: false },
                 },
             },
             adminToken,
@@ -555,7 +541,7 @@ describe("Model multi-upstream routing", () => {
         const firstResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "mark-anyway-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         expect(firstResponse.status).toBe(503);
 
@@ -563,7 +549,7 @@ describe("Model multi-upstream routing", () => {
         const secondResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "mark-anyway-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         expect(secondResponse.status).toBe(503);
         expect(secondResponse.body.error.message).toContain("No available upstream");
@@ -577,7 +563,7 @@ describe("Model multi-upstream routing", () => {
         expect(records.body.list.every((record: any) => record.status === "failed")).toBe(true);
     });
 
-    it("fails over automatic upstreams (no vendor_model_id) in first_available mode", async () => {
+    it("fails over automatic upstreams (no vendor_model_id) with canonical scheduling", async () => {
         const primaryVendor = await requestHelper.post(
             "/vendor/create.json",
             {
@@ -611,8 +597,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "auto-first-available",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         { vendor_id: primaryVendor.body.id, enabled: true },
                         { vendor_id: backupVendor.body.id, enabled: true },
@@ -631,7 +616,7 @@ describe("Model multi-upstream routing", () => {
         const response = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "auto-first-available", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
 
         expect(response.status).toBe(200);
@@ -653,6 +638,9 @@ describe("Model multi-upstream routing", () => {
                 ...vendorFixtures.VENDOR_FIXTURES.openai(),
                 name: "Exhaust failing upstream A",
                 urls: { openai: "http://localhost:9999/chat/completions/unavailable" },
+                // Keep the first attempt deterministic; both vendors return
+                // the same error, so the final record must represent B.
+                config: { priority: 1 },
             },
             adminToken,
         );
@@ -662,6 +650,7 @@ describe("Model multi-upstream routing", () => {
                 ...vendorFixtures.VENDOR_FIXTURES.openai(),
                 name: "Exhaust failing upstream B",
                 urls: { openai: "http://localhost:9999/chat/completions/unavailable" },
+                config: { priority: 2 },
             },
             adminToken,
         );
@@ -679,8 +668,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "exhaust-failover-model",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: failingVendorA.body.id,
@@ -707,7 +695,7 @@ describe("Model multi-upstream routing", () => {
         const response = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "exhaust-failover-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
 
         // 回传最后一个上游的错误响应（mock 的 503 body），而非 "No available upstream"
@@ -757,8 +745,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "dead-network-model",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: deadVendorA.body.id,
@@ -785,7 +772,7 @@ describe("Model multi-upstream routing", () => {
         const response = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "dead-network-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
 
         expect(response.status).toBe(502);
@@ -806,6 +793,7 @@ describe("Model multi-upstream routing", () => {
                 ...vendorFixtures.VENDOR_FIXTURES.openai(),
                 name: "Activity fail upstream",
                 urls: { openai: "http://localhost:9999/chat/completions/error" },
+                config: { priority: 1 },
             },
             adminToken,
         );
@@ -815,6 +803,7 @@ describe("Model multi-upstream routing", () => {
                 ...vendorFixtures.VENDOR_FIXTURES.openai(),
                 name: "Activity ok upstream",
                 urls: { openai: "http://localhost:9999/chat/completions" },
+                config: { priority: 2 },
             },
             adminToken,
         );
@@ -832,8 +821,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "activity-model",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: failVendor.body.id,
@@ -860,7 +848,7 @@ describe("Model multi-upstream routing", () => {
         const response = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "activity-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         expect(response.status).toBe(200);
 
@@ -890,7 +878,7 @@ describe("Model multi-upstream routing", () => {
         ]);
 
         // 第一条路由：策略 + 客户端（请求模型/协议）→ 上游（供应商/上游模型/协议）；A 失败结果带 400 与上游返回体；最终结果成功
-        expect(activity.body.activities[0].details.strategy).toBe("first_available");
+        expect(activity.body.activities[0].details.strategy).toBe("priority_weight");
         expect(activity.body.activities[0].details.client.model).toBe("activity-model");
         expect(activity.body.activities[0].details.client.format).toBe("openai");
         expect(activity.body.activities[0].details.upstream.vendor).toBe("Activity fail upstream");
@@ -935,8 +923,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "only-failing-model",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: onlyVendor.body.id,
@@ -959,13 +946,13 @@ describe("Model multi-upstream routing", () => {
         await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "only-failing-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         // 第二次请求无可用上游
         const secondResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "only-failing-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         expect(secondResponse.status).toBe(503);
 
@@ -1006,8 +993,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "no-cool-client-error-model",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: clientErrorVendor.body.id,
@@ -1015,7 +1001,6 @@ describe("Model multi-upstream routing", () => {
                             enabled: true,
                         },
                     ],
-                    failover: { enabled: false },
                 },
             },
             adminToken,
@@ -1031,14 +1016,14 @@ describe("Model multi-upstream routing", () => {
         const firstResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "no-cool-client-error-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         expect(firstResponse.status).toBe(400);
 
         const secondResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "no-cool-client-error-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         expect(secondResponse.status).toBe(400);
         expect(secondResponse.body.error.message).not.toContain("No available upstream");
@@ -1063,8 +1048,7 @@ describe("Model multi-upstream routing", () => {
             "/model/create.json",
             {
                 name: "cool-balance-model",
-                routing_mode: "first_available",
-                routing_config: {
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: balanceVendor.body.id,
@@ -1072,7 +1056,6 @@ describe("Model multi-upstream routing", () => {
                             enabled: true,
                         },
                     ],
-                    failover: { enabled: false },
                 },
             },
             adminToken,
@@ -1088,40 +1071,39 @@ describe("Model multi-upstream routing", () => {
         const firstResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "cool-balance-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         expect(firstResponse.status).toBe(402);
 
         const secondResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "cool-balance-model", stream: false }),
-            user.body.token,
+            user.body.keys[0].value,
         );
         expect(secondResponse.status).toBe(503);
         expect(secondResponse.body.error.message).toContain("No available upstream");
     });
 
-    it("ignores health status and always returns the fixed upstream in single mode", async () => {
+    it("honors health cooldown for a single configured upstream", async () => {
         const singleVendor = await requestHelper.post(
             "/vendor/create.json",
             {
                 ...vendorFixtures.VENDOR_FIXTURES.openai(),
-                name: "Single mode cooling upstream",
+                name: "Single configured upstream cooling",
                 urls: { openai: "http://localhost:9999/chat/completions/unavailable" },
             },
             adminToken,
         );
         const singleModel = await requestHelper.post(
             `/vendor/${singleVendor.body.id}/model/add.json`,
-            { model_id: "single-ignore-health-model" },
+            { model_id: "single-cooldown-model" },
             adminToken,
         );
         const model = await requestHelper.post(
             "/model/create.json",
             {
-                name: "single-ignore-health-model",
-                routing_mode: "single",
-                routing_config: {
+                name: "single-cooldown-model",
+                mapping: {
                     upstreams: [
                         {
                             vendor_id: singleVendor.body.id,
@@ -1143,20 +1125,19 @@ describe("Model multi-upstream routing", () => {
         // 第一次请求失败会标记上游冷却（503 视为上游故障）
         const firstResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
-            mockHelper.generateOpenAIChatRequest({ model: "single-ignore-health-model", stream: false }),
-            user.body.token,
+            mockHelper.generateOpenAIChatRequest({ model: "single-cooldown-model", stream: false }),
+            user.body.keys[0].value,
         );
         expect(firstResponse.status).toBe(503);
         expect(firstResponse.body.error.message).toBe("Mock upstream unavailable");
 
-        // SINGLE 模式忽略健康状态：第二次请求仍会尝试固定上游，而不是"无可用上游"
+        // canonical scheduler honors health cooldown; the second request has no candidate
         const secondResponse = await requestHelper.post(
             "/llm/v1/chat/completions",
-            mockHelper.generateOpenAIChatRequest({ model: "single-ignore-health-model", stream: false }),
-            user.body.token,
+            mockHelper.generateOpenAIChatRequest({ model: "single-cooldown-model", stream: false }),
+            user.body.keys[0].value,
         );
         expect(secondResponse.status).toBe(503);
-        expect(secondResponse.body.error.message).toBe("Mock upstream unavailable");
-        expect(secondResponse.body.error.message).not.toContain("No available upstream");
+        expect(secondResponse.body.error.message).toContain("No available upstream");
     });
 });

@@ -40,7 +40,7 @@ describe("AI Messages API (Anthropic)", () => {
             adminToken,
         );
         testUserId = userResponse.body.id;
-        testUserToken = userResponse.body.token;
+        testUserToken = userResponse.body.keys[0].value;
 
         // Create Anthropic vendor
         const anthropicVendor = await requestHelper.post(

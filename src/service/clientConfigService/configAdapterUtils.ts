@@ -1,4 +1,6 @@
 import userManager from "../../manager/userManager";
+import userKeyManager from "../../manager/userKeyManager";
+import userKeyUtil from "../../util/userKeyUtil";
 import type { ConfigAdapter, FileSystemApi, GatewayUserInfo, AdapterConfigStatus } from "./types";
 import fsUtil from "../../util/fsUtil";
 
@@ -22,15 +24,18 @@ function parseJsonConfig(content: string): Record<string, any> {
 }
 
 
-async function findGatewayUserByToken(token: string): Promise<GatewayUserInfo | null> {
-    if (!token) {
+async function findGatewayUserByApiKey(apiKey: string): Promise<GatewayUserInfo | null> {
+    if (!apiKey) {
         return null;
     }
 
-    const normalizedToken = token.replace(/^Bearer\s+/i, "");
+    const normalizedApiKey = apiKey.replace(/^Bearer\s+/i, "");
     let user;
     try {
-        user = await userManager.findByToken(normalizedToken);
+        const hash = await userKeyUtil.hashKey(normalizedApiKey);
+        const key = await userKeyManager.findByHash(hash);
+        if (!key || key.status !== "active") return null;
+        user = await userManager.findById(Number(key.user_id));
     } catch {
         return null;
     }
@@ -78,7 +83,7 @@ async function buildClientStatus(adapter: ConfigAdapter): Promise<AdapterConfigS
 
 
 export default {
-    findGatewayUserByToken,
+    findGatewayUserByApiKey,
     parseJsonConfig,
     pathExists,
     buildClientStatus,

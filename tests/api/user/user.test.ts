@@ -1,16 +1,17 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import requestHelper from "../../helpers/requestHelper";
-import mockHelper from "../../helpers/mockHelper";
 import userFixtures from "../../fixtures/userFixtures";
-import dbHelper from "../../helpers/dbHelper"
+import dbHelper from "../../helpers/dbHelper";
 import { setupAdminUser } from "../../globalSetup";
 
 /**
- * User Endpoint Positive Tests
+ * User endpoint tests for the canonical user + user_key contract.
+ * Authentication credentials belong to `keys[]`; the removed `user.token`
+ * field must not appear in either requests or responses.
  */
 
 let createdUserId: number;
-let createdUserToken: string;
+let createdUserKey: string;
 let adminToken: string;
 
 describe("User API (Positive)", () => {
@@ -18,183 +19,161 @@ describe("User API (Positive)", () => {
         await dbHelper.truncate();
         adminToken = await setupAdminUser();
     });
+
     describe("POST /user/create.json", () => {
-        it("should create a user with specified token", async () => {
-            const userData = userFixtures.USER_FIXTURES.withCustomToken;
-            const response = await requestHelper.post(
-                "/user/create.json",
-                userData,
-                adminToken,
-            );
-
-            expect(response.status).toBe(200);
-            expect(response.body).toHaveProperty("id");
-            expect(response.body.name).toBe(userData.name);
-            expect(response.body.token).toBe(userData.token);
-            expect(response.body).toHaveProperty("created_at");
-            expect(response.body).toHaveProperty("updated_at");
-            expect(response.body.status).toBe("active");
-
-            createdUserId = response.body.id;
-            createdUserToken = response.body.token;
-        });
-
-        it("should create a user with auto-generated token when token is not provided", async () => {
-            const userData = { name: "Auto Token User" };
-            const response = await requestHelper.post(
-                "/user/create.json",
-                userData,
-                adminToken,
-            );
-
-            expect(response.status).toBe(200);
-            expect(response.body).toHaveProperty("id");
-            expect(response.body.name).toBe(userData.name);
-            expect(response.body.token).toBeTruthy();
-            expect(typeof response.body.token).toBe("string");
-            expect(response.body.token.length).toBeGreaterThan(0);
-        });
-
-        it("should create multiple users with the same name", async () => {
-            const userData1 = mockHelper.generateUser({
-                name: "Same Name User",
-            });
-            const userData2 = mockHelper.generateUser({
-                name: "Same Name User",
-            });
-
-            const response1 = await requestHelper.post(
-                "/user/create.json",
-                userData1,
-                adminToken,
-            );
-            const response2 = await requestHelper.post(
-                "/user/create.json",
-                userData2,
-                adminToken,
-            );
-
-            expect(response1.status).toBe(200);
-            expect(response2.status).toBe(200);
-            expect(response1.body.name).toBe(response2.body.name);
-            expect(response1.body.id).not.toBe(response2.body.id);
-        });
-
-        it("should handle long names", async () => {
-            const userData = userFixtures.USER_FIXTURES.longName;
-            const response = await requestHelper.post(
-                "/user/create.json",
-                userData,
-                adminToken,
-            );
-
-            expect(response.status).toBe(200);
-            expect(response.body.name).toBe(userData.name);
-        });
-
-        it("should handle empty token", async () => {
-            const userData = userFixtures.USER_FIXTURES.emptyToken; // token: ''
-            const response = await requestHelper.post(
-                "/user/create.json",
-                userData,
-                adminToken,
-            );
-
-            expect(response.status).toBe(200);
-            // 空 token 会被自动生成（在 userController 中使用 crypto.randomUUID()）
-            expect(response.body.token).toBeTruthy();
-            expect(typeof response.body.token).toBe("string");
-            expect(response.body.token.length).toBeGreaterThan(0);
-            expect(response.body.token).not.toBe(""); // 不应该是空字符串
-        });
-    });
-
-    describe("GET /user/list.json", () => {
-        it("should return a list of users", async () => {
-            const response = await requestHelper.get("/user/list.json", adminToken);
-
-            expect(response.status).toBe(200);
-            expect(Array.isArray(response.body.list)).toBe(true);
-            expect(response.body.total).toBeGreaterThan(0);
-        });
-
-        it("should return users with correct structure", async () => {
-            const response = await requestHelper.get("/user/list.json", adminToken);
-            const user = response.body.list[0];
-
-            expect(user).toHaveProperty("id");
-            expect(user).toHaveProperty("name");
-            expect(user).toHaveProperty("token");
-            expect(user).toHaveProperty("created_at");
-            expect(user).toHaveProperty("updated_at");
-        });
-
-        it("should return all users created in tests", async () => {
-            const response = await requestHelper.get("/user/list.json", adminToken);
-
-            expect(response.body.total).toBeGreaterThanOrEqual(4); // At least the users we created
-        });
-    });
-
-    describe("GET /user/:id", () => {
-        it("should return a user by ID", async () => {
-            const response = await requestHelper.get(`/user/${createdUserId}`, adminToken);
-
-            expect(response.status).toBe(200);
-            expect(response.body.id).toBe(createdUserId);
-            expect(response.body.token).toBe(createdUserToken);
-            expect(response.body).toHaveProperty("name");
-        });
-
-        it("should return user with all fields", async () => {
-            const response = await requestHelper.get(`/user/${createdUserId}`, adminToken);
-
-            expect(response.body).toHaveProperty("id");
-            expect(response.body).toHaveProperty("name");
-            expect(response.body).toHaveProperty("token");
-            expect(response.body).toHaveProperty("created_at");
-            expect(response.body).toHaveProperty("updated_at");
-            expect(response.body).toHaveProperty("status");
-        });
-    });
-
-    describe("PUT /user/:id", () => {
-        let userToUpdateId: number;
-        let originalToken: string;
-
-        beforeAll(async () => {
+        it("should create a user with a specified API key", async () => {
+            const keyValue = userFixtures.USER_FIXTURES.withCustomKey.keys[0].value;
             const userData = {
-                name: "User To Update",
-                token: "original-token-12345",
+                name: userFixtures.USER_FIXTURES.withCustomKey.name,
+                keys: [{ value: keyValue, name: "primary" }],
             };
             const response = await requestHelper.post(
                 "/user/create.json",
                 userData,
                 adminToken,
             );
-            userToUpdateId = response.body.id;
-            originalToken = response.body.token;
+
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveProperty("id");
+            expect(response.body.name).toBe(userData.name);
+            expect(response.body.keys).toHaveLength(1);
+            expect(response.body.keys[0].value).toBe(keyValue);
+            expect(response.body).not.toHaveProperty("token");
+            expect(response.body).toHaveProperty("created_at");
+            expect(response.body).toHaveProperty("updated_at");
+            expect(response.body.status).toBe("active");
+
+            createdUserId = response.body.id;
+            createdUserKey = response.body.keys[0].value;
         });
 
-        it("should update user name", async () => {
-            const updateData = { name: "Updated User Name" };
+        it("should create a user with an auto-generated API key", async () => {
+            const userData = { name: "Auto Key User", keys: [{}] };
+            const response = await requestHelper.post(
+                "/user/create.json",
+                userData,
+                adminToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveProperty("id");
+            expect(response.body.name).toBe(userData.name);
+            expect(response.body.keys).toHaveLength(1);
+            expect(typeof response.body.keys[0].value).toBe("string");
+            expect(response.body.keys[0].value.length).toBeGreaterThan(0);
+            expect(response.body).not.toHaveProperty("token");
+        });
+
+        it("should reject duplicate user names", async () => {
+            const userData = { name: "Same Name User", keys: [{ value: "same-name-key-1" }] };
+            const response1 = await requestHelper.post(
+                "/user/create.json",
+                userData,
+                adminToken,
+            );
+            const response2 = await requestHelper.post(
+                "/user/create.json",
+                { ...userData, keys: [{ value: "same-name-key-2" }] },
+                adminToken,
+            );
+
+            expect(response1.status).toBe(200);
+            expect(response2.status).toBe(409);
+        });
+
+        it("should handle long names", async () => {
+            const userData: Record<string, unknown> = {
+                name: userFixtures.USER_FIXTURES.longName.name,
+                keys: [{ value: "long-name-key" }],
+            };
+            const response = await requestHelper.post(
+                "/user/create.json",
+                userData,
+                adminToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body.name).toBe(userData.name);
+        });
+
+        it("should generate a key when its value is empty", async () => {
+            const response = await requestHelper.post(
+                "/user/create.json",
+                { name: "Generated Key User", keys: [{}] },
+                adminToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body.keys).toHaveLength(1);
+            expect(typeof response.body.keys[0].value).toBe("string");
+            expect(response.body.keys[0].value.length).toBeGreaterThan(0);
+        });
+    });
+
+    describe("GET /user/list.json", () => {
+        it("should return a paginated list without legacy token fields", async () => {
+            const response = await requestHelper.get("/user/list.json", adminToken);
+
+            expect(response.status).toBe(200);
+            expect(Array.isArray(response.body.list)).toBe(true);
+            expect(response.body.total).toBeGreaterThan(0);
+            for (const user of response.body.list) {
+                expect(user).toHaveProperty("id");
+                expect(user).toHaveProperty("name");
+                expect(user).toHaveProperty("keys");
+                expect(user).not.toHaveProperty("token");
+                expect(user).toHaveProperty("created_at");
+                expect(user).toHaveProperty("updated_at");
+            }
+        });
+    });
+
+    describe("GET /user/:id", () => {
+        it("should return a user and its API key by ID", async () => {
+            const response = await requestHelper.get(`/user/${createdUserId}`, adminToken);
+
+            expect(response.status).toBe(200);
+            expect(response.body.id).toBe(createdUserId);
+            expect(response.body.keys[0].value).toBe(createdUserKey);
+            expect(response.body).not.toHaveProperty("token");
+            expect(response.body).toHaveProperty("name");
+            expect(response.body).toHaveProperty("status");
+        });
+    });
+
+    describe("PUT /user/:id", () => {
+        let userToUpdateId: number;
+        let originalKeyId: number;
+        let originalKey: string;
+
+        beforeAll(async () => {
+            const response = await requestHelper.post(
+                "/user/create.json",
+                { name: "User To Update", keys: [{ value: "original-key-12345" }] },
+                adminToken,
+            );
+            userToUpdateId = response.body.id;
+            originalKeyId = response.body.keys[0].id;
+            originalKey = response.body.keys[0].value;
+        });
+
+        it("should update user name without changing its key", async () => {
             const response = await requestHelper.put(
                 `/user/${userToUpdateId}`,
-                updateData,
+                { name: "Updated User Name" },
                 adminToken,
             );
 
             expect(response.status).toBe(200);
             expect(response.body.id).toBe(userToUpdateId);
-            expect(response.body.name).toBe(updateData.name);
-            expect(response.body.token).toBe(originalToken); // Token should remain unchanged
+            expect(response.body.name).toBe("Updated User Name");
+            expect(response.body.keys[0].value).toBe(originalKey);
         });
 
         it("should update user status to disabled", async () => {
-            const updateData = { status: "disabled" };
             const response = await requestHelper.put(
                 `/user/${userToUpdateId}`,
-                updateData,
+                { status: "disabled" },
                 adminToken,
             );
 
@@ -202,102 +181,72 @@ describe("User API (Positive)", () => {
             expect(response.body.status).toBe("disabled");
         });
 
-        it("should update token with new value", async () => {
-            const newToken = "new-token-67890";
-            const updateData = { token: newToken };
+        it("should replace an API key value through the keys array", async () => {
+            const newKey = "new-key-67890";
             const response = await requestHelper.put(
                 `/user/${userToUpdateId}`,
-                updateData,
+                { keys: [{ id: originalKeyId, value: newKey }] },
+                adminToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body.keys[0].id).toBe(originalKeyId);
+            expect(response.body.keys[0].value).toBe(newKey);
+            originalKey = newKey;
+        });
+
+        it("should replace a key with a newly generated value", async () => {
+            const response = await requestHelper.put(
+                `/user/${userToUpdateId}`,
+                { keys: [{}] },
+                adminToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body.keys).toHaveLength(1);
+            expect(response.body.keys[0].value).toBeTruthy();
+            expect(response.body.keys[0].value).not.toBe(originalKey);
+            originalKeyId = response.body.keys[0].id;
+            originalKey = response.body.keys[0].value;
+        });
+
+        it("should not change anything when no fields are provided", async () => {
+            const before = await requestHelper.get(`/user/${userToUpdateId}`, adminToken);
+            const response = await requestHelper.put(
+                `/user/${userToUpdateId}`,
+                {},
+                adminToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body.name).toBe(before.body.name);
+            expect(response.body.keys[0].value).toBe(before.body.keys[0].value);
+        });
+
+        it("should update name and key simultaneously", async () => {
+            const newKey = "simultaneous-key";
+            const response = await requestHelper.put(
+                `/user/${userToUpdateId}`,
+                {
+                    name: "Simultaneously Updated User",
+                    keys: [{ id: originalKeyId, value: newKey }],
+                },
                 adminToken,
             );
 
             expect(response.status).toBe(200);
             expect(response.body.id).toBe(userToUpdateId);
-            expect(response.body.token).toBe(newToken);
-            expect(response.body.name).toBe("Updated User Name"); // Name should remain unchanged
+            expect(response.body.name).toBe("Simultaneously Updated User");
+            expect(response.body.keys[0].value).toBe(newKey);
         });
 
-        it("should regenerate token when token is empty string", async () => {
-            // First set a known token
-            const oldToken = "token-before-regenerate";
-            await requestHelper.put(
-                `/user/${userToUpdateId}`,
-                { token: oldToken },
-                adminToken,
-            );
-
-            // Then regenerate with empty string
-            const regenerateData = { token: "" };
-            const response = await requestHelper.put(
-                `/user/${userToUpdateId}`,
-                regenerateData,
-                adminToken,
-            );
-
-            expect(response.status).toBe(200);
-            expect(response.body.id).toBe(userToUpdateId);
-            expect(response.body.token).toBeTruthy();
-            expect(response.body.token).not.toBe(oldToken); // Token should be new
-            expect(response.body.token.length).toBeGreaterThan(0);
-        });
-
-        it("should regenerate token when token is null", async () => {
-            const response = await requestHelper.get(`/user/${userToUpdateId}`, adminToken);
-            const oldToken = response.body.token;
-
-            const regenerateData = { token: null };
-            const response2 = await requestHelper.put(
-                `/user/${userToUpdateId}`,
-                regenerateData,
-                adminToken,
-            );
-
-            expect(response2.status).toBe(200);
-            expect(response2.body.token).toBeTruthy();
-            expect(response2.body.token).not.toBe(oldToken);
-        });
-
-        it("should not change anything when no fields provided", async () => {
-            const response1 = await requestHelper.get(`/user/${userToUpdateId}`, adminToken);
-            const originalName = response1.body.name;
-            const originalToken = response1.body.token;
-
-            const updateData = {};
-            const response2 = await requestHelper.put(
-                `/user/${userToUpdateId}`,
-                updateData,
-                adminToken,
-            );
-
-            expect(response2.status).toBe(200);
-            expect(response2.body.name).toBe(originalName);
-            expect(response2.body.token).toBe(originalToken);
-        });
-
-        it("should update both name and token simultaneously", async () => {
-            const newToken = "simultaneous-update-token";
-            const updateData = {
-                name: "Simultaneously Updated User",
-                token: newToken,
-            };
-            const response = await requestHelper.put(
-                `/user/${userToUpdateId}`,
-                updateData,
-                adminToken,
-            );
-
-            expect(response.status).toBe(200);
-            expect(response.body.id).toBe(userToUpdateId);
-            expect(response.body.name).toBe(updateData.name);
-            expect(response.body.token).toBe(newToken);
-        });
-
-        it("should return user with all fields after update", async () => {
+        it("should return all canonical fields after update", async () => {
             const response = await requestHelper.get(`/user/${userToUpdateId}`, adminToken);
 
             expect(response.body).toHaveProperty("id");
             expect(response.body).toHaveProperty("name");
-            expect(response.body).toHaveProperty("token");
+            expect(response.body).toHaveProperty("keys");
+            expect(response.body).not.toHaveProperty("token");
             expect(response.body).toHaveProperty("created_at");
             expect(response.body).toHaveProperty("updated_at");
         });

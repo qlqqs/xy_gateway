@@ -10,7 +10,7 @@ import { BaseConverter } from "../util/protocolConverter/BaseConverter";
 import { AccumulatorBase } from "../util/accumulator/accumulatorBase";
 import recordService from "./recordService";
 import requestActivityService from "./requestActivityService";
-import userService from "./userService";
+import billingService from "./billingService";
 import streamLogService from "./streamLogService";
 import usageUtils, { type Dict } from "../util/protocol/usageUtil";
 import openaiChatAccumulator from "../util/accumulator/openaiChatAccumulator";
@@ -38,6 +38,28 @@ interface RunSseLoopOptions {
     accumulator: AccumulatorBase;
     converter: BaseConverter | null;
     logPrefix: string;
+}
+
+
+/** Mark a response that reached the wire but could not be settled. */
+async function markSettlementFailure(record: SgRecord, error: unknown): Promise<void> {
+    console.error(`[responseHandlerService] Failed to settle record ${record.id}:`, error);
+    await recordService.update(Number(record.id), {
+        status: SgRecordStatus.FAILED,
+        failed_code: FailedCode.BILLING_ERROR,
+        settlement_status: "skipped",
+        cost: 0,
+        end_at: new Date(),
+    }).catch((updateError) => {
+        console.error(`[responseHandlerService] Failed to mark billing error for record ${record.id}:`, updateError);
+    });
+    await requestActivityService.append(
+        Number(record.id),
+        RequestActivityStage.RESULT,
+        "请求结算失败",
+        { status: SgRecordStatus.FAILED, failed_code: FailedCode.BILLING_ERROR },
+        ActivityLevel.ERROR,
+    ).catch(() => undefined);
 }
 
 
@@ -170,10 +192,12 @@ function finalizeStreamResult(
     model: SgModel,
     user: SgUser,
     state: StreamRunResult,
+    onComplete?: () => void,
 ): void {
     const { accumulator, firstTokenTime, failedCode, streamErrorData } = state;
 
     runInBackground(c, async () => {
+      try {
         // 响应已完整接收（[DONE] / message_stop / response.completed）时优先视为成功：
         // 即使随后客户端或上游连接断开，也可能只是客户端拿到完整结果后提前关闭了连接
         if (accumulator.isCompleted()) {
@@ -196,16 +220,45 @@ function finalizeStreamResult(
                     ? firstTokenTime - record.created_at.getTime()
                     : null,
                 end_at: new Date(),
-                cost,
             });
+            let settlement;
+            if (c.get("skipBilling") === true) {
+                await recordService.update(Number(record.id), {
+                    base_cost: cost,
+                    rate_multiplier: Number(record.rate_multiplier ?? 1),
+                    billing_mode: typeof model.prices?.billing_mode === "string"
+                        ? model.prices.billing_mode
+                        : null,
+                    cost: 0,
+                    settlement_status: "skipped",
+                });
+                settlement = {
+                    baseCost: cost,
+                    rateMultiplier: Number(record.rate_multiplier ?? 1),
+                    cost: 0,
+                };
+            } else {
+                try {
+                    settlement = await billingService.settle(Number(record.id), {
+                        model,
+                        user,
+                        groupId: record.group_id,
+                        baseCost: cost,
+                    });
+                } catch (error) {
+                    // Billing is part of the request contract.  Do not leave
+                    // a successful record with a pending settlement when the
+                    // key quota/balance transaction rejects it.
+                    await markSettlementFailure(record, error);
+                    return;
+                }
+            }
             await requestActivityService.append(record.id, RequestActivityStage.RESULT, "请求成功", {
                 status: SgRecordStatus.SUCCESS,
-                cost,
+                cost: settlement.cost,
+                base_cost: settlement.baseCost,
+                rate_multiplier: settlement.rateMultiplier,
             });
-
-            if (user.type !== "root") {
-                await userService.deductBalance(user.id, cost);
-            }
             return;
         }
 
@@ -216,6 +269,8 @@ function finalizeStreamResult(
             await recordService.update(record.id, {
                 status: SgRecordStatus.FAILED,
                 failed_code: failedCode,
+                settlement_status: "skipped",
+                cost: 0,
                 end_at: new Date(),
             });
             await requestActivityService.append(record.id, RequestActivityStage.RESULT, "请求中断", {
@@ -232,6 +287,8 @@ function finalizeStreamResult(
                 failed_code: FailedCode.UPSTREAM_ERROR,
                 response_data: errorData !== null && typeof errorData !== "string"
                     ? JSON.stringify(errorData) : null,
+                settlement_status: "skipped",
+                cost: 0,
                 end_at: new Date(),
             });
             await requestActivityService.append(record.id, RequestActivityStage.RESULT, "上游返回错误", {
@@ -244,12 +301,17 @@ function finalizeStreamResult(
         await recordService.update(record.id, {
             status: SgRecordStatus.FAILED,
             failed_code: FailedCode.STREAM_INCOMPLETE,
+            settlement_status: "skipped",
+            cost: 0,
             end_at: new Date(),
         });
         await requestActivityService.append(record.id, RequestActivityStage.RESULT, "流式响应不完整", {
             status: SgRecordStatus.FAILED,
             failed_code: FailedCode.STREAM_INCOMPLETE,
         }, ActivityLevel.WARN);
+        } finally {
+            onComplete?.();
+        }
     });
 }
 
@@ -269,9 +331,17 @@ export async function handleNonStreamResponse(
     user: SgUser,
     upstreamFormat: ApiFormat,
     converter: BaseConverter | null = null,
+    onComplete?: () => void,
 ): Promise<Response> {
-    const responseText = await upstreamRes.text();
-    const statusCode = upstreamRes.status as StatusCode;
+    const release = once(onComplete);
+    try {
+        let responseText: string;
+        try {
+            responseText = await upstreamRes.text();
+        } catch (error) {
+            throw error;
+        }
+        const statusCode = upstreamRes.status as StatusCode;
 
     if (!upstreamRes.ok) {
         console.error("[responseHandlerService] Upstream non-stream error response:", {
@@ -288,6 +358,7 @@ export async function handleNonStreamResponse(
             usage: null,
             end_at: new Date(),
             cost: 0,
+            settlement_status: "skipped",
             first_token_latency: Date.now() - record.created_at.getTime(),
         });
         await requestActivityService.append(record.id, RequestActivityStage.RESULT, "上游返回非成功响应", {
@@ -341,26 +412,59 @@ export async function handleNonStreamResponse(
         status: recordStatus,
         usage: usageJson,
         end_at: new Date(endedAt),
-        cost: cost,
+        ...(recordStatus === SgRecordStatus.FAILED
+            ? { cost: 0, settlement_status: "skipped" }
+            : {}),
         first_token_latency: endedAt - record.created_at.getTime(),
     });
+    let settledCost = cost;
+    if (recordStatus === SgRecordStatus.SUCCESS) {
+        if (c.get("skipBilling") === true) {
+            await recordService.update(Number(record.id), {
+                base_cost: cost,
+                rate_multiplier: Number(record.rate_multiplier ?? 1),
+                billing_mode: typeof model.prices?.billing_mode === "string"
+                    ? model.prices.billing_mode
+                    : null,
+                cost: 0,
+                settlement_status: "skipped",
+            });
+            settledCost = 0;
+        } else {
+            try {
+                const settlement = await billingService.settle(Number(record.id), {
+                    model,
+                    user,
+                    groupId: record.group_id,
+                    baseCost: cost,
+                });
+                settledCost = settlement.cost;
+            } catch (error) {
+                await markSettlementFailure(record, error);
+                throw new customError.AppError("Unable to settle request", 503, "billing_error");
+            }
+        }
+    }
     await requestActivityService.append(record.id, RequestActivityStage.RESULT,
         recordStatus === SgRecordStatus.SUCCESS ? "请求成功" : "请求失败",
         {
             status: recordStatus,
             upstream_status: statusCode,
-            ...(recordStatus === SgRecordStatus.SUCCESS ? { cost } : {}),
+            ...(recordStatus === SgRecordStatus.SUCCESS ? { cost: settledCost } : {}),
         },
         recordStatus === SgRecordStatus.SUCCESS ? ActivityLevel.INFO : ActivityLevel.ERROR,
     );
 
-    if (user.type !== "root" && statusCode === 200) {
-        await userService.deductBalance(user.id, cost);
-    }
-
     c.status(statusCode);
     c.header("Content-Type", "application/json");
     return c.body(clientResponseText);
+    } finally {
+        // Every non-stream exit path (conversion errors, record/billing
+        // failures, malformed upstream bodies, and normal responses) must
+        // release the vendor lease.  `once` keeps this safe for callers that
+        // also release from their outer failover/finally block.
+        release();
+    }
 }
 
 
@@ -376,6 +480,7 @@ export async function handleStreamResponse(
     format: ApiFormat,
     upstreamFormat: ApiFormat = format,
     converter: BaseConverter | null = null,
+    onComplete?: () => void,
 ): Promise<Response> {
     const logStream = await streamLogService.prepareStreamLog(record);
 
@@ -389,15 +494,52 @@ export async function handleStreamResponse(
     }
 
     return streamSSE(c, async (stream: SSEStreamingApi) => {
-        const state = await runSseLoop(c, upstreamRes, stream, logStream, {
-            accumulator,
-            converter,
-            logPrefix: "[responseHandlerService]",
-        });
-        console.log(`[responseHandlerService] Stream ended, events: ${state.eventCount}, completed: ${state.accumulator.isCompleted()}, failedCode: ${state.failedCode}`);
-        finalizeStreamResult(c, record, model, user, state);
-        logStream?.end();
+        const release = once(onComplete);
+        let finalizerScheduled = false;
+        try {
+            const state = await runSseLoop(c, upstreamRes, stream, logStream, {
+                accumulator,
+                converter,
+                logPrefix: "[responseHandlerService]",
+            });
+            console.log(`[responseHandlerService] Stream ended, events: ${state.eventCount}, completed: ${state.accumulator.isCompleted()}, failedCode: ${state.failedCode}`);
+            finalizerScheduled = true;
+            finalizeStreamResult(c, record, model, user, state, release);
+        } catch (error) {
+            // `runSseLoop` normally converts transport/write failures into a
+            // state object.  Keep a defensive terminal record update for
+            // failures that happen before a reader can be established (for
+            // example an upstream response with no body), and release both
+            // leases immediately because no background finalizer exists.
+            await recordService.update(Number(record.id), {
+                status: SgRecordStatus.FAILED,
+                failed_code: FailedCode.UPSTREAM_DISCONNECTED,
+                settlement_status: "skipped",
+                cost: 0,
+                end_at: new Date(),
+            }).catch(() => undefined);
+            await requestActivityService.append(
+                Number(record.id),
+                RequestActivityStage.RESULT,
+                "流式响应处理异常",
+                { status: SgRecordStatus.FAILED, failed_code: FailedCode.UPSTREAM_DISCONNECTED },
+                ActivityLevel.ERROR,
+            ).catch(() => undefined);
+            throw error;
+        } finally {
+            logStream?.end();
+            if (!finalizerScheduled) release();
+        }
     });
+}
+
+function once(callback?: () => void): () => void {
+    let called = false;
+    return () => {
+        if (called) return;
+        called = true;
+        callback?.();
+    };
 }
 
 

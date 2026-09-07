@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查测试归类、最小验证集和敏感信息/生成物禁入要求"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"检查 migration、方言兼容、事务和数据隔离"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查错误响应是否保持 JSON 契约"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查 repository/store 测试、失败状态和前端质量命令"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"检查归一化 DTO 和 store 类型边界"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查跨层身份、路由、usage 和记录字段是否闭环"}
+{"file":".trellis/tasks/09-07-comprehensive-automated-testing/design.md","reason":"按覆盖矩阵核对高风险契约与运行时补充"}
+{"file":".trellis/tasks/09-07-comprehensive-automated-testing/findings.md","reason":"检查每个失败是否有可复现证据和正确归因"}

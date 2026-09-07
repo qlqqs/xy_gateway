@@ -49,7 +49,7 @@ describe("AI Responses API", () => {
             adminToken,
         );
         testUserId = userResponse.body.id;
-        testUserToken = userResponse.body.token;
+        testUserToken = userResponse.body.keys[0].value;
 
         // 使用 base URL（不含 /chat/completions），让网关自动拼接 /responses
         const mockBaseUrl = config.UPSTREAM_CONFIG.mock.url;

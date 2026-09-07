@@ -26,7 +26,7 @@ describe("AI API - Anthropic URL & New Vendors", () => {
             mockHelper.generateUser(),
             adminToken,
         );
-        testUserToken = userResponse.body.token;
+        testUserToken = userResponse.body.keys[0].value;
     });
 
     it("should automatically append /llm/v1/messages to Anthropic URL if missing", async () => {

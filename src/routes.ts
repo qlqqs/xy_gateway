@@ -16,6 +16,7 @@ import statsController from "./controller/statsController";
 import balanceController from "./controller/balanceController";
 import configController from "./controller/configController";
 import clientConfigController from "./controller/clientConfigController";
+import groupController from "./controller/groupController";
 import configService from "./service/configService";
 import ormService from "./service/ormService";
 import objectStorageService from "./service/objectStorageService";
@@ -23,10 +24,12 @@ import authMiddleware from "./middleware/authMiddleware";
 import llmApiMiddleware from "./middleware/llmApiMiddleware";
 import corsMiddleware from "./middleware/corsMiddleware";
 import customError from "./util/customErrorUtil";
+import type { AuthContext } from "./service/authContextService";
 
 interface Env {
     DB: D1Database;
     ROOT_TOKEN: string;
+    KEY_ENCRYPTION_SECRET?: string;
     ASSETS?: Fetcher;
     OBJECT_BUCKET?: R2Bucket;
 }
@@ -35,6 +38,7 @@ type Variables = {
     user_type: UserType;
     api_format?: ApiFormat;
     user?: SgUser;
+    authContext?: AuthContext | null;
     modelConfig?: SgModel;
     requestBody?: string;
 };
@@ -95,7 +99,6 @@ app.onError((err, c) => {
     return c.json(
         {
             error: "Internal server error",
-            message: String(err),
         },
         500,
     );
@@ -116,6 +119,13 @@ app.post("/client-config/backup/delete.json", authMiddleware.requireAdmin, clien
 app.post("/client-config/backup/update.json", authMiddleware.requireAdmin, clientConfigController.updateBackup);
 app.post("/client-config/apply.json", authMiddleware.requireAdmin, clientConfigController.apply);
 app.post("/client-config/sync-from-local.json", authMiddleware.requireAdmin, clientConfigController.syncFromLocal);
+
+// Group (需要管理员权限)
+app.get("/group/list.json", authMiddleware.requireAdmin, groupController.listGroups);
+app.post("/group/create.json", authMiddleware.requireAdmin, groupController.createGroup);
+app.get("/group/:id", authMiddleware.requireAdmin, groupController.getGroup);
+app.put("/group/:id", authMiddleware.requireAdmin, groupController.updateGroup);
+app.delete("/group/:id", authMiddleware.requireAdmin, groupController.deleteGroup);
 
 // Vendor (需要管理员权限)
 app.get("/vendor/preset-urls.json", authMiddleware.requireAdmin, vendorController.getPresetUrls);
@@ -150,6 +160,7 @@ app.post("/user/batch.json", authMiddleware.requireAdmin, userController.getUser
 app.get("/user/:id", authMiddleware.requireAdmin, userController.getUser);
 app.post("/user/create.json", authMiddleware.requireAdmin, userController.createUser);
 app.put("/user/:id", authMiddleware.requireAdmin, userController.updateUser);
+app.put("/user/:id/keys.json", authMiddleware.requireAdmin, userController.updateKeys);
 app.post("/user/:id/balance/adjust.json", authMiddleware.requireAdmin, userController.adjustBalance);
 
 // Balance (需要管理员权限)

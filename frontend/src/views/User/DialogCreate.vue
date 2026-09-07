@@ -2,6 +2,7 @@
     <a-modal
         v-model:open="visible"
         title="新建用户"
+        :confirm-loading="loading"
         @ok="handleOk"
         @cancel="handleCancel"
     >
@@ -36,6 +37,7 @@ const emit = defineEmits<{
 }>();
 
 const visible = ref(false);
+const loading = ref(false);
 const formRef = ref<FormInstance>();
 
 const formState = reactive({
@@ -56,12 +58,15 @@ function open() {
 async function handleOk() {
     try {
         await formRef.value?.validate();
+        loading.value = true;
         const user = await userStore.create({ name: formState.name, type: formState.type });
         notifySuccess('创建成功');
         emit('success', user);
         handleCancel();
     } catch (error) {
         notifyRequestError(error, '表单校验失败');
+    } finally {
+        loading.value = false;
     }
 }
 

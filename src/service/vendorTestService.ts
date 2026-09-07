@@ -37,8 +37,9 @@ function buildRequest(
     const headers = new Headers();
     let body = "";
 
+    const vendorAuthMode = vendor.auth_mode ?? vendor.config?.auth_mode ?? VendorAuthMode.BEARER_TOKEN;
     if (format === ApiFormat.ANTHROPIC) {
-        if (vendor.config.auth_mode === VendorAuthMode.BEARER_TOKEN) {
+        if (vendorAuthMode === VendorAuthMode.BEARER_TOKEN) {
             headers.set("Authorization", vendor.token.startsWith("Bearer ") ? vendor.token : `Bearer ${vendor.token}`);
         } else {
             headers.set("x-api-key", vendor.token);
@@ -117,7 +118,7 @@ export async function testVendorConnectivity(
     const { headers, body } = buildRequest(vendor, requestFormat, model);
 
     // 代理信息：原样返回存储的配置
-    const proxyConfig = vendor.config.proxy;
+    const proxyConfig = vendor.proxy !== undefined ? vendor.proxy : (vendor.config?.proxy ?? null);
     const proxyInfo = proxyConfig
         ? { type: proxyConfig.type, url: proxyConfig.url }
         : undefined;
@@ -143,7 +144,10 @@ export async function testVendorConnectivity(
         const proxyLog = proxyInfo ? ` via ${proxyInfo.type} proxy ${proxyInfo.url}` : "";
         console.log(`[testVendor] Testing vendor ${vendor.name} (${vendor.id}) with model ${model} at ${url}${proxyLog}`);
         const startTime = Date.now();
-        const dispatcher = await fetchUtil.getDispatcher(vendor.config);
+        const dispatcher = await fetchUtil.getDispatcher({
+            skip_tls_verify: vendor.skip_tls_verify ?? vendor.config?.skip_tls_verify ?? false,
+            proxy: proxyConfig,
+        });
         const response = await fetch(url, {
             method: "POST",
             headers,
