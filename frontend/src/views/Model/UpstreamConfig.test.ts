@@ -1,7 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent } from 'vue';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import UpstreamConfig from './UpstreamConfig.vue';
+const mocks = vi.hoisted(() => ({
+    listModels: vi.fn(),
+    notifyRequestError: vi.fn(),
+}));
+
+vi.mock('@/stores/vendors', () => ({
+    default: {
+        vendors: [],
+        listModels: mocks.listModels,
+    },
+}));
+vi.mock('@/utils/requestFeedback', () => ({
+    notifyRequestError: mocks.notifyRequestError,
+}));
+
 
 /* eslint-disable vue/one-component-per-file -- keep the test-only UI stubs next to the fixture. */
 const ButtonStub = defineComponent({
@@ -16,17 +31,29 @@ const CollapseStub = defineComponent({
 const TooltipStub = defineComponent({
     template: '<span><slot /></span>',
 });
-/* eslint-enable vue/one-component-per-file */
+const SelectStub = defineComponent({
+    name: 'ASelect',
+    emits: ['change', 'dropdown-visible-change'],
+    template: '<div class="select-stub"><slot /></div>',
+});
 
+const SelectOptionStub = defineComponent({
+    name: 'ASelectOption',
+    template: '<span class="select-option-stub"><slot /></span>',
+});
+
+
+/* eslint-enable vue/one-component-per-file */
 const global = {
     components: {
         AButton: ButtonStub,
         ACollapse: CollapseStub,
         ATooltip: TooltipStub,
     },
+
     stubs: {
-        ASelect: true,
-        ASelectOption: true,
+        ASelect: SelectStub,
+        ASelectOption: SelectOptionStub,
         ASwitch: true,
         DialogTest: true,
         ArrowDownOutlined: true,
@@ -52,6 +79,10 @@ function mountEditor(upstreams = [
 }
 
 describe('UpstreamConfig', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.listModels.mockResolvedValue([]);
+    });
     it('adds an enabled upstream mapping', async () => {
         const wrapper = mountEditor();
 
@@ -82,5 +113,32 @@ describe('UpstreamConfig', () => {
             expect(style).not.toContain('calc(');
             expect(style).toContain('44px');
         }
+    });
+
+    it('keeps a selected vendor model visible and retries after loading fails', async () => {
+        mocks.listModels
+            .mockRejectedValueOnce(new Error('加载失败'))
+            .mockResolvedValueOnce([{
+                id: 11,
+                vendor_id: 1,
+                model_id: 'upstream-model',
+                allowed_formats: [],
+                created_at: '',
+                updated_at: '',
+            }]);
+        const wrapper = mountEditor([{ vendor_id: 1, vendor_model_id: 11, enabled: true }]);
+        await flushPromises();
+
+        expect(mocks.notifyRequestError).toHaveBeenCalledWith(expect.any(Error), '供应商模型加载失败');
+        expect(wrapper.text()).toContain('已选模型 ID 11（当前列表不可用）');
+        expect(wrapper.emitted('update:upstreams')).toBeUndefined();
+
+        const modelSelect = wrapper.findAllComponents({ name: 'ASelect' })[1];
+        modelSelect?.vm.$emit('dropdown-visible-change', true);
+        await flushPromises();
+
+        expect(mocks.listModels).toHaveBeenCalledTimes(2);
+        expect(wrapper.text()).toContain('upstream-model');
+        expect(wrapper.text()).not.toContain('当前列表不可用');
     });
 });

@@ -102,6 +102,108 @@ describe("Model multi-upstream routing", () => {
         expect(secondaryVendorModels.body.some((item: any) => item.model_id === modelName)).toBe(false);
     });
 
+
+    it("routes the same vendor for every assigned group without widening to ungrouped keys", async () => {
+        const groupPayload = (name: string) => ({
+            name,
+            description: "多分组核心路由回归",
+            inboundProtocols: ["openai_chat"],
+            customModels: [],
+            whitelistEnabled: false,
+            rateMultiplier: 1,
+            status: "active",
+        });
+        const firstGroup = await requestHelper.post(
+            "/group/create.json",
+            groupPayload("路由分组一"),
+            adminToken,
+        );
+        const secondGroup = await requestHelper.post(
+            "/group/create.json",
+            groupPayload("路由分组二"),
+            adminToken,
+        );
+        const vendor = await requestHelper.post(
+            "/vendor/create.json",
+            {
+                ...vendorFixtures.VENDOR_FIXTURES.openai(),
+                name: "Multi-group routing upstream",
+                config: { group_ids: [firstGroup.body.id, secondGroup.body.id] },
+            },
+            adminToken,
+        );
+        const modelName = "multi-group-routing-model";
+        const model = await requestHelper.post(
+            "/model/create.json",
+            {
+                name: modelName,
+                mapping: {
+                    upstreams: [{ vendor_id: vendor.body.id, enabled: true }],
+                },
+            },
+            adminToken,
+        );
+        expect(model.status).toBe(200);
+
+        const createUser = (name: string, groupId?: number) => requestHelper.post(
+            "/user/create.json",
+            {
+                name,
+                keys: [{
+                    value: `multi-group-route-key-${groupId ?? "none"}`,
+                    ...(groupId === undefined ? {} : { groupId }),
+                }],
+            },
+            adminToken,
+        );
+        const firstUser = await createUser("Multi Group Route User One", firstGroup.body.id);
+        const secondUser = await createUser("Multi Group Route User Two", secondGroup.body.id);
+        const ungroupedUser = await createUser("Multi Group Route Ungrouped User");
+
+        for (const user of [firstUser, secondUser]) {
+            const catalogue = await requestHelper.get("/llm/v1/models", user.body.keys[0].value);
+            expect(catalogue.status).toBe(200);
+            expect(catalogue.body.data.map((item: { id: string }) => item.id)).toContain(modelName);
+
+            const response = await requestHelper.post(
+                "/llm/v1/chat/completions",
+                mockHelper.generateOpenAIChatRequest({ model: modelName, stream: false }),
+                user.body.keys[0].value,
+            );
+            expect(response.status).toBe(200);
+            expect(response.body.model).toBe(modelName);
+        }
+
+        const ungroupedCatalogue = await requestHelper.get(
+            "/llm/v1/models",
+            ungroupedUser.body.keys[0].value,
+        );
+        expect(ungroupedCatalogue.status).toBe(200);
+        expect(ungroupedCatalogue.body.data.map((item: { id: string }) => item.id)).not.toContain(modelName);
+
+        const ungroupedResponse = await requestHelper.post(
+            "/llm/v1/chat/completions",
+            mockHelper.generateOpenAIChatRequest({ model: modelName, stream: false }),
+            ungroupedUser.body.keys[0].value,
+        );
+        expect(ungroupedResponse.status).toBe(503);
+        expect(ungroupedResponse.body.error.message).toBe("No available upstream");
+
+        const records = await requestHelper.get(
+            `/record/list.json?model_ids=${model.body.id}`,
+            adminToken,
+        );
+        expect(records.body.total).toBe(3);
+        expect(records.body.list.filter((record: any) => record.status === "success"))
+            .toHaveLength(2);
+        expect(new Set(records.body.list
+            .filter((record: any) => record.status === "success")
+            .map((record: any) => record.group_id)))
+            .toEqual(new Set([firstGroup.body.id, secondGroup.body.id]));
+        expect(records.body.list.find((record: any) => record.status === "failed"))
+            .toMatchObject({ group_id: null, failed_code: "no_available_upstream" });
+    });
+
     it("accepts multiple enabled upstreams in the canonical mapping", async () => {
         const response = await requestHelper.post(
             "/model/create.json",
@@ -189,6 +291,31 @@ describe("Model multi-upstream routing", () => {
         expect(duplicateResponse.status).toBe(400);
         expect(duplicateResponse.body.error).toContain("Duplicate upstream mapping");
 
+        const duplicateResolvedVendorModel = await requestHelper.post(
+            `/vendor/${primaryVendorId}/model/add.json`,
+            { model_id: "duplicate-resolved-route" },
+            adminToken,
+        );
+        const duplicateResolvedResponse = await requestHelper.post(
+            "/model/create.json",
+            {
+                name: "duplicate-resolved-route",
+                mapping: {
+                    upstreams: [
+                        { vendor_id: primaryVendorId, enabled: true },
+                        {
+                            vendor_id: primaryVendorId,
+                            vendor_model_id: duplicateResolvedVendorModel.body.id,
+                            enabled: true,
+                        },
+                    ],
+                },
+            },
+            adminToken,
+        );
+        expect(duplicateResolvedResponse.status).toBe(400);
+        expect(duplicateResolvedResponse.body.error).toContain("Duplicate upstream mapping");
+
         const incompleteUpdateResponse = await requestHelper.put(
             `/model/${defaultEnabledResponse.body.id}`,
             { name: "incomplete-update" },
@@ -198,13 +325,14 @@ describe("Model multi-upstream routing", () => {
         expect(incompleteUpdateResponse.body.error).toContain("mapping.upstreams must be an array");
     });
 
-    it("creates one request record for each failover attempt", async () => {
+    it("keeps one settled request record across failover attempts and accepts any 2xx response", async () => {
         const unavailableVendor = await requestHelper.post(
             "/vendor/create.json",
             {
                 ...vendorFixtures.VENDOR_FIXTURES.openai(),
                 name: "Unavailable upstream",
                 urls: { openai: "http://localhost:9999/chat/completions/unavailable" },
+                config: { priority: 1 },
             },
             adminToken,
         );
@@ -213,7 +341,8 @@ describe("Model multi-upstream routing", () => {
             {
                 ...vendorFixtures.VENDOR_FIXTURES.openai(),
                 name: "Available upstream",
-                urls: { openai: "http://localhost:9999/chat/completions" },
+                urls: { openai: "http://localhost:9999/chat/completions/created" },
+                config: { priority: 2 },
             },
             adminToken,
         );
@@ -245,6 +374,10 @@ describe("Model multi-upstream routing", () => {
                         },
                     ],
                 },
+                prices: {
+                    billing_mode: "per_request",
+                    per_request: 0.25,
+                },
             },
             adminToken,
         );
@@ -255,13 +388,18 @@ describe("Model multi-upstream routing", () => {
             mockHelper.generateUser(),
             adminToken,
         );
+        await requestHelper.post(
+            `/user/${user.body.id}/balance/adjust.json`,
+            { amount: 1, type: "recharge", remark: "failover settlement regression" },
+            adminToken,
+        );
         const response = await requestHelper.post(
             "/llm/v1/chat/completions",
             mockHelper.generateOpenAIChatRequest({ model: "failover-model", stream: false }),
             user.body.keys[0].value,
         );
 
-        expect(response.status).toBe(200);
+        expect(response.status).toBe(201);
         expect(response.body.model).toBe("available-model");
 
         // 一次用户请求 = 一条 record，最终保留命中上游
@@ -273,6 +411,13 @@ describe("Model multi-upstream routing", () => {
         expect(records.body.list[0].status).toBe("success");
         expect(records.body.list[0].vendor_id).toBe(availableVendor.body.id);
         expect(records.body.list[0].vendor_model_name).toBe("available-model");
+        expect(records.body.list[0].failed_code).toBeNull();
+        expect(records.body.list[0].settlement_status).toBe("settled");
+        expect(records.body.list[0].base_cost).toBe(0.25);
+        expect(records.body.list[0].cost).toBe(0.25);
+
+        const updatedUser = await requestHelper.get(`/user/${user.body.id}`, adminToken);
+        expect(updatedUser.body.balance).toBe(750_000);
 
         const failedVendorModels = await requestHelper.get(
             `/vendor/${unavailableVendor.body.id}/model/list.json`,
@@ -280,6 +425,251 @@ describe("Model multi-upstream routing", () => {
         );
         // 健康状态不再持久化到 vendor_model 表
         expect(failedVendorModels.body[0]).not.toHaveProperty("health");
+    });
+
+
+
+    it("fails over when a same-protocol 2xx response is not valid JSON", async () => {
+        const malformedVendor = await requestHelper.post(
+            "/vendor/create.json",
+            {
+                ...vendorFixtures.VENDOR_FIXTURES.openai(),
+                name: "Malformed OpenAI upstream",
+                urls: { openai: "http://localhost:9999/chat/completions/malformed" },
+                config: { priority: 1 },
+            },
+            adminToken,
+        );
+        const availableVendor = await requestHelper.post(
+            "/vendor/create.json",
+            {
+                ...vendorFixtures.VENDOR_FIXTURES.openai(),
+                name: "Malformed response fallback upstream",
+                config: { priority: 2 },
+            },
+            adminToken,
+        );
+        const malformedModel = await requestHelper.post(
+            `/vendor/${malformedVendor.body.id}/model/add.json`,
+            { model_id: "malformed-openai-model" },
+            adminToken,
+        );
+        const availableModel = await requestHelper.post(
+            `/vendor/${availableVendor.body.id}/model/add.json`,
+            { model_id: "malformed-response-fallback-model" },
+            adminToken,
+        );
+        const model = await requestHelper.post(
+            "/model/create.json",
+            {
+                name: "same-protocol-malformed-failover-model",
+                mapping: {
+                    upstreams: [
+                        {
+                            vendor_id: malformedVendor.body.id,
+                            vendor_model_id: malformedModel.body.id,
+                            enabled: true,
+                        },
+                        {
+                            vendor_id: availableVendor.body.id,
+                            vendor_model_id: availableModel.body.id,
+                            enabled: true,
+                        },
+                    ],
+                },
+            },
+            adminToken,
+        );
+        const user = await requestHelper.post(
+            "/user/create.json",
+            mockHelper.generateUser(),
+            adminToken,
+        );
+
+        const response = await requestHelper.post(
+            "/llm/v1/chat/completions",
+            mockHelper.generateOpenAIChatRequest({ model: model.body.name, stream: false }),
+            user.body.keys[0].value,
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.body.model).toBe("malformed-response-fallback-model");
+        const records = await requestHelper.get(
+            `/record/list.json?model_ids=${model.body.id}`,
+            adminToken,
+        );
+        expect(records.body.total).toBe(1);
+        expect(records.body.list[0]).toMatchObject({
+            status: "success",
+            vendor_id: availableVendor.body.id,
+            vendor_model_name: "malformed-response-fallback-model",
+            failed_code: null,
+        });
+    });
+    it("fails over when a 2xx upstream response cannot be converted", async () => {
+        const malformedVendor = await requestHelper.post(
+            "/vendor/create.json",
+            {
+                type: "other",
+                name: "Malformed Anthropic upstream",
+                token: "malformed-anthropic-token",
+                urls: { anthropic: "http://localhost:9999/messages/malformed" },
+                config: { priority: 1 },
+            },
+            adminToken,
+        );
+        const availableVendor = await requestHelper.post(
+            "/vendor/create.json",
+            {
+                ...vendorFixtures.VENDOR_FIXTURES.openai(),
+                name: "Conversion fallback upstream",
+                config: { priority: 2 },
+            },
+            adminToken,
+        );
+        const malformedModel = await requestHelper.post(
+            `/vendor/${malformedVendor.body.id}/model/add.json`,
+            { model_id: "malformed-anthropic-model" },
+            adminToken,
+        );
+        const availableModel = await requestHelper.post(
+            `/vendor/${availableVendor.body.id}/model/add.json`,
+            { model_id: "conversion-fallback-model" },
+            adminToken,
+        );
+        const model = await requestHelper.post(
+            "/model/create.json",
+            {
+                name: "response-conversion-failover-model",
+                mapping: {
+                    upstreams: [
+                        {
+                            vendor_id: malformedVendor.body.id,
+                            vendor_model_id: malformedModel.body.id,
+                            enabled: true,
+                        },
+                        {
+                            vendor_id: availableVendor.body.id,
+                            vendor_model_id: availableModel.body.id,
+                            enabled: true,
+                        },
+                    ],
+                },
+            },
+            adminToken,
+        );
+        const user = await requestHelper.post(
+            "/user/create.json",
+            mockHelper.generateUser(),
+            adminToken,
+        );
+
+        const response = await requestHelper.post(
+            "/llm/v1/chat/completions",
+            mockHelper.generateOpenAIChatRequest({
+                model: "response-conversion-failover-model",
+                stream: false,
+            }),
+            user.body.keys[0].value,
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.body.model).toBe("conversion-fallback-model");
+
+        const records = await requestHelper.get(
+            `/record/list.json?model_ids=${model.body.id}`,
+            adminToken,
+        );
+        expect(records.body.total).toBe(1);
+        expect(records.body.list[0]).toMatchObject({
+            status: "success",
+            vendor_id: availableVendor.body.id,
+            vendor_model_name: "conversion-fallback-model",
+            settlement_status: "settled",
+        });
+    });
+
+    it("fails over before committing SSE when the first upstream starts with an error event", async () => {
+        const errorVendor = await requestHelper.post(
+            "/vendor/create.json",
+            {
+                type: "other",
+                name: "Stream preflight error upstream",
+                token: "stream-preflight-error-token",
+                urls: { anthropic: "http://localhost:9999/messages/stream-error" },
+                config: { priority: 1 },
+            },
+            adminToken,
+        );
+        const fallbackVendor = await requestHelper.post(
+            "/vendor/create.json",
+            {
+                ...vendorFixtures.VENDOR_FIXTURES.openai(),
+                name: "Stream preflight fallback upstream",
+                config: { priority: 2 },
+            },
+            adminToken,
+        );
+        const errorVendorModel = await requestHelper.post(
+            `/vendor/${errorVendor.body.id}/model/add.json`,
+            { model_id: "stream-preflight-error-model" },
+            adminToken,
+        );
+        const fallbackVendorModel = await requestHelper.post(
+            `/vendor/${fallbackVendor.body.id}/model/add.json`,
+            { model_id: "stream-preflight-fallback-model" },
+            adminToken,
+        );
+        const model = await requestHelper.post(
+            "/model/create.json",
+            {
+                name: "stream-preflight-failover-model",
+                mapping: {
+                    upstreams: [
+                        {
+                            vendor_id: errorVendor.body.id,
+                            vendor_model_id: errorVendorModel.body.id,
+                            enabled: true,
+                        },
+                        {
+                            vendor_id: fallbackVendor.body.id,
+                            vendor_model_id: fallbackVendorModel.body.id,
+                            enabled: true,
+                        },
+                    ],
+                },
+            },
+            adminToken,
+        );
+        const user = await requestHelper.post(
+            "/user/create.json",
+            mockHelper.generateUser(),
+            adminToken,
+        );
+
+        const response = await requestHelper.post(
+            "/llm/v1/chat/completions",
+            mockHelper.generateOpenAIChatRequest({
+                model: model.body.name,
+                stream: true,
+            }),
+            user.body.keys[0].value,
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.body).toContain("stream-preflight-fallback-model");
+        expect(response.body).toContain("[DONE]");
+        expect(response.body).not.toContain("rate_limit_error");
+
+        const [record] = await requestHelper.getFinalizedRecords(adminToken, 1);
+        expect(record).toMatchObject({
+            model_id: model.body.id,
+            status: "success",
+            vendor_id: fallbackVendor.body.id,
+            vendor_model_name: "stream-preflight-fallback-model",
+            failed_code: null,
+            settlement_status: "settled",
+        });
     });
 
     it("skips cooling-down upstreams on later failover requests", async () => {
@@ -373,6 +763,7 @@ describe("Model multi-upstream routing", () => {
                 ...vendorFixtures.VENDOR_FIXTURES.openai(),
                 name: "Invalid request upstream",
                 urls: { openai: "http://localhost:9999/chat/completions/error" },
+                config: { priority: 1 },
             },
             adminToken,
         );
@@ -382,6 +773,7 @@ describe("Model multi-upstream routing", () => {
                 ...vendorFixtures.VENDOR_FIXTURES.openai(),
                 name: "Fallback upstream",
                 urls: { openai: "http://localhost:9999/chat/completions" },
+                config: { priority: 2 },
             },
             adminToken,
         );
@@ -709,6 +1101,7 @@ describe("Model multi-upstream routing", () => {
         // 一次请求一条 record，vendor 保留最后一次尝试
         expect(records.body.total).toBe(1);
         expect(records.body.list[0].status).toBe("failed");
+        expect(records.body.list[0].failed_code).toBe("upstream_error");
         expect(records.body.list[0].vendor_id).toBe(failingVendorB.body.id);
     });
 
@@ -784,6 +1177,7 @@ describe("Model multi-upstream routing", () => {
         );
         expect(records.body.total).toBe(1);
         expect(records.body.list[0].status).toBe("failed");
+        expect(records.body.list[0].failed_code).toBe("upstream_disconnected");
     });
 
     it("records the request processing timeline as activities", async () => {

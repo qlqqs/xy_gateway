@@ -908,7 +908,7 @@ describe("ResponsesToAnthropicConverter - convertStreamEvent (Anthropic SSE → 
         expect(completedEvent).toBeDefined();
         const completedData = JSON.parse(completedEvent!.data);
         const usage = completedData.response.usage;
-        expect(usage.input_tokens).toBe(10);
+        expect(usage.input_tokens).toBe(15);
         expect(usage.input_tokens_details.cached_tokens).toBe(5);
         expect(usage.output_tokens).toBe(20);
         expect(usage.total_tokens).toBe(35);

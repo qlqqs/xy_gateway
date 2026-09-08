@@ -133,11 +133,101 @@ describe("ResponsesAccumulator", () => {
 
             expect(acc.isCompleted()).toBe(true);
             expect(acc.isErrored()).toBe(false);
-            expect(acc.getUsage()).toEqual({
+            expect(acc.getUsage()).toMatchObject({
                 prompt_tokens: 2,
                 completion_tokens: 3,
                 // 上游未返回缓存 → null（区别于返回 0）
                 cache_read_tokens: null,
+            });
+        });
+
+        it("captures cache creation TTL and image token details", () => {
+            const acc = new responsesAccumulator.ResponsesAccumulator();
+            acc.addEvent({ data: JSON.stringify({
+                type: "response.completed",
+                response: {
+                    output: [],
+                    usage: {
+                        input_tokens: 1_000,
+                        output_tokens: 50,
+                        input_tokens_details: {
+                            cached_tokens: 600,
+                            cache_creation_tokens: 250,
+                            cache_creation_5m_tokens: 200,
+                            cache_creation_1h_tokens: 50,
+                            image_tokens: 30,
+                        },
+                        output_tokens_details: { image_tokens: 10 },
+                    },
+                },
+            }) });
+
+            expect(acc.getUsage()).toMatchObject({
+                prompt_tokens: 1_000,
+                cache_read_tokens: 600,
+                cache_write_tokens: 250,
+                cache_creation_5m_tokens: 200,
+                cache_creation_1h_tokens: 50,
+                image_input_tokens: 30,
+                image_output_tokens: 10,
+            });
+        });
+
+        it("derives aggregate cache creation when a Responses payload reports zero with TTL details", () => {
+            const acc = new responsesAccumulator.ResponsesAccumulator();
+            acc.addEvent({ data: JSON.stringify({
+                type: "response.completed",
+                response: {
+                    output: [],
+                    usage: {
+                        input_tokens: 100,
+                        output_tokens: 10,
+                        cache_creation_tokens: 0,
+                        cache_creation: {
+                            ephemeral_5m_input_tokens: 3,
+                            ephemeral_1h_input_tokens: 4,
+                        },
+                    },
+                },
+            }) });
+
+            expect(acc.getUsage()).toMatchObject({
+                cache_write_tokens: 7,
+                cache_creation_5m_tokens: 3,
+                cache_creation_1h_tokens: 4,
+            });
+        });
+
+        it("captures Chat-compatible token aliases in a Responses stream", () => {
+            const acc = new responsesAccumulator.ResponsesAccumulator();
+            acc.addEvent({ data: JSON.stringify({
+                type: "response.completed",
+                response: {
+                    output: [],
+                    usage: {
+                        prompt_tokens: 1_000,
+                        completion_tokens: 50,
+                        prompt_tokens_details: {
+                            cached_tokens: 600,
+                            cache_write_tokens: 250,
+                            cache_creation_5m_tokens: 200,
+                            cache_creation_1h_tokens: 50,
+                            image_tokens: 30,
+                        },
+                        completion_tokens_details: { image_tokens: 0 },
+                    },
+                },
+            }) });
+
+            expect(acc.getUsage()).toMatchObject({
+                prompt_tokens: 1_000,
+                completion_tokens: 50,
+                cache_read_tokens: 600,
+                cache_write_tokens: 250,
+                cache_creation_5m_tokens: 200,
+                cache_creation_1h_tokens: 50,
+                image_input_tokens: 30,
+                image_output_tokens: 0,
             });
         });
 

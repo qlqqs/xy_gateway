@@ -15,6 +15,7 @@ import {
     buildThinkingConfigFromAnthropic,
     thinkingConfigToOpenAI,
 } from "./thinkingConfig";
+import protocolUsage from "./protocolUsageUtil";
 
 const OPENAI_TO_ANTHROPIC_STOP_REASON: Record<string, string> = {
     stop: "end_turn",
@@ -33,33 +34,15 @@ export class AnthropicToOpenAIConverter extends BaseConverter {
      * 累积的最终 usage(openai 可能把 usage 拆到多个 chunk,缓存在末尾的 usage-only chunk 才出现,
      * 因此只有等到 [DONE] 才能拿到完整 usage)。统一在 handleDoneEvent 时聚合并发出。
      */
-    private pendingUsage: { inputTokens: number; outputTokens: number; cacheReadTokens: number } | null = null;
+    private pendingUsage: Record<string, any> | null = null;
 
     /**
-     * 累积一次 openai usage 到 pendingUsage,后到的 chunk 字段优先。
-     * input_tokens 归一化为非缓存部分 = prompt_tokens - cached_tokens。
+     * 累积一次 OpenAI usage，包含嵌套明细；到 [DONE] 再统一转换为 Anthropic 口径。
      */
     private accumulateUsage(chunk: OpenAIChunk): void {
-        const usage = chunk.usage as (Record<string, unknown> & {
-            prompt_tokens?: number;
-            completion_tokens?: number;
-            prompt_tokens_details?: { cached_tokens?: number };
-        }) | undefined;
+        const usage = chunk.usage as Record<string, any> | undefined;
         if (!usage) return;
-
-        const cachedTokens = usage.prompt_tokens_details?.cached_tokens;
-        if (!this.pendingUsage) {
-            this.pendingUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
-        }
-        if (usage.prompt_tokens !== undefined) {
-            this.pendingUsage.inputTokens = Math.max(0, (usage.prompt_tokens || 0) - (cachedTokens || 0));
-        }
-        if (usage.completion_tokens !== undefined) {
-            this.pendingUsage.outputTokens = usage.completion_tokens || 0;
-        }
-        if (cachedTokens !== undefined) {
-            this.pendingUsage.cacheReadTokens = cachedTokens;
-        }
+        this.pendingUsage = protocolUsage.mergeUsage(this.pendingUsage, usage);
     }
 
 
@@ -239,10 +222,7 @@ export class AnthropicToOpenAIConverter extends BaseConverter {
             content: contentBlocks,
             model: upstreamRes.model,
             stop_reason: stopReason as AnthropicResponse["stop_reason"],
-            usage: {
-                input_tokens: upstreamRes.usage?.prompt_tokens || 0,
-                output_tokens: upstreamRes.usage?.completion_tokens || 0,
-            },
+            usage: protocolUsage.toAnthropicUsage(protocolUsage.fromOpenAIUsage(upstreamRes.usage)),
         };
     }
 
@@ -251,7 +231,9 @@ export class AnthropicToOpenAIConverter extends BaseConverter {
         // [DONE] 是上游 openai 流的明确收尾标记,此时所有 usage chunk(含缓存在内的
         // 尾随 usage-only chunk)一定都已到达,统一在这里聚合发出最终的
         // message_delta(携带累积的 usage)+ message_stop。
-        const usage = this.pendingUsage ?? { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
+        const usage = protocolUsage.toAnthropicUsage(
+            protocolUsage.fromOpenAIUsage(this.pendingUsage),
+        );
         const stopReason = this.pendingStopReason ?? "end_turn";
         const events: AnthropicSSEEvent[] = [
             {
@@ -259,11 +241,7 @@ export class AnthropicToOpenAIConverter extends BaseConverter {
                 data: JSON.stringify({
                     type: "message_delta",
                     delta: { stop_reason: stopReason, stop_sequence: null },
-                    usage: {
-                        input_tokens: usage.inputTokens,
-                        output_tokens: usage.outputTokens,
-                        ...(usage.cacheReadTokens ? { cache_read_input_tokens: usage.cacheReadTokens } : {}),
-                    },
+                    usage,
                 }),
             },
             {
@@ -272,6 +250,7 @@ export class AnthropicToOpenAIConverter extends BaseConverter {
             },
         ];
         this.pendingStopReason = null;
+        this.pendingUsage = null;
         return events;
     }
 

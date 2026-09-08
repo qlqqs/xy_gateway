@@ -14,7 +14,8 @@ import apiUtils, { type ApiRecord } from './apiRepositoryUtils';
 function normalizeKey(value: unknown): UserKey {
     const raw = apiUtils.assertRecord(value, '后端 Key 响应格式无效');
     const status = raw.status === 'disabled' ? 'disabled' : 'active';
-    const expiresAt = apiUtils.toNullableIsoDate(raw.expiresAt ?? raw.expires_at);
+    const rawExpiresAt = raw.expiresAt !== undefined ? raw.expiresAt : raw.expires_at;
+    const expiresAt = apiUtils.toNullableIsoDate(rawExpiresAt);
     // camelCase 是当前 canonical 字段，但后端历史响应仍可能使用
     // snake_case；只有字段缺失时才回退，保留显式 null 的解绑语义。
     const rawGroupId = raw.groupId !== undefined ? raw.groupId : raw.group_id;

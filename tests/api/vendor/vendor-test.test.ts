@@ -128,6 +128,7 @@ describe('Vendor Test API', () => {
         // mock server 也接受 Bearer token，所以应该成功
         expect(response.status).toBe(200);
         expect(response.body.success).toBe(true);
+        expect(response.body.request_headers["anthropic-version"]).toBe("2023-06-01");
     });
 
     it('should use api_key auth when explicitly configured', async () => {
@@ -148,5 +149,6 @@ describe('Vendor Test API', () => {
 
         expect(response.status).toBe(200);
         expect(response.body.success).toBe(true);
+        expect(response.body.request_headers["anthropic-version"]).toBe("2023-06-01");
     });
 });

@@ -16,6 +16,7 @@ import {
     buildThinkingConfigFromOpenAIResponses,
     thinkingConfigToAnthropic,
 } from "./thinkingConfig";
+import protocolUsage from "./protocolUsageUtil";
 
 /**
  * Responses API → Anthropic 转换器
@@ -45,6 +46,7 @@ export class ResponsesToAnthropicConverter extends BaseConverter {
     private inputTokens = 0;
     private outputTokens = 0;
     private cacheReadTokens = 0;
+    private pendingUsage: Record<string, any> = {};
     private currentToolCallIndex = -1;
 
     private nextSeq(): number {
@@ -324,11 +326,7 @@ export class ResponsesToAnthropicConverter extends BaseConverter {
             status: "completed",
             model: upstreamRes.model,
             output,
-            usage: {
-                input_tokens: upstreamRes.usage?.input_tokens || 0,
-                output_tokens: upstreamRes.usage?.output_tokens || 0,
-                total_tokens: (upstreamRes.usage?.input_tokens || 0) + (upstreamRes.usage?.output_tokens || 0),
-            },
+            usage: protocolUsage.toResponsesUsage(protocolUsage.fromAnthropicUsage(upstreamRes.usage)),
         };
     }
 
@@ -353,8 +351,10 @@ export class ResponsesToAnthropicConverter extends BaseConverter {
                 if (msg?.id) {
                     this.responseId = msg.id.startsWith("resp_") ? msg.id : `resp_${msg.id.replace("msg_", "")}`;
                 }
-                this.inputTokens = msg?.usage?.input_tokens ?? 0;
-                this.cacheReadTokens = msg?.usage?.cache_read_input_tokens ?? 0;
+                this.pendingUsage = protocolUsage.mergeAnthropicUsage({}, msg?.usage);
+                const usage = protocolUsage.fromAnthropicUsage(this.pendingUsage);
+                this.inputTokens = usage.inputTokens ?? 0;
+                this.cacheReadTokens = usage.cacheReadTokens ?? 0;
                 this.seq = 0;
                 this.textBuf = "";
                 this.messageOpen = false;
@@ -634,6 +634,7 @@ export class ResponsesToAnthropicConverter extends BaseConverter {
             case "message_delta": {
                 const usage = (data as any).usage;
                 if (usage) {
+                    this.pendingUsage = protocolUsage.mergeAnthropicUsage(this.pendingUsage, usage);
                     this.outputTokens = usage.output_tokens ?? this.outputTokens;
                     this.inputTokens = usage.input_tokens ?? this.inputTokens;
                     if (usage.cache_read_input_tokens !== undefined) {
@@ -719,14 +720,9 @@ export class ResponsesToAnthropicConverter extends BaseConverter {
                             status: "completed",
                             model: this.requestModel,
                             output: outputArr,
-                            usage: {
-                                input_tokens: this.inputTokens,
-                                input_tokens_details: this.cacheReadTokens ? {
-                                    cached_tokens: this.cacheReadTokens,
-                                } : undefined,
-                                output_tokens: this.outputTokens,
-                                total_tokens: this.inputTokens + this.cacheReadTokens + this.outputTokens,
-                            },
+                            usage: protocolUsage.toResponsesUsage(
+                                protocolUsage.fromAnthropicUsage(this.pendingUsage),
+                            ),
                         },
                     }),
                 });
@@ -738,6 +734,7 @@ export class ResponsesToAnthropicConverter extends BaseConverter {
                 this.funcArgsBuf = {};
                 this.funcNames = {};
                 this.funcCallIds = {};
+                this.pendingUsage = {};
                 break;
             }
         }

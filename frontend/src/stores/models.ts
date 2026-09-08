@@ -93,6 +93,13 @@ async function ensureLoaded(): Promise<void> {
 
 /** 强制重新读取后端快照，供供应商删除或模型映射变更后的缓存校正使用。 */
 async function refresh(): Promise<void> {
+    if (loadingPromise) {
+        try {
+            await loadingPromise;
+        } catch {
+            // refresh 仍需发起自己的强制请求，由该请求的结果决定调用是否成功。
+        }
+    }
     loaded = false;
     await ensureLoaded();
 }

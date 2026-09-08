@@ -30,6 +30,7 @@ describe('API repositories', () => {
                     // 显式 camelCase null 不应回退到过期的 snake_case 值。
                     { id: '4', value: 'unbound', groupId: null, group_id: '12' },
                     { id: '5', value: 'camel', groupId: '10' },
+                    { id: '6', value: 'no-expiry', expiresAt: null, expires_at: '2027-01-02T00:00:00Z' },
                 ],
             }],
             total: '1',
@@ -41,6 +42,7 @@ describe('API repositories', () => {
         expect(result.list[0]?.keys[0]).toMatchObject({ id: 3, groupId: 9, modelWhitelist: ['a'], expiresAt: '2026-01-02T00:00:00.000Z' });
         expect(result.list[0]?.keys[1]).toMatchObject({ id: 4, groupId: null });
         expect(result.list[0]?.keys[2]).toMatchObject({ id: 5, groupId: 10 });
+        expect(result.list[0]?.keys[3]).toMatchObject({ id: 6, expiresAt: null });
 
         requestMock.put.mockResolvedValue({ id: 7, name: 'Alice', keys: [] });
         await apiUsers.updateKeys(7, [{ value: 'new-key', groupId: null, modelWhitelist: ['m1'] }]);
@@ -96,18 +98,172 @@ describe('API repositories', () => {
         await expect(apiUsers.adjustBalance(1, Number.NaN)).rejects.toThrow('余额变动金额必须不为 0');
     });
 
-    it('供应商创建同步配置模型，并规范供应商模型响应', async () => {
-        requestMock.post.mockResolvedValueOnce({ id: 9, type: 'openai', name: 'Vendor', token: 'redacted', urls: { endpoint: 'https://example.test', malformed: 42 }, config: { available_models: ['m1', 'm2'] } });
-        requestMock.get
-            .mockResolvedValueOnce([])
-            .mockResolvedValueOnce([{ id: '11', vendor_id: '9', model_id: 'm1', allowed_formats: ['chat', 'chat'] }])
-            .mockResolvedValueOnce([{ id: '11', vendor_id: '9', model_id: 'm1', allowed_formats: ['chat', 'chat'] }]);
-        const vendor = await apiVendors.create({ type: 'openai', name: 'Vendor', token: 'secret', urls: {}, config: { available_models: ['m1', 'm2'] } });
-        expect(requestMock.post).toHaveBeenNthCalledWith(1, '/vendor/create.json', expect.objectContaining({ token: 'secret', config: { available_models: ['m1', 'm2'] } }));
-        expect(requestMock.post).toHaveBeenCalledWith('/vendor/9/model/add.json', { model_id: 'm1' });
-        expect(requestMock.post).toHaveBeenCalledWith('/vendor/9/model/add.json', { model_id: 'm2' });
+    it('供应商创建由后端单次请求聚合模型，并规范供应商模型响应', async () => {
+        requestMock.post.mockResolvedValueOnce({
+            id: 9,
+            type: 'openai',
+            name: 'Vendor',
+            token: 'redacted',
+            urls: { endpoint: 'https://example.test', malformed: 42 },
+            config: { available_models: ['m2', 'm1'] },
+            model_count: 2,
+        });
+        requestMock.get.mockResolvedValueOnce([
+            { id: '11', vendor_id: '9', model_id: 'm1', allowed_formats: ['chat', 'chat'] },
+        ]);
+        const vendor = await apiVendors.create({ type: 'openai', name: 'Vendor', token: 'secret', urls: {}, config: { available_models: [' m2 ', 'm1', 'm2'] } });
+        expect(requestMock.post).toHaveBeenCalledTimes(1);
+        expect(requestMock.post).toHaveBeenCalledWith('/vendor/create.json', expect.objectContaining({ token: 'secret', config: { available_models: [' m2 ', 'm1', 'm2'] } }));
         expect(vendor.urls).toEqual({ endpoint: 'https://example.test' });
-        expect(vendor.model_count).toBe(1);
+        expect(vendor.config.available_models).toEqual(['m2', 'm1']);
+        expect(vendor.model_count).toBe(2);
         expect(await apiVendors.listModels(9)).toEqual([{ id: 11, vendor_id: 9, model_id: 'm1', allowed_formats: ['chat'], created_at: '', updated_at: '' }]);
+    });
+
+    it('供应商创建失败时直接透传错误且不追加模型请求', async () => {
+        const createError = new Error('create failed');
+        requestMock.post.mockRejectedValueOnce(createError);
+
+        await expect(apiVendors.create({
+            type: 'openai',
+            name: 'Vendor',
+            token: 'secret',
+            config: { available_models: ['m1', 'm2'] },
+        })).rejects.toBe(createError);
+        expect(requestMock.post).toHaveBeenCalledTimes(1);
+        expect(requestMock.get).not.toHaveBeenCalled();
+        expect(requestMock.delete).not.toHaveBeenCalled();
+    });
+
+    it('供应商更新由后端单次请求聚合模型', async () => {
+        requestMock.put.mockResolvedValueOnce({
+            id: 9,
+            type: 'openai',
+            name: 'Vendor',
+            token: 'redacted',
+            urls: {},
+            config: { available_models: ['m3'] },
+            model_count: 1,
+        });
+
+        const vendor = await apiVendors.update(9, {
+            config: { available_models: ['m3'] },
+        });
+
+        expect(requestMock.put).toHaveBeenCalledTimes(1);
+        expect(requestMock.put).toHaveBeenCalledWith('/vendor/9', {
+            config: { available_models: ['m3'] },
+        });
+        expect(requestMock.post).not.toHaveBeenCalled();
+        expect(vendor.config.available_models).toEqual(['m3']);
+        expect(vendor.model_count).toBe(1);
+    });
+
+    it('规范化供应商多分组并在旧标量更新时同步兼容字段', async () => {
+        const normalized = apiVendors.normalizeVendor({
+            id: '9',
+            type: 'openai',
+            name: 'Vendor',
+            token: 'secret',
+            urls: {},
+            config: { group_ids: ['3', 3, '4', 0, 'invalid'], group_id: 99 },
+        });
+        expect(normalized.config).toMatchObject({ group_id: 3, group_ids: [3, 4] });
+
+        const legacy = apiVendors.normalizeVendor({
+            id: '10',
+            type: 'openai',
+            name: 'Legacy vendor',
+            token: 'secret',
+            urls: {},
+            config: { group_id: '7' },
+        });
+        expect(legacy.config).toMatchObject({ group_id: 7, group_ids: [7] });
+
+        const corrupted = apiVendors.normalizeVendor({
+            id: '11',
+            type: 'openai',
+            name: 'Corrupted vendor',
+            token: 'secret',
+            urls: {},
+            config: { group_ids: ['invalid', 0], group_id: '12' },
+        });
+        expect(corrupted.config).toMatchObject({ group_id: 12, group_ids: [12] });
+
+        const explicitlyUngrouped = apiVendors.normalizeVendor({
+            id: '12',
+            type: 'openai',
+            name: 'Ungrouped vendor',
+            token: 'secret',
+            urls: {},
+            config: { group_ids: [], group_id: '13' },
+        });
+        expect(explicitlyUngrouped.config).toMatchObject({ group_id: null, group_ids: [] });
+
+        const corruptedNullGroupIds = apiVendors.normalizeVendor({
+            id: '13',
+            type: 'openai',
+            name: 'Corrupted group list vendor',
+            token: 'secret',
+            urls: {},
+            config: { group_ids: null, group_id: '12' },
+        });
+        expect(corruptedNullGroupIds.config).toMatchObject({ group_id: 12, group_ids: [12] });
+
+        requestMock.put.mockResolvedValue({
+            id: 9,
+            type: 'openai',
+            name: 'Vendor',
+            token: 'secret',
+            urls: {},
+            config: { group_ids: [8] },
+        });
+        await apiVendors.update(9, { config: { group_id: 8 } });
+        expect(requestMock.put).toHaveBeenCalledWith('/vendor/9', {
+            config: { group_id: 8, group_ids: [8] },
+        });
+    });
+
+    it('序列化供应商分组时只有显式空数组执行解绑', async () => {
+        requestMock.put.mockResolvedValue({
+            id: 9,
+            type: 'openai',
+            name: 'Vendor',
+            token: 'secret',
+            urls: {},
+            config: { group_ids: [8] },
+        });
+
+        await apiVendors.update(9, {
+            config: { group_ids: null as unknown as number[], group_id: 12 },
+        });
+        await apiVendors.update(9, {
+            config: { group_ids: 'invalid' as unknown as number[], group_id: 13 },
+        });
+        await apiVendors.update(9, {
+            config: { group_ids: ['invalid' as unknown as number], remark: 'keep' },
+        });
+        await apiVendors.update(9, {
+            config: { group_ids: [], group_id: 14 },
+        });
+        await apiVendors.update(9, {
+            config: { group_id: null, remark: 'keep relation' },
+        });
+
+        expect(requestMock.put).toHaveBeenNthCalledWith(1, '/vendor/9', {
+            config: { group_ids: [12], group_id: 12 },
+        });
+        expect(requestMock.put).toHaveBeenNthCalledWith(2, '/vendor/9', {
+            config: { group_ids: [13], group_id: 13 },
+        });
+        expect(requestMock.put).toHaveBeenNthCalledWith(3, '/vendor/9', {
+            config: { remark: 'keep' },
+        });
+        expect(requestMock.put).toHaveBeenNthCalledWith(4, '/vendor/9', {
+            config: { group_ids: [], group_id: null },
+        });
+        expect(requestMock.put).toHaveBeenNthCalledWith(5, '/vendor/9', {
+            config: { remark: 'keep relation' },
+        });
     });
 });

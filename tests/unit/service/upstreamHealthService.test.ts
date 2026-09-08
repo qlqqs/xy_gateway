@@ -83,12 +83,16 @@ describe("upstreamHealthService", () => {
     });
 
     it("shouldMarkFailure returns false for client-side 4xx errors", () => {
-        for (const status of [400, 401, 403, 404, 429]) {
+        for (const status of [400, 401, 403, 404]) {
             expect(upstreamHealthService.shouldMarkFailure(status)).toBe(false);
         }
     });
 
-    it("shouldMarkFailure returns true for server-side 5xx and 402 balance errors", () => {
+    it("shouldMarkFailure returns true for upstream rate limits", () => {
+        expect(upstreamHealthService.shouldMarkFailure(429)).toBe(true);
+    });
+
+    it("shouldMarkFailure returns true for balance errors and server-side 5xx", () => {
         for (const status of [402, 500, 502, 503, 504]) {
             expect(upstreamHealthService.shouldMarkFailure(status)).toBe(true);
         }

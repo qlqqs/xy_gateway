@@ -6,15 +6,101 @@ import vendorModelManager from "../manager/vendorModelManager";
 import modelUpstreamManager from "../manager/modelUpstreamManager";
 import modelManager from "../manager/modelManager";
 import userGroupManager from "../manager/userGroupManager";
+import ormService from "./ormService";
 
 
 const DOMAIN_STRING_FIELDS = ["supplier_name", "channel_code", "remark"] as const;
 
 
+function hasOwn(value: unknown, key: string): boolean {
+    return !!value
+        && typeof value === "object"
+        && Object.prototype.hasOwnProperty.call(value, key);
+}
+
+
+function toPositiveGroupId(value: unknown): number | null {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "number") {
+        return Number.isSafeInteger(value) && value > 0 ? value : null;
+    }
+    if (typeof value === "string" && /^\+?\d+$/.test(value.trim())) {
+        const number = Number(value);
+        return Number.isSafeInteger(number) && number > 0 ? number : null;
+    }
+    return null;
+}
+
+
+function normalizeGroupIds(value: unknown): number[] {
+    if (!Array.isArray(value)) {
+        throw new customError.AppError("group_ids must be an array of positive integers");
+    }
+    const normalized: number[] = [];
+    for (const rawGroupId of value) {
+        const groupId = toPositiveGroupId(rawGroupId);
+        if (groupId === null) {
+            throw new customError.AppError("group_ids must be an array of positive integers");
+        }
+        if (!normalized.includes(groupId)) normalized.push(groupId);
+    }
+    return normalized;
+}
+
+
+function normalizeAvailableModels(value: unknown, fieldName = "available_models"): string[] {
+    if (!Array.isArray(value)) {
+        throw new customError.AppError(`${fieldName} must be an array of non-empty strings`);
+    }
+    const normalized: string[] = [];
+    for (const rawModel of value) {
+        if (typeof rawModel !== "string" || !rawModel.trim()) {
+            throw new customError.AppError(`${fieldName} must be an array of non-empty strings`);
+        }
+        const model = rawModel.trim();
+        if (!normalized.includes(model)) normalized.push(model);
+    }
+    return normalized;
+}
+
+
 /**
- * Normalize the vendor domain fields that arrive from the management form.
- * Empty optional strings are represented as NULL so the database uniqueness
- * constraint and the API have one canonical value.
+ * 合并供应商的部分配置更新，同时保留调用方对分组字段的明确意图。
+ * 显式传入 `group_ids` 时以它为准；否则显式 `group_id` 会替换原数组，
+ * 包括传入 null 解绑的场景。
+ */
+function mergeDomainConfig(
+    currentConfig: Record<string, any>,
+    incomingConfig: Record<string, any>,
+    incomingRaw: unknown,
+): Record<string, any> {
+    const merged: Record<string, any> = { ...currentConfig, ...incomingConfig };
+    if (hasOwn(incomingRaw, "group_ids")
+        && (incomingRaw as Record<string, any>).group_ids !== undefined) {
+        merged.group_ids = incomingConfig.group_ids;
+        merged.group_id = incomingConfig.group_id;
+    } else if (hasOwn(incomingRaw, "group_id")
+        && (incomingRaw as Record<string, any>).group_id !== undefined) {
+        delete merged.group_ids;
+        merged.group_id = incomingConfig.group_id;
+    }
+
+    // 两类 API 协议互斥。管理端更新是部分更新，切换为 Anthropic 时必须清理
+    // 旧 OpenAI 协议；反向切换且未传新值时则补上确定的默认协议。
+    if (incomingConfig.api_type === "anthropic") {
+        delete merged.openai_protocol;
+    } else if (incomingConfig.api_type === "openai"
+        && currentConfig.api_type !== "openai"
+        && !hasOwn(incomingRaw, "openai_protocol")) {
+        merged.openai_protocol = "chat_completions";
+    }
+    return normalizeDomainConfig(merged);
+}
+
+
+/**
+ * 规范化管理表单传入的供应商领域字段。
+ * 可选空字符串统一表示为 null，确保数据库唯一约束与 API 使用同一语义。
  */
 function normalizeDomainConfig(config: unknown): Record<string, any> {
     if (config === undefined || config === null) return {};
@@ -29,6 +115,25 @@ function normalizeDomainConfig(config: unknown): Record<string, any> {
         }
         const value = normalized[field].trim();
         normalized[field] = field === "channel_code" && value.length === 0 ? null : value;
+    }
+
+    if (normalized.group_ids !== undefined) {
+        normalized.group_ids = normalizeGroupIds(normalized.group_ids);
+        normalized.group_id = normalized.group_ids[0] ?? null;
+    } else if (normalized.group_id !== undefined) {
+        if (normalized.group_id === null) {
+            normalized.group_ids = [];
+        } else {
+            const groupId = toPositiveGroupId(normalized.group_id);
+            if (groupId === null) {
+                throw new customError.AppError("group_id must be null or a positive integer");
+            }
+            normalized.group_id = groupId;
+            normalized.group_ids = [groupId];
+        }
+    }
+    if (normalized.available_models !== undefined) {
+        normalized.available_models = normalizeAvailableModels(normalized.available_models);
     }
     return normalized;
 }
@@ -62,6 +167,43 @@ function validateProxyConfig(config?: Record<string, any>): void {
 }
 
 
+async function createVendor(vendor: SgVendor): Promise<SgVendor> {
+    const modelIds = normalizeAvailableModels(
+        vendor.config?.available_models ?? vendor.available_models ?? [],
+    );
+    vendor.fill({
+        config: {
+            ...normalizeDomainConfig(vendor.config?.toJSON?.() ?? {}),
+            available_models: modelIds,
+        },
+    });
+    const knex = ormService.getKnex();
+
+    const persist = async (db: any): Promise<void> => {
+        await vendor.save({ client: db });
+        await vendorModelManager.syncByVendorWithConnection(db, Number(vendor.id), modelIds);
+    };
+
+    if (ormService.isWorker) {
+        try {
+            await persist(knex);
+        } catch (error) {
+            if (Number.isSafeInteger(Number(vendor.id)) && Number(vendor.id) > 0) {
+                await knex("vendor_model").where("vendor_id", Number(vendor.id)).delete().catch(() => undefined);
+                await knex("vendor").where("id", Number(vendor.id)).delete().catch(() => undefined);
+            }
+            throw error;
+        }
+    } else {
+        await knex.transaction(persist);
+    }
+
+    const created = await vendorManager.findById(Number(vendor.id));
+    if (!created) throw new customError.NotFoundError("Vendor not found");
+    return created;
+}
+
+
 async function updateVendor(
     vendorId: number,
     data: { type?: string; name?: string; token?: string; urls?: Record<string, string>; config?: Record<string, any> },
@@ -82,7 +224,15 @@ async function updateVendor(
     const incomingConfig = normalizeDomainConfig(data.config);
     validateProxyConfig(incomingConfig);
     const currentConfig = normalizeDomainConfig(vendor.config?.toJSON?.() ?? {});
-    const mergedConfig: Record<string, any> = normalizeDomainConfig({ ...currentConfig, ...incomingConfig });
+    const mergedConfig: Record<string, any> = mergeDomainConfig(
+        currentConfig,
+        incomingConfig,
+        data.config,
+    );
+    const shouldSyncModels = hasOwn(data.config, "available_models");
+    const modelIds = shouldSyncModels
+        ? normalizeAvailableModels(mergedConfig.available_models)
+        : [];
 
     validateSchedulingConfig(mergedConfig);
     await validateDomainConfig(mergedConfig, vendorId);
@@ -100,9 +250,7 @@ async function updateVendor(
 
     if (data.config !== undefined) {
         updateData.config = JSON.stringify(mergedConfig);
-        // query().update() bypasses Sutando casts, so serialize every formal
-        // domain column explicitly.  These columns are the runtime source of
-        // truth; config is only the API transport object.
+        // query().update() 不经过 Sutando cast，因此所有正式字段都需显式序列化。
         updateData.auth_mode = mergedConfig.auth_mode ?? vendor.auth_mode ?? "bearer_token";
         updateData.skip_tls_verify = mergedConfig.skip_tls_verify ?? vendor.skip_tls_verify ?? false;
         updateData.proxy = mergedConfig.proxy === undefined ? null : JSON.stringify(mergedConfig.proxy);
@@ -116,10 +264,187 @@ async function updateVendor(
         updateData.concurrency = mergedConfig.concurrency ?? vendor.concurrency ?? 1;
         updateData.load_factor = mergedConfig.load_factor ?? null;
         updateData.priority = mergedConfig.priority ?? vendor.priority ?? 1;
-        updateData.group_id = mergedConfig.group_id ?? null;
+        updateData.group_id = Array.isArray(mergedConfig.group_ids)
+            ? (mergedConfig.group_ids[0] ?? null)
+            : (mergedConfig.group_id ?? null);
     }
 
-    return await vendorManager.update(vendorId, updateData);
+    const knex = ormService.getKnex();
+    const persist = async (db: any): Promise<void> => {
+        await findVendorRow(db, vendorId, !ormService.isWorker);
+        await db("vendor").where("id", vendorId).update(updateData);
+        if (shouldSyncModels) {
+            await vendorModelManager.syncByVendorWithConnection(db, vendorId, modelIds);
+        }
+    };
+
+    if (ormService.isWorker) {
+        const previousModels = shouldSyncModels
+            ? (await vendorModelManager.listByVendor(vendorId)).map(model => String(model.model_id))
+            : [];
+        const attributes = vendor.getAttributes() as Record<string, unknown>;
+        const restoreData = Object.fromEntries(
+            Object.keys(updateData).map(key => [key, attributes[key] ?? null]),
+        );
+        try {
+            await persist(knex);
+        } catch (error) {
+            await knex("vendor").where("id", vendorId).update(restoreData).catch(() => undefined);
+            if (shouldSyncModels) {
+                await vendorModelManager.syncByVendorWithConnection(knex, vendorId, previousModels)
+                    .catch(() => undefined);
+            }
+            throw error;
+        }
+    } else {
+        await knex.transaction(persist);
+    }
+
+    return await vendorManager.findById(vendorId);
+}
+
+
+async function findVendorRow(db: any, vendorId: number, lock: boolean): Promise<Record<string, unknown>> {
+    let query = db("vendor").where("id", vendorId);
+    if (lock && process.env.DB_DRIVER === "mysql") {
+        query = query.forUpdate();
+    }
+    const row = await query.first();
+    if (!row) throw new customError.NotFoundError("Vendor not found");
+    return row as Record<string, unknown>;
+}
+
+
+/** 在同一数据库连接中同步模型差异以及供应商的模型配置投影。 */
+async function syncVendorModelsWithConnection(
+    db: any,
+    vendorId: number,
+    modelIds: string[],
+    row?: Record<string, unknown>,
+): Promise<void> {
+    const currentRow = row ?? await findVendorRow(db, vendorId, false);
+    const current = new SgVendor(currentRow);
+    const config = {
+        ...current.config.toJSON(),
+        available_models: modelIds,
+    };
+
+    await vendorModelManager.syncByVendorWithConnection(db, vendorId, modelIds);
+    await db("vendor").where("id", vendorId).update({
+        config: JSON.stringify(config),
+        available_models: JSON.stringify(modelIds),
+    });
+}
+
+
+async function syncVendorModels(
+    vendorId: number,
+    modelIds: unknown,
+): Promise<Awaited<ReturnType<typeof vendorModelManager.listByVendor>>> {
+    const normalized = normalizeAvailableModels(modelIds, "model_ids");
+    const knex = ormService.getKnex();
+
+    if (ormService.isWorker) {
+        const row = await knex("vendor").where("id", vendorId).first();
+        if (!row) throw new customError.NotFoundError("Vendor not found");
+        const previousModels = (await vendorModelManager.listByVendor(vendorId))
+            .map(model => String(model.model_id));
+        try {
+            await syncVendorModelsWithConnection(knex, vendorId, normalized, row);
+        } catch (error) {
+            await knex("vendor").where("id", vendorId).update({
+                config: row.config,
+                available_models: row.available_models,
+            }).catch(() => undefined);
+            await vendorModelManager.syncByVendorWithConnection(knex, vendorId, previousModels)
+                .catch(() => undefined);
+            throw error;
+        }
+    } else {
+        await knex.transaction(async (transaction: any) => {
+            const row = await findVendorRow(transaction, vendorId, true);
+            await syncVendorModelsWithConnection(transaction, vendorId, normalized, row);
+        });
+    }
+    return await vendorModelManager.listByVendor(vendorId);
+}
+
+
+async function addVendorModel(vendorId: number, modelId: string) {
+    if (typeof modelId !== "string" || !modelId.trim()) {
+        throw new customError.AppError("model_id is required");
+    }
+    const normalizedModelId = modelId.trim();
+    const knex = ormService.getKnex();
+
+    if (ormService.isWorker) {
+        const existing = await vendorModelManager.listByVendor(vendorId);
+        if (existing.some(model => String(model.model_id) === normalizedModelId)) {
+            throw new customError.AppError("Model already exists", 409);
+        }
+        await syncVendorModels(vendorId, [
+            ...existing.map(model => String(model.model_id)),
+            normalizedModelId,
+        ]);
+    } else {
+        await knex.transaction(async (transaction: any) => {
+            const row = await findVendorRow(transaction, vendorId, true);
+            const existing = await transaction("vendor_model")
+                .where("vendor_id", vendorId)
+                .orderBy("model_id", "asc")
+                .select("model_id");
+            if (existing.some((model: any) => String(model.model_id) === normalizedModelId)) {
+                throw new customError.AppError("Model already exists", 409);
+            }
+            await syncVendorModelsWithConnection(
+                transaction,
+                vendorId,
+                [...existing.map((model: any) => String(model.model_id)), normalizedModelId],
+                row,
+            );
+        });
+    }
+
+    return await vendorModelManager.findByVendorAndModel(vendorId, normalizedModelId);
+}
+
+
+async function removeVendorModel(vendorId: number, recordId: number): Promise<boolean> {
+    const knex = ormService.getKnex();
+
+    if (ormService.isWorker) {
+        const target = await vendorModelManager.findVendorModel(recordId, vendorId);
+        if (!target) return false;
+        const existing = await vendorModelManager.listByVendor(vendorId);
+        await syncVendorModels(
+            vendorId,
+            existing
+                .filter(model => Number(model.id) !== recordId)
+                .map(model => String(model.model_id)),
+        );
+        return true;
+    }
+
+    return await knex.transaction(async (transaction: any) => {
+        const row = await findVendorRow(transaction, vendorId, true);
+        const target = await transaction("vendor_model")
+            .where("id", recordId)
+            .where("vendor_id", vendorId)
+            .first();
+        if (!target) return false;
+        const existing = await transaction("vendor_model")
+            .where("vendor_id", vendorId)
+            .where("id", "!=", recordId)
+            .orderBy("model_id", "asc")
+            .select("model_id");
+        await syncVendorModelsWithConnection(
+            transaction,
+            vendorId,
+            existing.map((model: any) => String(model.model_id)),
+            row,
+        );
+        return true;
+    });
 }
 
 async function validateDomainConfig(config: Record<string, any>, excludeVendorId?: number): Promise<void> {
@@ -128,7 +453,13 @@ async function validateDomainConfig(config: Record<string, any>, excludeVendorId
         const duplicate = await vendorManager.findByChannelCode(normalized.channel_code, excludeVendorId);
         if (duplicate) throw new customError.AppError("channel_code already exists", 409);
     }
-    if (normalized.group_id !== undefined && normalized.group_id !== null) {
+    if (normalized.group_ids !== undefined) {
+        for (const groupId of normalized.group_ids) {
+            if (!await userGroupManager.findById(Number(groupId))) {
+                throw new customError.NotFoundError("User group not found");
+            }
+        }
+    } else if (normalized.group_id !== undefined && normalized.group_id !== null) {
         if (!await userGroupManager.findById(Number(normalized.group_id))) {
             throw new customError.NotFoundError("User group not found");
         }
@@ -190,6 +521,12 @@ function validateSchedulingConfig(config?: Record<string, any>): void {
     if (config.group_id !== null && config.group_id !== undefined
         && (typeof config.group_id !== "number" || !Number.isSafeInteger(config.group_id) || config.group_id <= 0)) {
         throw new customError.AppError("group_id must be null or a positive integer");
+    }
+    if (config.group_ids !== undefined
+        && (!Array.isArray(config.group_ids)
+            || config.group_ids.some((groupId: unknown) =>
+                typeof groupId !== "number" || !Number.isSafeInteger(groupId) || groupId <= 0))) {
+        throw new customError.AppError("group_ids must be an array of positive integers");
     }
 }
 
@@ -262,27 +599,90 @@ function isLlmModel(modelId: string): boolean {
 }
 
 
+function resolveModelListTarget(vendor: SgVendor): { format: ApiFormat; sourceUrl: string } {
+    const apiType = vendor.api_type ?? vendor.config?.api_type;
+    const openaiProtocol = vendor.openai_protocol ?? vendor.config?.openai_protocol;
+    const formats = apiType === "anthropic"
+        ? [ApiFormat.ANTHROPIC]
+        : apiType === "openai"
+            ? [openaiProtocol === "responses" ? ApiFormat.RESPONSES : ApiFormat.OPENAI]
+            : [ApiFormat.OPENAI, ApiFormat.RESPONSES, ApiFormat.ANTHROPIC];
+
+    for (const format of formats) {
+        const sourceUrl = vendor.getUrlByFormat(format);
+        if (sourceUrl !== null) return { format, sourceUrl };
+    }
+
+    throw new customError.AppError("vendor does not have a URL for fetching models", 400);
+}
+
+
+function buildModelListUrl(sourceUrl: string): string {
+    let url: URL;
+    try {
+        url = new URL(sourceUrl);
+    } catch {
+        throw new customError.AppError("vendor model list URL is invalid", 400);
+    }
+
+    const pathname = url.pathname.replace(/\/+$/, "");
+    const siblingPath = pathname.replace(/\/(?:chat\/completions|responses|messages|models)$/i, "/models");
+    url.pathname = siblingPath === pathname ? `${pathname}/models` : siblingPath;
+    url.hash = "";
+    return url.toString();
+}
+
+
+function buildModelListHeaders(vendor: SgVendor, format: ApiFormat): Headers {
+    const token = typeof vendor.token === "string" ? vendor.token.trim() : "";
+    if (!token) {
+        throw new customError.AppError("vendor token is required", 400);
+    }
+
+    const headers = new Headers({ Accept: "application/json" });
+    const authMode = vendor.auth_mode ?? vendor.config?.auth_mode ?? VendorAuthMode.BEARER_TOKEN;
+    if (format === ApiFormat.ANTHROPIC) {
+        headers.set("anthropic-version", "2023-06-01");
+        if (authMode === VendorAuthMode.API_KEY) {
+            headers.set("x-api-key", token);
+        } else {
+            headers.set("Authorization", token.startsWith("Bearer ") ? token : `Bearer ${token}`);
+        }
+    } else {
+        headers.set("Authorization", token.startsWith("Bearer ") ? token : `Bearer ${token}`);
+    }
+    return headers;
+}
+
+
+function parseUpstreamModelIds(value: unknown): string[] {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const data = (value as { data?: unknown }).data;
+    if (!Array.isArray(data)) return [];
+
+    const modelIds = data.flatMap(item => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const id = (item as { id?: unknown }).id;
+        if (typeof id !== "string") return [];
+        const normalized = id.trim();
+        return normalized && isLlmModel(normalized) ? [normalized] : [];
+    });
+    return [...new Set(modelIds)];
+}
+
+
 /**
  * 从上游 API 获取模型列表
  */
 export async function fetchUpstreamModels(vendor: SgVendor): Promise<string[]> {
-    const openaiUrl = vendor.getUrlByFormat(ApiFormat.OPENAI);
-    if (openaiUrl === null) {
-        throw new customError.AppError("vendor does not have url for openai format", 400);
-    }
-    const baseUrl = openaiUrl.replace(/\/chat\/completions$/, "");
-    const modelsUrl = `${baseUrl}/models`;
-
-    const token = vendor.token;
-    const authHeader = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+    const target = resolveModelListTarget(vendor);
+    const modelsUrl = buildModelListUrl(target.sourceUrl);
+    const headers = buildModelListHeaders(vendor, target.format);
 
     try {
         const response = await fetch(modelsUrl, {
             method: "GET",
-            headers: {
-                Authorization: authHeader,
-                "Content-Type": "application/json",
-            },
+            headers,
         });
 
         if (!response.ok) {
@@ -293,23 +693,22 @@ export async function fetchUpstreamModels(vendor: SgVendor): Promise<string[]> {
             );
         }
 
-        const data: any = await response.json();
-
-        const models: string[] = Array.isArray(data?.data)
-            ? data.data.map((m: any) => m.id).filter(Boolean).filter(isLlmModel)
-            : [];
-
-        return models;
-    } catch (err: any) {
-        if (err.statusCode) throw err;
-        throw new customError.AppError(`Failed to fetch models: ${err.message}`, 502);
+        return parseUpstreamModelIds(await response.json());
+    } catch (error: unknown) {
+        if (error instanceof customError.AppError) throw error;
+        const message = error instanceof Error ? error.message : "Unknown upstream error";
+        throw new customError.AppError(`Failed to fetch models: ${message}`, 502);
     }
 }
 
 
 export default {
     normalizeDomainConfig,
+    createVendor,
     updateVendor,
+    syncVendorModels,
+    addVendorModel,
+    removeVendorModel,
     findVendorByUrl,
     deleteVendor,
     fetchUpstreamModels,

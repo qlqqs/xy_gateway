@@ -37,16 +37,61 @@ interface OpenAIChatChunk {
     }>;
     usage?: {
         prompt_tokens?: number;
+        input_tokens?: number;
         completion_tokens?: number;
+        output_tokens?: number;
         total_tokens?: number;
         prompt_tokens_details?: {
             cached_tokens?: number;
             cache_write_tokens?: number;
+            cache_creation_tokens?: number;
+            cache_creation_5m_tokens?: number;
+            cache_creation_1h_tokens?: number;
+            image_tokens?: number;
+        };
+        input_tokens_details?: {
+            cached_tokens?: number;
+            cache_write_tokens?: number;
+            cache_creation_tokens?: number;
+            cache_creation_5m_tokens?: number;
+            cache_creation_1h_tokens?: number;
+            image_tokens?: number;
         };
         completion_tokens_details?: {
             reasoning_tokens?: number;
+            image_tokens?: number;
         };
+        output_tokens_details?: {
+            reasoning_tokens?: number;
+            image_tokens?: number;
+        };
+        cache_creation?: {
+            ephemeral_5m_input_tokens?: number;
+            ephemeral_1h_input_tokens?: number;
+        };
+        cached_tokens?: number;
+        cache_read_input_tokens?: number;
+        cache_read_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_write_input_tokens?: number;
+        cache_write_tokens?: number;
+        cache_creation_tokens?: number;
+        cache_creation_5m_tokens?: number;
+        cache_creation_1h_tokens?: number;
+        image_input_tokens?: number;
+        image_output_tokens?: number;
     };
+}
+
+
+function firstDefined<T>(...values: Array<T | null | undefined>): T | undefined {
+    return values.find((value): value is T => value !== null && value !== undefined);
+}
+
+
+function firstPositiveOrDefined(...values: Array<number | null | undefined>): number | undefined {
+    const positive = values.find((value): value is number => typeof value === "number" && value > 0);
+    return positive ?? firstDefined(...values);
 }
 
 export class OpenAIChatAccumulator extends AccumulatorBase {
@@ -186,14 +231,74 @@ export class OpenAIChatAccumulator extends AccumulatorBase {
      */
     private accumulateUsage(rawUsage: OpenAIChatChunk["usage"]): void {
         const promptDetails = rawUsage?.prompt_tokens_details;
+        const inputDetails = rawUsage?.input_tokens_details;
+        const completionDetails = rawUsage?.completion_tokens_details;
+        const outputDetails = rawUsage?.output_tokens_details;
+        const cacheCreationDetails = rawUsage?.cache_creation;
         const prev = this.response.usage;
+        const officialCacheWrite = firstDefined(
+            promptDetails?.cache_write_tokens,
+            inputDetails?.cache_write_tokens,
+            promptDetails?.cache_creation_tokens,
+            inputDetails?.cache_creation_tokens,
+        );
         this.response.usage = {
-            prompt_tokens: rawUsage?.prompt_tokens ?? prev?.prompt_tokens,
-            completion_tokens: rawUsage?.completion_tokens ?? prev?.completion_tokens,
-            cache_read_tokens: promptDetails?.cached_tokens ?? prev?.cache_read_tokens,
-            cache_write_tokens: promptDetails?.cache_write_tokens ?? prev?.cache_write_tokens,
-            completion_tokens_details: rawUsage?.completion_tokens_details ?? prev?.completion_tokens_details,
+            prompt_tokens: firstDefined(rawUsage?.prompt_tokens, rawUsage?.input_tokens, prev?.prompt_tokens),
+            completion_tokens: firstDefined(rawUsage?.completion_tokens, rawUsage?.output_tokens, prev?.completion_tokens),
+            cache_read_tokens: firstDefined(
+                promptDetails?.cached_tokens,
+                inputDetails?.cached_tokens,
+                rawUsage?.cache_read_input_tokens,
+                rawUsage?.cache_read_tokens,
+                rawUsage?.cached_tokens,
+                prev?.cache_read_tokens,
+            ),
+            cache_write_tokens: officialCacheWrite !== undefined
+                ? officialCacheWrite
+                : firstPositiveOrDefined(
+                    rawUsage?.cache_creation_input_tokens,
+                    rawUsage?.cache_write_input_tokens,
+                    rawUsage?.cache_write_tokens,
+                    rawUsage?.cache_creation_tokens,
+                    prev?.cache_write_tokens,
+                ),
+            cache_creation_5m_tokens: firstPositiveOrDefined(
+                cacheCreationDetails?.ephemeral_5m_input_tokens,
+                promptDetails?.cache_creation_5m_tokens,
+                inputDetails?.cache_creation_5m_tokens,
+                rawUsage?.cache_creation_5m_tokens,
+                prev?.cache_creation_5m_tokens,
+            ),
+            cache_creation_1h_tokens: firstPositiveOrDefined(
+                cacheCreationDetails?.ephemeral_1h_input_tokens,
+                promptDetails?.cache_creation_1h_tokens,
+                inputDetails?.cache_creation_1h_tokens,
+                rawUsage?.cache_creation_1h_tokens,
+                prev?.cache_creation_1h_tokens,
+            ),
+            image_input_tokens: firstDefined(
+                promptDetails?.image_tokens,
+                inputDetails?.image_tokens,
+                rawUsage?.image_input_tokens,
+                prev?.image_input_tokens,
+            ),
+            image_output_tokens: firstDefined(
+                completionDetails?.image_tokens,
+                outputDetails?.image_tokens,
+                rawUsage?.image_output_tokens,
+                prev?.image_output_tokens,
+            ),
+            completion_tokens_details: firstDefined(completionDetails, outputDetails, prev?.completion_tokens_details),
         };
+
+        if (
+            (this.response.usage.cache_write_tokens == null || this.response.usage.cache_write_tokens === 0)
+            && (this.response.usage.cache_creation_5m_tokens ?? 0)
+                + (this.response.usage.cache_creation_1h_tokens ?? 0) > 0
+        ) {
+            this.response.usage.cache_write_tokens = (this.response.usage.cache_creation_5m_tokens ?? 0)
+                + (this.response.usage.cache_creation_1h_tokens ?? 0);
+        }
     }
 
     /**

@@ -135,6 +135,49 @@ describe("SgRecordUsage cast", () => {
         });
     });
 
+    it("round-trips v3 cache TTL, image tokens and cost breakdown", () => {
+        const u = castGet(JSON.stringify({
+            usage_version: 3,
+            prompt_tokens: 180,
+            completion_tokens: 40,
+            cache_read_tokens: 50,
+            cache_creation_tokens: 30,
+            cache_creation_5m_tokens: 20,
+            cache_creation_1h_tokens: 10,
+            image_input_tokens: 25,
+            image_output_tokens: 8,
+            cost_breakdown: {
+                input_cost: 1,
+                image_input_cost: 2,
+                output_cost: 3,
+                image_output_cost: 4,
+                cache_creation_cost: 5,
+                cache_creation_5m_cost: 2,
+                cache_creation_1h_cost: 3,
+                cache_read_cost: 6,
+                request_cost: 0,
+                total_cost: 21,
+            },
+        }));
+
+        expect(u!.version).toBe(3);
+        expect(u!.prompt_tokens).toBe(100);
+        expect(u!.toJSON()).toMatchObject({
+            prompt_tokens: 100,
+            cache_creation_5m_tokens: 20,
+            cache_creation_1h_tokens: 10,
+            image_input_tokens: 25,
+            image_output_tokens: 8,
+            cost_breakdown: { total_cost: 21 },
+        });
+        expect(u!.toStorageJSON()).toMatchObject({
+            usage_version: 3,
+            prompt_tokens: 180,
+            cache_read_tokens: 50,
+            cache_creation_tokens: 30,
+        });
+    });
+
     it("set() returns null for null input", () => {
         expect(SgRecordUsage.set(null as any, "usage", null)).toBeNull();
     });

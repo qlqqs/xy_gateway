@@ -1,11 +1,12 @@
 import { Context } from "hono";
 import recordManager from "../manager/recordManager";
 import requestActivityService from "../service/requestActivityService";
+import idUtil from "../util/idUtil";
 
 
 async function getRecordActivity(c: Context) {
-    const recordId = parseInt(c.req.param("id"), 10);
-    if (isNaN(recordId)) {
+    const recordId = idUtil.toPositiveInteger(c.req.param("id"));
+    if (recordId === null) {
         return c.json({ error: "Invalid ID format" }, 400);
     }
 

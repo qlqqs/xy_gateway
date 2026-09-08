@@ -162,7 +162,12 @@ async function startServer() {
     const hostname = hostService.getLocalHost();
 
     const server = serve({
-        fetch: (request) => app.fetch(request, bindings),
+        // 保留 Node 适配器提供的连接信息，IP 白名单必须读取真实 socket 地址，
+        // 不能信任客户端可伪造的转发头。
+        fetch: (request, serverBindings) => app.fetch(request, {
+            ...bindings,
+            server: serverBindings,
+        }),
         port,
         hostname,
     });

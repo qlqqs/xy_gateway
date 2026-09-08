@@ -64,12 +64,17 @@ vendor
   status, remark, available_models
   concurrency, load_factor, priority, group_id
   created_at, updated_at
+
+config
+  group_ids[]
 ```
 
 - `urls`、`proxy`、`available_models` 仍可使用 JSON cast。
 - `channel_code` 全局唯一；`concurrency >= 1`、`priority >= 1`、`load_factor` 可空且非空时 `>= 1`。
 - `load_factor == null` 时有效权重使用 `concurrency`；否则使用显式 `load_factor`。
-- `group_id` 是单分组关系，保持当前前端语义，不引入 sub2api 的多对多账号分组。
+- `config.group_ids[]` 是供应商多分组关系的规范传输与运行字段：去重保存正整数 ID，显式 `[]` 表示未分组。
+- 物理列和 `config.group_id` 同步投影 `group_ids[0] ?? null`，作为持久化兼容的首项视图；路由、分组统计及删除必须读取完整集合，不能把首项投影当成全部关系。
+- 本任务不新增 sub2api 的账号/分组中间表；供应商多分组继续由现有 `config` JSON 承载。
 - 上游 token 属于可回显管理员凭证，沿用现有字段；日志和测试快照必须持续脱敏。独立凭证加密可作为后续安全任务，不与本次 Key 摘要设计混淆。
 
 ### 2.4 模型与上游映射
@@ -128,11 +133,12 @@ GET/POST/PUT/DELETE 现有 model 路径（只接受 mapping，不接受 routing_
 - 用户响应聚合 `keys`；Key DTO 完全使用当前前端的 `groupId/modelWhitelistEnabled/.../expiresAt`。
 - 分组 DTO 完全使用当前前端 camelCase 字段。
 - 供应商和模型按当前前端类型保留 snake_case 字段。
+- 供应商请求和响应以 `config.group_ids[]` 为规范分组字段，并同步返回 `config.group_id = group_ids[0] ?? null`；只有显式空数组表示解绑全部分组。
 - 不返回 `key_hash`、`encrypted_value`、内部并发租约或旧字段。
 
 ### 3.2 删除语义
 
-- 删除分组：同一事务内将 `user_key.group_id`、`vendor.group_id` 置空后删除。
+- 删除分组：同一事务内将 `user_key.group_id` 置空，从每个供应商的 `config.group_ids[]` 移除该 ID，并把 `vendor.group_id/config.group_id` 重投影为剩余首项后再删除分组。
 - 删除供应商：移除模型映射；映射清空的模型自动停用；删除 vendor_model。
 - 删除模型：从 `user_group.custom_models` 和 Key 模型白名单中清除名称。
 - 这些动作由 service 协调，controller 不直接拼接多表操作。
@@ -181,8 +187,8 @@ Root token 保留为环境级管理/诊断凭证；普通和管理员数据库�
 
 ### 5.2 分组与供应商池
 
-- 有分组的 Key 只使用相同 `group_id` 的供应商。
-- 无分组的 Key 只使用 `group_id IS NULL` 的供应商。
+- 有分组的 Key 只使用其分组 ID 存在于 `vendor.config.group_ids[]` 的供应商；同一供应商可同时服务多个分组。
+- 无分组的 Key 只使用 `vendor.config.group_ids[]` 为空的供应商；`group_id` 仅是首项投影，不能独立决定池归属。
 - 不允许显式模型映射绕过分组隔离；不匹配候选直接过滤。
 
 ### 5.3 调度
@@ -192,7 +198,7 @@ Root token 保留为环境级管理/诊断凭证；普通和管理员数据库�
 1. 取最小 `priority` 的非空候选集合。
 2. 按 `effectiveWeight = load_factor ?? concurrency` 加权选择。
 3. 同一次请求失败后将 `(vendor_id, vendor_model_name, upstream_format)` 放入 tried 集，重新筛选；当前优先级耗尽后才进入下一优先级。
-4. 成功后更新最近成功/延迟指标；可重试的上游错误进入冷却，客户端 4xx 不惩罚供应商。
+4. 成功后更新最近成功/延迟指标；上游 5xx、402、429、网络异常及响应解析/转换失败进入同一 `(vendor_id, vendor_model_name, upstream_format)` 粒度的短期冷却，其他客户端 4xx 不惩罚供应商。Key 额度或本地并发产生的 429 属于网关业务错误，不进入此路径。
 
 ### 5.4 并发租约
 
@@ -208,7 +214,8 @@ Root token 保留为环境级管理/诊断凭证；普通和管理员数据库�
 
 - `BillingService.quote()` 根据模型价格和分组倍率生成价格快照。
 - 请求前检查用户余额、Key 剩余额度和已预留金额。按次/图片可预留确定金额；token 模式只做最低余额资格检查，首期不猜测最大 token 费用。
-- `settle(recordId, actualCost)` 使用条件更新确保 `settlement_status != settled` 才扣费；同一 record 重试结算返回已结算结果。
+- Node/Tauri 的 token 成功响应必须按实际费用扣款并递增 Key 用量，即使本次使 `quota_used` 越过 `quota`；下一请求由入口额度检查阻断，不能在响应已交付后因剩余额度不足回滚费用。
+- `settle(recordId, actualCost)` 使用 record 终态确保 `settlement_status != settled` 才扣费；同一 record 重试结算返回已结算结果。
 - 用户余额与 Key `quota_used` 在同一个数据库事务/原子 service 中更新。Worker/D1 无可靠多语句事务时，使用幂等 record 状态 + 可重放修复流程，并在文档暴露该限制。
 - 成功完成的响应才结算；失败/未完成流不扣费。并发租约不依赖结算成功，始终在 finally 释放。
 
@@ -218,7 +225,7 @@ Root token 保留为环境级管理/诊断凭证；普通和管理员数据库�
 
 1. 创建新表/列和唯一索引，不切换代码。
 2. 创建“默认分组”，支持三种入站协议、全部模型、倍率 1。
-3. 把每个旧 `user.token` 迁成一个 Key；把旧供应商绑定默认分组；把 `routing_config.upstreams` 展开到 `model_upstream`。
+3. 把每个旧 `user.token` 迁成一个 Key；把旧供应商的 `config.group_ids[]` 初始化为默认分组并同步首项 `group_id` 投影；把 `routing_config.upstreams` 展开到 `model_upstream`。
 4. 校验数量、唯一性、孤儿引用和模型至少一个上游。
 5. 切换新代码并执行 smoke test。
 6. 删除 `user.token`、`model.routing_mode`、`model.routing_config` 与旧 config 运行字段。

@@ -75,7 +75,7 @@
                             <div v-if="usageTokens" class="token-row">
                                 <span class="token-item" title="输入 Token">
                                     <ArrowUpOutlined class="token-icon input" />
-                                    {{ usageTokens.prompt }}<template v-if="usageTokens.cacheReadTokens !== null"> (+ {{ usageTokens.cacheReadTokens!.toLocaleString() }})</template>
+                                    {{ usageTokens.prompt.toLocaleString() }}
                                 </span>
                                 <span class="token-divider">/</span>
                                 <span class="token-item" title="输出 Token">
@@ -86,13 +86,57 @@
                             <span v-else>-</span>
                         </a-descriptions-item>
                         <a-descriptions-item label="缓存命中">
-                            {{ usageTokens?.cacheHitRate != null ? usageTokens!.cacheHitRate!.toFixed(1) + '%' : '-' }}
+                            <template v-if="usageTokens?.cacheReadTokens != null">
+                                {{ usageTokens.cacheReadTokens.toLocaleString() }}
+                                ({{ usageTokens.cacheHitRate!.toFixed(1) }}%)
+                            </template>
+                            <span v-else>-</span>
+                        </a-descriptions-item>
+                        <a-descriptions-item label="缓存创建">
+                            <template v-if="usageTokens?.cacheCreationTokens != null">
+                                {{ usageTokens.cacheCreationTokens.toLocaleString() }}
+                                <span v-if="usageTokens.cacheCreation5mTokens != null || usageTokens.cacheCreation1hTokens != null" class="usage-detail">
+                                    5m {{ (usageTokens.cacheCreation5mTokens ?? 0).toLocaleString() }} /
+                                    1h {{ (usageTokens.cacheCreation1hTokens ?? 0).toLocaleString() }}
+                                </span>
+                            </template>
+                            <span v-else>-</span>
+                        </a-descriptions-item>
+                        <a-descriptions-item label="图片 Token">
+                            <template v-if="usageTokens?.imageInputTokens != null || usageTokens?.imageOutputTokens != null">
+                                输入 {{ (usageTokens?.imageInputTokens ?? 0).toLocaleString() }} /
+                                输出 {{ (usageTokens?.imageOutputTokens ?? 0).toLocaleString() }}
+                            </template>
+                            <span v-else>-</span>
+                        </a-descriptions-item>
+                        <a-descriptions-item v-if="billingSummary" label="费用明细" :span="2">
+                            <div class="cost-breakdown">
+                                <template v-if="costBreakdown">
+                                    <span>文本输入 {{ formatCost(costBreakdown.input_cost) }}</span>
+                                    <span v-if="costBreakdown.image_input_cost">图片输入 {{ formatCost(costBreakdown.image_input_cost) }}</span>
+                                    <span>文本输出 {{ formatCost(costBreakdown.output_cost) }}</span>
+                                    <span v-if="costBreakdown.image_output_cost">图片输出 {{ formatCost(costBreakdown.image_output_cost) }}</span>
+                                    <template v-if="costBreakdown.cache_creation_5m_cost || costBreakdown.cache_creation_1h_cost">
+                                        <span v-if="costBreakdown.cache_creation_5m_cost">缓存创建 5m {{ formatCost(costBreakdown.cache_creation_5m_cost) }}</span>
+                                        <span v-if="costBreakdown.cache_creation_1h_cost">缓存创建 1h {{ formatCost(costBreakdown.cache_creation_1h_cost) }}</span>
+                                    </template>
+                                    <span v-else-if="costBreakdown.cache_creation_cost">缓存创建 {{ formatCost(costBreakdown.cache_creation_cost) }}</span>
+                                    <span v-if="costBreakdown.cache_read_cost">缓存读取 {{ formatCost(costBreakdown.cache_read_cost) }}</span>
+                                    <span v-if="costBreakdown.request_cost">按次 {{ formatCost(costBreakdown.request_cost) }}</span>
+                                </template>
+                                <strong class="model-base-cost">模型原价小计 {{ formatCost(billingSummary.baseCost) }}</strong>
+                                <span class="rate-multiplier">计费倍率 ×{{ formatMultiplier(billingSummary.rateMultiplier) }}</span>
+                                <strong class="actual-cost">实际扣费 {{ billingSummary.actualCostText }}</strong>
+                                <a-tag class="settlement-status" :color="billingSummary.statusColor">
+                                    {{ billingSummary.statusText }}
+                                </a-tag>
+                            </div>
                         </a-descriptions-item>
                         <a-descriptions-item label="总耗时">
                             {{ totalDuration !== null ? totalDuration.toLocaleString() + 'ms' : '-' }}
                         </a-descriptions-item>
                         <a-descriptions-item label="首 Token 延迟">
-                            {{ recordStore.currentRecord.first_token_latency ? recordStore.currentRecord.first_token_latency + 'ms' : '-' }}
+                            {{ recordStore.currentRecord.first_token_latency !== null ? recordStore.currentRecord.first_token_latency + 'ms' : '-' }}
                         </a-descriptions-item>
                     </a-descriptions>
                 </a-card>
@@ -311,13 +355,70 @@ const usageTokens = computed(() => {
     const prompt: number = u.prompt_tokens ?? 0;
     const output: number = u.completion_tokens ?? 0;
     const cacheRead = u.cache_read_tokens;
+    const cacheCreation = u.cache_creation_tokens ?? null;
     let cacheHitRate: number | null = null;
     if (cacheRead != null) {
-        const total = prompt + cacheRead;
+        const total = prompt + cacheRead + (cacheCreation ?? 0);
         cacheHitRate = total > 0 ? Math.floor(cacheRead / total * 1000) / 10 : 0;
     }
-    return { prompt, output, cacheHitRate, cacheReadTokens: cacheRead ?? null };
+    return {
+        prompt,
+        output,
+        cacheHitRate,
+        cacheReadTokens: cacheRead ?? null,
+        cacheCreationTokens: cacheCreation,
+        cacheCreation5mTokens: u.cache_creation_5m_tokens ?? null,
+        cacheCreation1hTokens: u.cache_creation_1h_tokens ?? null,
+        imageInputTokens: u.image_input_tokens ?? null,
+        imageOutputTokens: u.image_output_tokens ?? null,
+    };
 });
+
+const costBreakdown = computed(() => recordStore.currentRecord?.usage?.cost_breakdown ?? null);
+
+const billingSummary = computed(() => {
+    const record = recordStore.currentRecord;
+    if (!record) return null;
+
+    const baseCost = costBreakdown.value?.total_cost ?? record.base_cost;
+    const rateMultiplier = record.rate_multiplier;
+
+    switch (record.settlement_status) {
+        case 'settled':
+            return {
+                baseCost,
+                rateMultiplier,
+                actualCostText: formatCost(record.cost),
+                statusText: record.cost === 0 ? '已结算（零费用）' : '已结算',
+                statusColor: 'success',
+            };
+        case 'skipped':
+            return {
+                baseCost,
+                rateMultiplier,
+                actualCostText: formatCost(record.cost),
+                statusText: '已跳过结算（未扣费）',
+                statusColor: 'default',
+            };
+        case 'pending':
+        default:
+            return {
+                baseCost,
+                rateMultiplier,
+                actualCostText: '尚未结算',
+                statusText: '待结算（尚未扣费）',
+                statusColor: 'processing',
+            };
+    }
+});
+
+function formatCost(value: number): string {
+    return `¥${value.toFixed(6)}`;
+}
+
+function formatMultiplier(value: number): string {
+    return Number.isFinite(value) ? String(value) : '-';
+}
 
 const totalDuration = computed(() => {
     const r = recordStore.currentRecord;
@@ -518,6 +619,19 @@ async function downloadJson(data: string | null, type: 'request' | 'response') {
     margin: 0 6px;
     color: #d9d9d9;
     line-height: 1;
+}
+
+.usage-detail {
+    margin-left: 8px;
+    color: var(--text-secondary, #8c8c8c);
+    white-space: nowrap;
+}
+
+.cost-breakdown {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    font-variant-numeric: tabular-nums;
 }
 
 .protocol-row {

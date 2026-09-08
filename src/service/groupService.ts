@@ -1,4 +1,5 @@
 import { SgUserGroup } from "../model/sgUserGroup";
+import { SgVendor } from "../model/sgVendor";
 import groupManager from "../manager/groupManager";
 import customError from "../util/customErrorUtil";
 import ormService from "./ormService";
@@ -141,12 +142,15 @@ async function listGroups(options: { keyword?: string; status?: string; pageSize
     const ids = result.list.map((group) => Number(group.id));
     const counts = new Map<number, number>();
     if (ids.length > 0) {
-        const rows = await ormService.getKnex()("vendor")
-            .select("group_id")
-            .count({ count: "id" })
-            .whereIn("group_id", ids)
-            .groupBy("group_id");
-        for (const row of rows) counts.set(Number(row.group_id), Number(row.count));
+        const vendors = (await SgVendor.query().get()).all();
+        for (const vendor of vendors) {
+            const groupIds = vendor.getGroupIds();
+            for (const groupId of groupIds) {
+                if (ids.includes(Number(groupId))) {
+                    counts.set(Number(groupId), (counts.get(Number(groupId)) ?? 0) + 1);
+                }
+            }
+        }
     }
     return {
         list: result.list.map((group) => {
@@ -162,8 +166,9 @@ async function listGroups(options: { keyword?: string; status?: string; pageSize
 async function getGroup(id: number): Promise<GroupDto | null> {
     const group = await groupManager.findById(id);
     if (!group) return null;
-    const row = await ormService.getKnex()("vendor").where("group_id", id).count({ count: "id" }).first();
-    return toDto(group, Number(row?.count ?? 0));
+    const vendors = (await SgVendor.query().get()).all();
+    const channelCount = vendors.filter((vendor) => vendor.getGroupIds().includes(id)).length;
+    return toDto(group, channelCount);
 }
 
 async function createGroup(input: unknown): Promise<GroupDto> {
@@ -196,7 +201,7 @@ async function updateGroup(id: number, input: unknown): Promise<GroupDto | null>
         rate_multiplier: draft.rateMultiplier,
         status: draft.status,
     });
-    return updated ? toDto(updated) : null;
+    return updated ? await getGroup(id) : null;
 }
 
 async function deleteGroup(id: number): Promise<boolean> {
@@ -205,7 +210,24 @@ async function deleteGroup(id: number): Promise<boolean> {
         const group = await trx("user_group").where("id", id).first();
         if (!group) return false;
         await trx("user_key").where("group_id", id).update({ group_id: null });
-        await trx("vendor").where("group_id", id).update({ group_id: null });
+        // 必须使用同一事务连接读取供应商。直接调用 `SgVendor.query()` 会走默认连接，
+        // 可能看不到本事务内尚未提交的 Key/分组更新。
+        const vendorRows = await trx("vendor").select("*");
+        for (const row of vendorRows) {
+            const vendor = new SgVendor(row as Record<string, unknown>);
+            const groupIds = vendor.getGroupIds();
+            if (!groupIds.includes(id) && Number(vendor.group_id) !== id) continue;
+            const remainingGroupIds = groupIds.filter(groupId => groupId !== id);
+            const config = vendor.config.toJSON();
+            await trx("vendor").where("id", vendor.id).update({
+                group_id: remainingGroupIds[0] ?? null,
+                config: JSON.stringify({
+                    ...config,
+                    group_id: remainingGroupIds[0] ?? null,
+                    group_ids: remainingGroupIds,
+                }),
+            });
+        }
         await trx("user_group").where("id", id).delete();
         return true;
     };

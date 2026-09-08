@@ -140,6 +140,98 @@ describe("AI Responses API", () => {
             expect(upstreamRequests[0].json?.prompt_cache_key).toMatch(/^[0-9a-f]{8}:.+/);
         }, 30000);
 
+        it("should persist cache, image and cost breakdown using usage v3", async () => {
+            const modelName = `responses-billing-${randomUUID()}`;
+            const modelResponse = await requestHelper.post(
+                "/model/create.json",
+                {
+                    ...modelFixtures.createRandomModel(responsesVendorId, modelName),
+                    prices: {
+                        input: 10,
+                        output: 20,
+                        cache_write: 4,
+                        cache_write_5m: 5,
+                        cache_write_1h: 8,
+                        cache_read: 2,
+                        image_input: 30,
+                        image_output: 40,
+                    },
+                },
+                adminToken,
+            );
+            expect(modelResponse.status).toBe(200);
+
+            const userResponse = await requestHelper.post(
+                "/user/create.json",
+                mockHelper.generateUser(),
+                adminToken,
+            );
+            const input = createUniqueInput("responses-billing");
+            const response = await requestHelper.post(
+                "/llm/v1/responses",
+                {
+                    ...mockHelper.generateResponsesRequest({ model: modelName, input, stream: false }),
+                    mock_usage: {
+                        input_tokens: 1_000,
+                        input_tokens_details: {
+                            cached_tokens: 600,
+                            cache_creation_tokens: 250,
+                            cache_creation_5m_tokens: 200,
+                            cache_creation_1h_tokens: 50,
+                            image_tokens: 30,
+                        },
+                        output_tokens: 50,
+                        output_tokens_details: { reasoning_tokens: 0, image_tokens: 10 },
+                        total_tokens: 1_050,
+                    },
+                },
+                userResponse.body.keys[0].value,
+            );
+            expect(response.status).toBe(200);
+
+            const recordsResponse = await requestHelper.get(
+                `/record/list.json?user_ids=${userResponse.body.id}`,
+                adminToken,
+            );
+            expect(recordsResponse.body.total).toBe(1);
+            const record = recordsResponse.body.list[0];
+            expect(record.usage).toMatchObject({
+                prompt_tokens: 150,
+                completion_tokens: 50,
+                cache_read_tokens: 600,
+                cache_creation_tokens: 250,
+                cache_creation_5m_tokens: 200,
+                cache_creation_1h_tokens: 50,
+                image_input_tokens: 30,
+                image_output_tokens: 10,
+            });
+            const breakdown = record.usage.cost_breakdown;
+            expect(breakdown.input_cost).toBeCloseTo(0.0012, 12);
+            expect(breakdown.image_input_cost).toBeCloseTo(0.0009, 12);
+            expect(breakdown.output_cost).toBeCloseTo(0.0008, 12);
+            expect(breakdown.image_output_cost).toBeCloseTo(0.0004, 12);
+            expect(breakdown.cache_creation_cost).toBeCloseTo(0.0014, 12);
+            expect(breakdown.cache_creation_5m_cost).toBeCloseTo(0.001, 12);
+            expect(breakdown.cache_creation_1h_cost).toBeCloseTo(0.0004, 12);
+            expect(breakdown.cache_read_cost).toBeCloseTo(0.0012, 12);
+            expect(breakdown.request_cost).toBe(0);
+            expect(breakdown.total_cost).toBeCloseTo(0.0059, 12);
+
+            const recordId = Number(record.id);
+            expect(Number.isSafeInteger(recordId)).toBe(true);
+            const storedRows = await dbHelper.query<{ usage: string }>(
+                `SELECT usage FROM record WHERE id = ${recordId}`,
+            );
+            expect(storedRows).toHaveLength(1);
+            expect(JSON.parse(storedRows[0].usage)).toMatchObject({
+                usage_version: 3,
+                prompt_tokens: 1_000,
+                cache_read_tokens: 600,
+                cache_creation_tokens: 250,
+                cost_breakdown: { total_cost: 0.0059 },
+            });
+        }, 30000);
+
         it("should accept x-api-key authentication", async () => {
             const req = mockHelper.generateResponsesRequest({
                 model: responsesModelName,

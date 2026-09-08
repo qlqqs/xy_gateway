@@ -113,6 +113,10 @@ describe("Vendor Model API", () => {
 
             expect(response.body).toHaveLength(1);
             expect(response.body[0].model_id).toBe("gpt-4o");
+
+            const vendorResponse = await requestHelper.get(`/vendor/${vendorId}`, adminToken);
+            expect(vendorResponse.body.config.available_models).toEqual(["gpt-4o"]);
+            expect(vendorResponse.body.model_count).toBe(1);
         });
 
         it("should add a second model", async () => {
@@ -215,6 +219,13 @@ describe("Vendor Model API", () => {
             expect(ids).toContain("claude-3-5-sonnet");
             expect(ids).toContain("claude-3-haiku");
             expect(ids).not.toContain("gpt-4o");
+
+            const vendorResponse = await requestHelper.get(`/vendor/${vendorId}`, adminToken);
+            expect(vendorResponse.body.config.available_models).toEqual([
+                "claude-3-5-sonnet",
+                "claude-3-haiku",
+            ]);
+            expect(vendorResponse.body.model_count).toBe(2);
         });
 
         it("should return records ordered by model_id", async () => {
@@ -226,6 +237,91 @@ describe("Vendor Model API", () => {
 
             const ids = response.body.map((m: any) => m.model_id);
             expect(ids).toEqual(["a-model", "m-model", "z-model"]);
+        });
+
+        it("should trim and deduplicate model IDs", async () => {
+            const response = await requestHelper.post(
+                `/vendor/${vendorId}/model/sync.json`,
+                { model_ids: ["  gpt-4o  ", "gpt-4o", "claude-3-haiku"] },
+                adminToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body.map((m: any) => m.model_id)).toEqual([
+                "claude-3-haiku",
+                "gpt-4o",
+            ]);
+        });
+
+        it("should preserve IDs for unchanged models during synchronization", async () => {
+            const initial = await requestHelper.post(
+                `/vendor/${vendorId}/model/sync.json`,
+                { model_ids: ["stable-model", "removed-model"] },
+                adminToken,
+            );
+            const stableId = initial.body.find((model: any) => model.model_id === "stable-model")?.id;
+            expect(stableId).toEqual(expect.any(Number));
+            const routedModel = await requestHelper.post(
+                "/model/create.json",
+                {
+                    name: `stable-sync-route-${Date.now()}`,
+                    enable: true,
+                    prices: {},
+                    mapping: {
+                        upstreams: [{
+                            vendor_id: vendorId,
+                            vendor_model_id: stableId,
+                            enabled: true,
+                        }],
+                    },
+                },
+                adminToken,
+            );
+            expect(routedModel.status).toBe(200);
+
+            const updated = await requestHelper.post(
+                `/vendor/${vendorId}/model/sync.json`,
+                { model_ids: ["stable-model", "added-model"] },
+                adminToken,
+            );
+
+            expect(updated.status).toBe(200);
+            expect(updated.body.find((model: any) => model.model_id === "stable-model")?.id).toBe(stableId);
+            expect(updated.body.map((model: any) => model.model_id)).toEqual([
+                "added-model",
+                "stable-model",
+            ]);
+            const persistedRoute = await requestHelper.get(
+                `/model/${routedModel.body.id}`,
+                adminToken,
+            );
+            expect(persistedRoute.body.mapping.upstreams[0].vendor_model_id).toBe(stableId);
+        });
+
+        it("should reject non-string and blank model IDs without replacing existing models", async () => {
+            const before = await requestHelper.get(
+                `/vendor/${vendorId}/model/list.json`,
+                adminToken,
+            );
+            const invalidPayloads = [
+                { model_ids: ["valid-model", 42] },
+                { model_ids: ["valid-model", "   "] },
+            ];
+
+            for (const payload of invalidPayloads) {
+                const response = await requestHelper.post(
+                    `/vendor/${vendorId}/model/sync.json`,
+                    payload,
+                    adminToken,
+                );
+                expect(response.status).toBe(400);
+            }
+
+            const listResponse = await requestHelper.get(
+                `/vendor/${vendorId}/model/list.json`,
+                adminToken,
+            );
+            expect(listResponse.body).toEqual(before.body);
         });
 
         it("should clear all models when syncing with empty list", async () => {
@@ -256,6 +352,57 @@ describe("Vendor Model API", () => {
         });
     });
 
+    describe("PUT /vendor/:id/model/:modelId", () => {
+        it("should preserve null and empty-array semantics and reject invalid formats", async () => {
+            const added = await requestHelper.post(
+                `/vendor/${vendorId}/model/add.json`,
+                { model_id: "format-contract-model" },
+                adminToken,
+            );
+            const endpoint = `/vendor/${vendorId}/model/${added.body.id}`;
+
+            const inherited = await requestHelper.put(endpoint, { allowed_formats: null }, adminToken);
+            expect(inherited.status).toBe(200);
+            expect(inherited.body.allowed_formats).toBeNull();
+
+            const disabled = await requestHelper.put(endpoint, { allowed_formats: [] }, adminToken);
+            expect(disabled.status).toBe(200);
+            expect(disabled.body.allowed_formats).toEqual([]);
+
+            const restricted = await requestHelper.put(
+                endpoint,
+                { allowed_formats: ["openai", "openai", "anthropic"] },
+                adminToken,
+            );
+            expect(restricted.status).toBe(200);
+            expect(restricted.body.allowed_formats).toEqual(["openai", "anthropic"]);
+
+            for (const payload of [
+                {},
+                { allowed_formats: "openai" },
+                { allowed_formats: ["openai", "invalid"] },
+                { allowed_formats: ["openai", null] },
+            ]) {
+                const response = await requestHelper.put(endpoint, payload, adminToken);
+                expect(response.status).toBe(400);
+            }
+
+            const models = await requestHelper.get(
+                `/vendor/${vendorId}/model/list.json`,
+                adminToken,
+            );
+            expect(models.body.find((model: any) => model.id === added.body.id)?.allowed_formats)
+                .toEqual(["openai", "anthropic"]);
+
+            const cleanup = await requestHelper.post(
+                `/vendor/${vendorId}/model/sync.json`,
+                { model_ids: [] },
+                adminToken,
+            );
+            expect(cleanup.status).toBe(200);
+        });
+    });
+
     describe("DELETE /vendor/:id/model/:modelId", () => {
         let modelToDeleteId: number;
 
@@ -266,6 +413,22 @@ describe("Vendor Model API", () => {
                 adminToken,
             );
             modelToDeleteId = res.body.id;
+        });
+
+        it("should reject malformed numeric IDs without deleting the matching vendor model", async () => {
+            const response = await requestHelper.del(
+                `/vendor/${vendorId}/model/${modelToDeleteId}abc`,
+                adminToken,
+            );
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe("Invalid ID format");
+
+            const listResponse = await requestHelper.get(
+                `/vendor/${vendorId}/model/list.json`,
+                adminToken,
+            );
+            expect(listResponse.body.some((model: any) => model.id === modelToDeleteId)).toBe(true);
         });
 
         it("should delete a specific vendor model", async () => {
@@ -283,6 +446,10 @@ describe("Vendor Model API", () => {
             );
             const ids = listResponse.body.map((m: any) => m.id);
             expect(ids).not.toContain(modelToDeleteId);
+
+            const vendorResponse = await requestHelper.get(`/vendor/${vendorId}`, adminToken);
+            expect(vendorResponse.body.config.available_models).toEqual([]);
+            expect(vendorResponse.body.model_count).toBe(0);
         });
 
         it("should return 404 when deleting non-existent model", async () => {

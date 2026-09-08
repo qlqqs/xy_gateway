@@ -18,29 +18,124 @@ const protocolByFormat: Record<ApiFormat, string> = {
 function ipv4ToNumber(value: string): number | null {
     const parts = value.split(".");
     if (parts.length !== 4 || parts.some(part => !/^\d+$/.test(part))) return null;
+    if (parts.some(part => part.length > 1 && part.startsWith("0"))) return null;
     const numbers = parts.map(Number);
     if (numbers.some(part => part < 0 || part > 255)) return null;
     return (((numbers[0] * 256 + numbers[1]) * 256 + numbers[2]) * 256 + numbers[3]) >>> 0;
 }
 
+function normalizeIpv6(value: string): string | null {
+    if (!value.includes(":") || !/^[0-9a-f:.]+$/i.test(value)) return null;
+    try {
+        // URL 的 IPv6 解析统一压缩、补零及内嵌 IPv4 写法，同时拒绝非法地址。
+        const hostname = new URL(`http://[${value}]/`).hostname;
+        return hostname.startsWith("[") && hostname.endsWith("]")
+            ? hostname.slice(1, -1)
+            : hostname;
+    } catch {
+        return null;
+    }
+}
+
+
+interface ParsedIpAddress {
+    family: 4 | 6;
+    value: bigint;
+    ipv4Value?: bigint;
+}
+
+
+function ipv6ToBigInt(value: string): bigint | null {
+    const normalized = normalizeIpv6(value);
+    if (normalized === null) return null;
+
+    const halves = normalized.split("::");
+    if (halves.length > 2) return null;
+    const left = halves[0] ? halves[0].split(":") : [];
+    const right = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+    const missing = 8 - left.length - right.length;
+    if ((halves.length === 1 && missing !== 0) || (halves.length === 2 && missing < 1)) {
+        return null;
+    }
+
+    const groups = halves.length === 2
+        ? [...left, ...Array(missing).fill("0"), ...right]
+        : left;
+    if (groups.length !== 8) return null;
+
+    return groups.reduce((result, group) => {
+        return (result << 16n) | BigInt(parseInt(group, 16));
+    }, 0n);
+}
+
+
+function parseIpAddress(value: string): ParsedIpAddress | null {
+    const ipv4 = ipv4ToNumber(value);
+    if (ipv4 !== null) {
+        const numeric = BigInt(ipv4);
+        return { family: 4, value: numeric, ipv4Value: numeric };
+    }
+
+    const ipv6 = ipv6ToBigInt(value);
+    if (ipv6 === null) return null;
+    const ipv4Value = ipv6 >> 32n === 0xffffn
+        ? ipv6 & 0xffffffffn
+        : undefined;
+    return { family: 6, value: ipv6, ipv4Value };
+}
+
+
+function matchesPrefix(address: bigint, network: bigint, prefix: number, width: number): boolean {
+    if (prefix === 0) return true;
+    const shift = BigInt(width - prefix);
+    return address >> shift === network >> shift;
+}
+
+
 function matchesIpRule(ip: string, rule: string): boolean {
     const normalizedIp = ip.trim().toLowerCase();
     const normalizedRule = rule.trim().toLowerCase();
     if (!normalizedIp || !normalizedRule) return false;
-    if (!normalizedRule.includes("/")) return normalizedIp === normalizedRule;
-
-    const [network, prefixText] = normalizedRule.split("/", 2);
-    const address = ipv4ToNumber(normalizedIp);
-    const networkAddress = ipv4ToNumber(network);
-    const prefix = Number(prefixText);
-    if (address === null || networkAddress === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
-        // IPv6 CIDR support is intentionally conservative: exact matching is
-        // still safe, while malformed or unsupported rules never widen access.
-        return normalizedIp === network;
+    if (!normalizedRule.includes("/")) {
+        const address = parseIpAddress(normalizedIp);
+        const expected = parseIpAddress(normalizedRule);
+        if (!address || !expected) return false;
+        if (address.ipv4Value !== undefined && expected.ipv4Value !== undefined) {
+            return address.ipv4Value === expected.ipv4Value;
+        }
+        return address.family === expected.family && address.value === expected.value;
     }
-    if (prefix === 0) return true;
-    const mask = (0xffffffff << (32 - prefix)) >>> 0;
-    return (address & mask) === (networkAddress & mask);
+
+    const parts = normalizedRule.split("/");
+    if (parts.length !== 2) return false;
+    const [network, prefixText] = parts;
+    if (!/^\d+$/.test(prefixText)) return false;
+    const prefix = Number(prefixText);
+    const address = parseIpAddress(normalizedIp);
+    const networkAddress = parseIpAddress(network);
+    if (!address || !networkAddress) return false;
+
+    if (networkAddress.family === 4) {
+        if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32
+            || address.ipv4Value === undefined || networkAddress.ipv4Value === undefined) {
+            return false;
+        }
+        return matchesPrefix(address.ipv4Value, networkAddress.ipv4Value, prefix, 32);
+    }
+
+    if (!Number.isInteger(prefix) || prefix < 0 || prefix > 128) {
+        return false;
+    }
+
+    // 对齐 Go net.IPNet.Contains：IPv4-mapped 网络在 /96 及以上按 IPv4
+    // 网段比较；普通 IPv6 网段不包含会被 To4() 归一化的 mapped 地址。
+    if (networkAddress.ipv4Value !== undefined && prefix >= 96) {
+        return address.ipv4Value !== undefined
+            && matchesPrefix(address.ipv4Value, networkAddress.ipv4Value, prefix - 96, 32);
+    }
+    if (address.family !== 6) return false;
+    if (address.ipv4Value !== undefined) return false;
+    return matchesPrefix(address.value, networkAddress.value, prefix, 128);
 }
 
 function isIpAllowed(key: SgUserKey, clientIp: string | null): boolean {
@@ -119,9 +214,8 @@ async function assertLlmAccess(
     assertBaseAccess(context, format, modelName, clientIp);
     if (!model || context.user.id < 0 || !model.hasBilling()) return;
 
-    // Per-request/image prices are known before forwarding.  Enforce the
-    // remaining key quota and balance at the edge; token prices are checked
-    // again during settlement once usage is known.
+    // 按次和图片费用在转发前已知，因此在入口校验 Key 剩余额度与用户余额；
+    // token 实际费用仅在 usage 完整后结算，允许本次用量越过额度并由下一请求阻断。
     const knownCost = usageUtils.calculateCost(model, 0, 0);
     const multiplier = Math.max(0, Number(context.group?.rate_multiplier ?? 1));
     const estimatedCost = billingUtil.quantizeAmount(knownCost * multiplier);

@@ -12,6 +12,15 @@ export interface StatementAdapter {
     run(...args: any[]): Promise<any> | any;
 }
 
+export interface D1BatchStatement {
+    sql: string;
+    bindings?: unknown[];
+}
+
+export type D1BatchExecutor = <T = Record<string, unknown>>(
+    statements: D1BatchStatement[],
+) => Promise<D1Result<T>[]>;
+
 // SQLite 适配器
 export class SQLiteAdapter implements DatabaseAdapter {
     constructor(private db: any) {}
@@ -63,6 +72,18 @@ export class D1Adapter implements DatabaseAdapter {
 
     setDB(db: D1Database) {
         this.db = db;
+    }
+
+    captureBatchExecutor(requestDb: D1Database): D1BatchExecutor {
+        // D1 binding 属于单个 Worker 请求；在进程内结算锁让出执行权前捕获当前 binding，
+        // 避免并发请求刷新 adapter 后串用其他请求的 I/O 上下文。
+        const db = requestDb;
+        return async <T = Record<string, unknown>>(statements: D1BatchStatement[]) => {
+            const prepared = statements.map(({ sql, bindings = [] }) =>
+                db.prepare(sql).bind(...bindings)
+            );
+            return await db.batch<T>(prepared);
+        };
     }
 }
 

@@ -119,6 +119,24 @@ describe('前端领域 mock repository', () => {
         });
         expect(vendor.config.concurrency).toBe(8);
         expect(vendor.config.proxy).toBeNull();
+        expect(vendor.config).toMatchObject({ group_id: 9, group_ids: [9] });
+
+        const regrouped = await vendors.update(vendor.id, { config: { group_id: 10 } });
+        expect(regrouped.config).toMatchObject({ group_id: 10, group_ids: [10] });
+        const multiGrouped = await vendors.update(vendor.id, { config: { group_ids: [10, 11, 10] } });
+        expect(multiGrouped.config).toMatchObject({ group_id: 10, group_ids: [10, 11] });
+        expect(await vendors.clearGroupReferences(10)).toBe(1);
+        expect(vendors.get(vendor.id)?.config).toMatchObject({ group_id: 11, group_ids: [11] });
+
+        const recovered = await vendors.update(vendor.id, {
+            config: { group_ids: ['invalid' as unknown as number], group_id: 12 },
+        });
+        expect(recovered.config).toMatchObject({ group_id: 12, group_ids: [12] });
+
+        const recoveredFromNull = await vendors.update(vendor.id, {
+            config: { group_ids: null as unknown as number[], group_id: 12 },
+        });
+        expect(recoveredFromNull.config).toMatchObject({ group_id: 12, group_ids: [12] });
 
         const firstModels = await vendors.listModels(vendor.id);
         await vendors.update(vendor.id, {
@@ -146,6 +164,28 @@ describe('前端领域 mock repository', () => {
         });
         expect(updated.prices).toEqual({ billing_mode: 'image', image_input: 0.5 });
         expect(updated.mapping).toEqual(model.mapping);
+    });
+
+    it('支持 OpenRouter 供应商类型的创建、筛选和持久化', async () => {
+        const { default: vendors } = await import('./mockVendors');
+        const created = await vendors.create({
+            type: 'openrouter',
+            name: 'OpenRouter 通道',
+            token: 'openrouter-token',
+            urls: {
+                openai: 'https://openrouter.ai/api/v1/chat/completions',
+                anthropic: 'https://openrouter.ai/api/v1/messages',
+                responses: 'https://openrouter.ai/api/v1/responses',
+            },
+            config: { api_type: 'openai', openai_protocol: 'chat_completions' },
+        });
+
+        expect(created.type).toBe('openrouter');
+        expect((await vendors.list({ type: 'openrouter' })).list).toHaveLength(1);
+
+        vi.resetModules();
+        const { default: reopenedVendors } = await import('./mockVendors');
+        expect(reopenedVendors.get(created.id)?.type).toBe('openrouter');
     });
 
     it('拒绝余额扣减超过当前余额，并保持原状态不变', async () => {

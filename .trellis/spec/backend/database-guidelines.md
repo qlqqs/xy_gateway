@@ -107,6 +107,66 @@ async function list(options: UserListOptions) {
 
 业务流程放在 service。例如 `src/service/userService.ts` 将金额换算成整数微元，并协调 `userManager` 与 `rechargeRecordManager`；原子性的 `increment("balance", delta)` 查询由 manager 负责。新增计费或其他跨资源操作时保持这种分工。
 
+## Node token 响应后结算契约
+
+### 1. 范围 / 触发条件
+
+- 适用于 Node/Tauri 的 `billing_mode=token` 请求；实际费用只能在上游 usage 完整后确定。
+- 已向客户端成功交付响应时，不能再用 Key 剩余额度条件回滚实际费用。本节不定义 Worker/D1 的结算实现。
+
+### 2. 签名
+
+- `billingService.settle(recordId, { model, user, key, groupId, baseCost })`
+- 同一事务更新 `user.balance`、`user_key.quota_used` 和 `record.settlement_status/cost`。
+
+### 3. 契约
+
+- 入口在 `quota > 0 && quota_used >= quota` 时拒绝请求；按次和图片等已知费用还要在发送前校验剩余额度。
+- token 成功响应按实际费用递增 `quota_used`，即使本次递增后超过 `quota`；下一请求由入口检查阻断。
+- `UPDATE user_key` 只按 Key ID 判断存在性，不得附加 `quota_used + cost <= quota` 条件。
+- `record.id` 是结算幂等键；终态记录不得再次扣费。
+
+### 4. 校验与错误矩阵
+
+| 条件 | 结果 |
+| --- | --- |
+| record 为 pending，用户与 Key 存在 | 扣余额、递增 Key 用量并写入 settled |
+| 实际费用越过 Key 剩余额度 | 仍完成本次结算，下一请求返回 `rate_limit_error` |
+| Key 更新计数为 0 | 抛出 `API key not found` / 404，整个事务回滚 |
+| 用户更新计数为 0 | 抛出 `User not found` / 404，整个事务回滚 |
+| record 已为 settled/skipped | 返回 `alreadySettled=true`，不重复扣费 |
+
+### 5. 正确 / 基线 / 错误案例
+
+- 正确：额度 1 元、已用 0.9 元，本次实际费用 0.2 元；落账后已用 1.1 元，后续请求被拒绝。
+- 基线：无限额度（`quota <= 0`）照常累计 `quota_used`，用于审计。
+- 错误：完整流式回答已交付后，因为剩余 0.1 元不足支付 0.2 元而回滚扣费；客户端可重复获得免费回答。
+
+### 6. 必要测试
+
+- Node 单元测试：模拟 Knex transaction，断言超额后余额、`quota_used`、record 三者均更新且没有额度条件查询。
+- Node 单元测试：模拟 Key 更新计数为 0，断言返回 404 而不是“额度不足”。
+- 响应链路测试：重复 finalize 只结算一次，结算终态未知时不得覆盖可能已提交的记录。
+
+### 7. 错误与正确对照
+
+错误：
+
+```ts
+db("user_key")
+    .where("id", keyId)
+    .whereRaw("quota_used + ? <= quota", [costUnits])
+    .update({ quota_used: db.raw("quota_used + ?", [costUnits]) });
+```
+
+正确：
+
+```ts
+db("user_key")
+    .where("id", keyId)
+    .update({ quota_used: db.raw("quota_used + ?", [costUnits]) });
+```
+
 ## 原始存储与安全
 
 原始 SQL 和驱动特有操作放在 migration 或 adapter 层（`src/util/db/`）。不要在 controller 中临时拼 SQL。请求/响应 payload 通过 `src/service/objectStorageService.ts` 保存：Node 模式回退到 `storage_record` 表，Worker 模式使用 R2；`record` 表只保存元数据。

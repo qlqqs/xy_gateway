@@ -1,5 +1,6 @@
 import { SgVendorModel } from "../model/sgVendorModel";
 import customError from "../util/customErrorUtil";
+import ormService from "../service/ormService";
 import modelUpstreamManager from "./modelUpstreamManager";
 
 async function listByVendor(vendorId: number): Promise<SgVendorModel[]> {
@@ -33,24 +34,46 @@ async function create(vendorId: number, modelId: string): Promise<SgVendorModel>
     });
 }
 
-/**
- * 同步该 vendor 下的模型列表：先删除旧记录，再重新插入选中的 model_id。
- * @returns 同步后的完整模型列表（按 model_id 升序）
- */
-async function syncByVendor(vendorId: number, modelIds: string[]): Promise<SgVendorModel[]> {
-    const existing = await listByVendor(vendorId);
-    for (const record of existing) {
-        await modelUpstreamManager.clearVendorModelReference(Number(record.id));
-    }
-    await SgVendorModel.query().where("vendor_id", vendorId).delete();
+/** 在指定连接中同步模型差异，供更大的供应商事务复用。 */
+async function syncByVendorWithConnection(db: any, vendorId: number, modelIds: string[]): Promise<void> {
+    const existing = await db("vendor_model")
+        .where("vendor_id", vendorId)
+        .select("id", "model_id");
+    const desired = new Set(modelIds);
+    const existingModelIds = new Set(existing.map((record: any) => String(record.model_id)));
 
-    if (modelIds.length > 0) {
-        for (const modelId of modelIds) {
-            await SgVendorModel.query().create({
+    // 先补齐新增项。Worker/D1 暂无跨语句事务，即使后续删除失败，
+    // 也不会先丢失原有模型；Node/MySQL 则由调用方事务保证整体原子性。
+    for (const modelId of modelIds) {
+        if (!existingModelIds.has(modelId)) {
+            await db("vendor_model").insert({
                 vendor_id: vendorId,
                 model_id: modelId,
             });
         }
+    }
+
+    const removedIds = existing
+        .filter((record: any) => !desired.has(String(record.model_id)))
+        .map((record: any) => Number(record.id));
+    if (removedIds.length > 0) {
+        await db("model_upstream")
+            .whereIn("vendor_model_id", removedIds)
+            .update({ vendor_model_id: null });
+        await db("vendor_model").whereIn("id", removedIds).delete();
+    }
+}
+
+
+/** 同步模型差异并保留未变化记录的 ID，避免破坏有效的模型路由引用。 */
+async function syncByVendor(vendorId: number, modelIds: string[]): Promise<SgVendorModel[]> {
+    const knex = ormService.getKnex();
+
+    if (ormService.isWorker) {
+        await syncByVendorWithConnection(knex, vendorId, modelIds);
+    } else {
+        await knex.transaction((transaction: any) =>
+            syncByVendorWithConnection(transaction, vendorId, modelIds));
     }
 
     return await listByVendor(vendorId);
@@ -138,6 +161,7 @@ export default {
     findByVendorAndModel,
     create,
     syncByVendor,
+    syncByVendorWithConnection,
     add,
     update,
     remove,

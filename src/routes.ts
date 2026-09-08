@@ -32,6 +32,13 @@ interface Env {
     KEY_ENCRYPTION_SECRET?: string;
     ASSETS?: Fetcher;
     OBJECT_BUCKET?: R2Bucket;
+    server?: {
+        incoming?: {
+            socket?: {
+                remoteAddress?: string;
+            };
+        };
+    };
 }
 
 type Variables = {

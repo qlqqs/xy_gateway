@@ -14,6 +14,7 @@ import {
     buildThinkingConfigFromOpenAI,
     thinkingConfigToAnthropic,
 } from "./thinkingConfig";
+import protocolUsage from "./protocolUsageUtil";
 
 const ANTHROPIC_TO_OPENAI_STOP_REASON: Record<string, string> = {
     end_turn: "stop",
@@ -24,7 +25,7 @@ const ANTHROPIC_TO_OPENAI_STOP_REASON: Record<string, string> = {
 
 export class OpenAIToAnthropicConverter extends BaseConverter {
     private currentToolCallIndex = -1;
-    private inputTokens = 0;
+    private pendingUsage: Record<string, any> = {};
 
 
     public convertRequest(clientReq: OpenAIRequest): AnthropicRequest {
@@ -198,11 +199,7 @@ export class OpenAIToAnthropicConverter extends BaseConverter {
                     finish_reason: finishReason as "stop" | "length" | "tool_calls" | "content_filter" | null,
                 },
             ],
-            usage: {
-                prompt_tokens: upstreamRes.usage?.input_tokens || 0,
-                completion_tokens: upstreamRes.usage?.output_tokens || 0,
-                total_tokens: (upstreamRes.usage?.input_tokens || 0) + (upstreamRes.usage?.output_tokens || 0),
-            },
+            usage: protocolUsage.toOpenAIUsage(protocolUsage.fromAnthropicUsage(upstreamRes.usage)),
         };
     }
 
@@ -221,7 +218,7 @@ export class OpenAIToAnthropicConverter extends BaseConverter {
             if (message?.id) {
                 this.updateResponseId(message.id.startsWith("chatcmpl-") ? message.id : `chatcmpl-${message.id.replace("msg_", "")}`);
             }
-            this.inputTokens = message?.usage?.input_tokens ?? this.inputTokens;
+            this.pendingUsage = protocolUsage.mergeAnthropicUsage(this.pendingUsage, message?.usage);
 
             const chunk: OpenAIChunk = {
                 id: this.responseId,
@@ -370,22 +367,16 @@ export class OpenAIToAnthropicConverter extends BaseConverter {
             };
 
             if (msgDelta.usage) {
-                const cacheReadTokens = msgDelta.usage.cache_read_input_tokens ?? 0;
-                const promptTokensBase = msgDelta.usage.input_tokens ?? this.inputTokens;
-                // OpenAI 口径：prompt_tokens 为含缓存命中总量，缓存部分单独经 prompt_tokens_details 透传
-                const promptTokens = promptTokensBase + cacheReadTokens;
-                const completionTokens = msgDelta.usage.output_tokens || 0;
-                chunk.usage = {
-                    prompt_tokens: promptTokens,
-                    completion_tokens: completionTokens,
-                    total_tokens: promptTokens + completionTokens,
-                    prompt_tokens_details: { cached_tokens: cacheReadTokens },
-                };
+                this.pendingUsage = protocolUsage.mergeAnthropicUsage(this.pendingUsage, msgDelta.usage);
+                chunk.usage = protocolUsage.toOpenAIUsage(
+                    protocolUsage.fromAnthropicUsage(this.pendingUsage),
+                );
             }
             return [{ data: JSON.stringify(chunk) }];
         }
 
         if (eventType === "message_stop") {
+            this.pendingUsage = {};
             return [{ data: "[DONE]" }];
         }
 

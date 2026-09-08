@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll } from "vitest";
+import config from "../../config";
 import requestHelper from "../../helpers/requestHelper";
 import dbHelper from "../../helpers/dbHelper";
 import { setupAdminUser } from "../../globalSetup";
 import modelFixtures from "../../fixtures/modelFixtures";
+import mockHelper from "../../helpers/mockHelper";
 import userFixtures from "../../fixtures/userFixtures";
 
 const adminToken = userFixtures.ADMIN_TOKEN;
@@ -93,6 +95,40 @@ describe("GET /llm/v1/models", () => {
 
         expect(response.status).toBe(200);
         expect(response.body.data.map((model: { id: string }) => model.id)).not.toContain("disabled-model");
+    });
+
+    it("omits a model while its only upstream is in health cooldown", async () => {
+        const modelName = "catalogue-cooldown-model";
+        const vendor = await requestHelper.post(
+            "/vendor/create.json",
+            {
+                type: "other",
+                name: "catalogue cooling upstream",
+                token: "catalogue-cooling-token",
+                urls: { openai: `${config.UPSTREAM_CONFIG.mock.url}/chat/completions/unavailable` },
+            },
+            adminToken,
+        );
+        const model = await requestHelper.post(
+            "/model/create.json",
+            modelFixtures.createRandomModel(vendor.body.id, modelName),
+            adminToken,
+        );
+        expect(model.status).toBe(200);
+
+        const beforeFailure = await requestHelper.get("/llm/v1/models", normalToken);
+        expect(beforeFailure.body.data.map((item: { id: string }) => item.id)).toContain(modelName);
+
+        const upstreamFailure = await requestHelper.post(
+            "/llm/v1/chat/completions",
+            mockHelper.generateOpenAIChatRequest({ model: modelName, stream: false }),
+            normalToken,
+        );
+        expect(upstreamFailure.status).toBe(503);
+        expect(upstreamFailure.body.error.message).toBe("Mock upstream unavailable");
+
+        const duringCooldown = await requestHelper.get("/llm/v1/models", normalToken);
+        expect(duringCooldown.body.data.map((item: { id: string }) => item.id)).not.toContain(modelName);
     });
 
     it("allows x-api-key in browser CORS preflight requests", async () => {

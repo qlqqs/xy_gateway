@@ -67,9 +67,86 @@ describe("accessPolicyService", () => {
         expect(accessPolicyService.matchesIpRule("192.168.1.8", "192.168.1.0/24")).toBe(true);
         expect(accessPolicyService.matchesIpRule("192.168.2.8", "192.168.1.0/24")).toBe(false);
         expect(accessPolicyService.matchesIpRule("10.0.0.1", "0.0.0.0/0")).toBe(true);
-        expect(accessPolicyService.matchesIpRule("10.0.0.1", "10.0.0.0/33")).toBe(false);
         expect(accessPolicyService.matchesIpRule("2001:db8::1", "2001:db8::1")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("2001:db8::1", "2001:db8::1/128")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("2001:db8::1", "2001:db8::/64")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("2001:db9::1", "2001:db8::/64")).toBe(false);
     });
+
+    it.each([
+        "10.0.0.0/33",
+        "10.0.0.0/-1",
+        "10.0.0.0/not-a-prefix",
+        "10.0.0.0/1e1",
+        "10.0.0.0/24.0",
+        "10.0.0.0/8/extra",
+        "010.0.0.0/8",
+    ])("rejects malformed IPv4 CIDR rule %s even when the IP equals its network text", (rule) => {
+        expect(accessPolicyService.matchesIpRule("10.0.0.0", rule)).toBe(false);
+    });
+
+    it("拒绝带前导零的 IPv4 精确规则和客户端地址", () => {
+        expect(accessPolicyService.matchesIpRule("10.0.0.1", "010.0.0.1")).toBe(false);
+        expect(accessPolicyService.matchesIpRule("010.0.0.1", "10.0.0.1")).toBe(false);
+        expect(accessPolicyService.matchesIpRule("0.0.0.0", "0.0.0.0")).toBe(true);
+    });
+
+    it.each([
+        "2001:db8::1/129",
+        "2001:db8::1/not-a-prefix",
+        "2001:db8::1/128/extra",
+    ])("rejects malformed IPv6 CIDR rule %s", (rule) => {
+        expect(accessPolicyService.matchesIpRule("2001:db8::1", rule)).toBe(false);
+    });
+
+    it("IPv6 CIDR 与精确规则按地址匹配，黑名单不能被等价写法绕过", () => {
+        expect(accessPolicyService.matchesIpRule("2001:db8::1", "2001:0db8:0:0:0:0:0:1/128")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("2001:0db8:0:0:0:0:0:1", "2001:db8::1")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("2001:db8::2", "2001:db8::1/128")).toBe(false);
+        expect(accessPolicyService.matchesIpRule("invalid::ip", "invalid::ip/128")).toBe(false);
+        expect(accessPolicyService.isIpAllowed(makeKey({
+            ip_restriction_enabled: true,
+            ip_whitelist: ["2001:db8::1/128"],
+            ip_blacklist: ["2001:db8::/64"],
+        }), "2001:db8::1")).toBe(false);
+    });
+
+    it("支持 IPv6 非整字节前缀与边界前缀", () => {
+        expect(accessPolicyService.matchesIpRule("2001:db8::1", "::/0")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("2001:db8:0:0:7fff::1", "2001:db8::/65")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("2001:db8:0:0:8000::1", "2001:db8::/65")).toBe(false);
+        expect(accessPolicyService.matchesIpRule("2001:db8::", "2001:db8::/127")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("2001:db8::1", "2001:db8::/127")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("2001:db8::2", "2001:db8::/127")).toBe(false);
+        expect(accessPolicyService.matchesIpRule("2001:db8::1", "2001:db8::1/128")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("2001:db8::2", "2001:db8::1/128")).toBe(false);
+    });
+
+
+    it("将 IPv4 映射的 IPv6 socket 地址按 IPv4 白名单匹配", () => {
+        expect(accessPolicyService.matchesIpRule("::ffff:192.0.2.5", "192.0.2.5")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("::ffff:192.0.2.5", "192.0.2.0/24")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("::ffff:192.0.3.5", "192.0.2.0/24")).toBe(false);
+        expect(accessPolicyService.matchesIpRule("::ffff:c000:205", "192.0.2.5")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("::192.0.2.5", "192.0.2.0/24")).toBe(false);
+        expect(accessPolicyService.matchesIpRule("2001:db8::1", "192.0.2.0/24")).toBe(false);
+        expect(accessPolicyService.matchesIpRule("::ffff:192.0.2.5", "::/0")).toBe(false);
+        expect(accessPolicyService.matchesIpRule("2001:db8::1", "::/0")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("192.0.2.5", "::ffff:192.0.2.0/120")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("::ffff:192.0.2.5", "::ffff:192.0.2.0/120")).toBe(true);
+        expect(accessPolicyService.matchesIpRule("192.0.3.5", "::ffff:192.0.2.0/120")).toBe(false);
+        expect(accessPolicyService.matchesIpRule("::ffff:192.0.2.5", "::ffff:0:0/95")).toBe(false);
+        expect(accessPolicyService.isIpAllowed(makeKey({
+            ip_restriction_enabled: true,
+            ip_whitelist: ["192.0.2.0/24"],
+        }), "::ffff:192.0.2.5")).toBe(true);
+        expect(accessPolicyService.isIpAllowed(makeKey({
+            ip_restriction_enabled: true,
+            ip_whitelist: ["192.0.2.0/24"],
+            ip_blacklist: ["192.0.2.5"],
+        }), "::ffff:192.0.2.5")).toBe(false);
+    });
+
 
     it("requires a whitelist when IP restriction is enabled and gives blacklist precedence", () => {
         expect(accessPolicyService.isIpAllowed(makeKey({ ip_restriction_enabled: false }), null)).toBe(true);
@@ -90,6 +167,15 @@ describe("accessPolicyService", () => {
             ip_restriction_enabled: true,
             ip_whitelist: ["10.0.0.0/8"],
         }), null)).toBe(false);
+        expect(accessPolicyService.isIpAllowed(makeKey({
+            ip_restriction_enabled: true,
+            ip_whitelist: ["10.0.0.0/33"],
+        }), "10.0.0.0")).toBe(false);
+        expect(accessPolicyService.isIpAllowed(makeKey({
+            ip_restriction_enabled: true,
+            ip_whitelist: ["10.0.0.0/8"],
+            ip_blacklist: ["10.0.0.0/33"],
+        }), "10.2.3.4")).toBe(true);
     });
 
     it("takes the intersection of enabled key and group model whitelists", () => {

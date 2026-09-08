@@ -33,6 +33,28 @@ export interface AnthropicOutputConfig {
     effort: ReasoningEffort;
 }
 
+
+export interface CacheCreationDetails {
+    ephemeral_5m_input_tokens?: number;
+    ephemeral_1h_input_tokens?: number;
+}
+
+
+export interface InputTokenDetails {
+    cached_tokens?: number;
+    cache_write_tokens?: number;
+    cache_creation_tokens?: number;
+    cache_creation_5m_tokens?: number;
+    cache_creation_1h_tokens?: number;
+    image_tokens?: number;
+}
+
+
+export interface OutputTokenDetails {
+    reasoning_tokens?: number;
+    image_tokens?: number;
+}
+
 export interface AnthropicRequest {
     model: string;
     max_tokens: number;
@@ -112,6 +134,16 @@ export interface AnthropicResponse {
         output_tokens: number;
         cache_creation_input_tokens?: number;
         cache_read_input_tokens?: number;
+        cache_read_tokens?: number;
+        cached_tokens?: number;
+        cache_creation_tokens?: number;
+        cache_write_input_tokens?: number;
+        cache_write_tokens?: number;
+        cache_creation?: CacheCreationDetails;
+        input_tokens_details?: InputTokenDetails;
+        prompt_tokens_details?: InputTokenDetails;
+        output_tokens_details?: OutputTokenDetails;
+        completion_tokens_details?: OutputTokenDetails;
     };
 }
 
@@ -141,12 +173,20 @@ export interface OpenAIResponse {
         prompt_tokens: number;
         completion_tokens: number;
         total_tokens: number;
-        prompt_tokens_details?: {
-            cached_tokens?: number;
-        };
-        completion_tokens_details?: {
-            reasoning_tokens?: number;
-        };
+        prompt_tokens_details?: InputTokenDetails;
+        completion_tokens_details?: OutputTokenDetails;
+        cache_creation?: CacheCreationDetails;
+        cached_tokens?: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_write_input_tokens?: number;
+        cache_read_tokens?: number;
+        cache_write_tokens?: number;
+        cache_creation_tokens?: number;
+        cache_creation_5m_tokens?: number;
+        cache_creation_1h_tokens?: number;
+        image_input_tokens?: number;
+        image_output_tokens?: number;
     };
 }
 
@@ -188,8 +228,19 @@ export interface OpenAIChunk {
         prompt_tokens: number;
         completion_tokens: number;
         total_tokens: number;
-        prompt_tokens_details?: {
-            cached_tokens?: number;
-        };
+        prompt_tokens_details?: InputTokenDetails;
+        completion_tokens_details?: OutputTokenDetails;
+        cache_creation?: CacheCreationDetails;
+        cached_tokens?: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_write_input_tokens?: number;
+        cache_read_tokens?: number;
+        cache_write_tokens?: number;
+        cache_creation_tokens?: number;
+        cache_creation_5m_tokens?: number;
+        cache_creation_1h_tokens?: number;
+        image_input_tokens?: number;
+        image_output_tokens?: number;
     };
 }

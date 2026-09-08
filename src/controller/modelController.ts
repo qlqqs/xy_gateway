@@ -5,9 +5,11 @@ import modelManager from "../manager/modelManager";
 import modelService from "../service/modelService";
 import sender from "../service/senderService";
 import customError from "../util/customErrorUtil";
+import idUtil from "../util/idUtil";
 import { createListResponse, parsePaginationQuery } from "../util/paginationUtil";
 import accessPolicyService from "../service/accessPolicyService";
 import routingService from "../service/routingService/core";
+import RoutingContext from "../service/routingService/routingContext";
 
 
 function parseJsonLike(text: string): unknown {
@@ -80,9 +82,11 @@ async function createModel(c: Context) {
 async function listModels(c: Context) {
     const query = c.req.query();
     const { pageSize, offset } = parsePaginationQuery(query);
-    const vendorId = query.vendor_id ? parseInt(query.vendor_id, 10) : undefined;
+    const vendorId = query.vendor_id
+        ? idUtil.requirePositiveInteger(query.vendor_id)
+        : undefined;
     const result = await modelManager.listModels({
-        vendorId: vendorId && !isNaN(vendorId) ? vendorId : undefined,
+        vendorId,
         keyword: query.keyword,
         pageSize,
         offset,
@@ -92,22 +96,24 @@ async function listModels(c: Context) {
 
 
 async function listLlmModels(c: Context) {
-    const entities = await modelManager.listEnabledModelEntities();
     const authContext = c.get("authContext");
+    if (!authContext) {
+        throw new customError.AppError("Invalid token", 401, "authentication_error");
+    }
+    const entities = await modelManager.listEnabledModelEntities();
     const format = c.get("api_format") ?? ApiFormat.OPENAI;
-    const context = authContext ?? { user: { id: -1 } } as any;
-    const visible = accessPolicyService.visibleModels(entities, context, format);
-    // Keep the catalogue aligned with the same group/protocol routing pool as
-    // an actual request.  Without this check an ungrouped key could see a
-    // model whose only upstream belongs to another group and then receive a
-    // confusing 503 at invocation time.
-    const models = context.user.id < 0
-        ? visible
-        : (await Promise.all(visible.map(async model => {
-            const groupId = context.group?.id == null ? null : Number(context.group.id);
-            const candidates = await routingService.resolveAvailableCandidates(model, format, groupId);
-            return candidates.length > 0 ? model : null;
-        }))).filter((model): model is SgModel => model !== null);
+    const visible = accessPolicyService.visibleModels(entities, authContext, format);
+    // 复用规范选择器，使模型列表与真实请求使用相同的分组、协议和健康冷却规则。
+    // 每个模型使用独立路由上下文，因为选择器会把已选上游标记为已尝试。
+    const models = (await Promise.all(visible.map(async model => {
+        const candidate = await routingService.selectUpstream(
+            model,
+            format,
+            new RoutingContext(),
+            c,
+        );
+        return candidate.hasUpstream() ? model : null;
+    }))).filter((model): model is SgModel => model !== null);
     return c.json({
         object: "list",
         data: models.map(model => ({
@@ -121,12 +127,7 @@ async function listLlmModels(c: Context) {
 
 
 async function getModel(c: Context) {
-    const id = c.req.param("id");
-    const modelId = parseInt(id, 10);
-
-    if (isNaN(modelId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
+    const modelId = idUtil.requirePositiveInteger(c.req.param("id"));
 
     const model = await modelManager.findById(modelId);
 
@@ -145,7 +146,7 @@ async function getModelsByIds(c: Context) {
         return c.json([]);
     }
 
-    const idList = ids.map(id => parseInt(String(id), 10)).filter(id => !isNaN(id));
+    const idList = idUtil.normalizePositiveIntegers(ids);
     if (idList.length === 0) {
         return c.json([]);
     }
@@ -206,7 +207,9 @@ async function testModelRoute(c: Context) {
         c.status(200);
         return c.json({
             success: false,
-            status: typeof e?.status === "number" ? e.status : undefined,
+            status: typeof e?.statusCode === "number"
+                ? e.statusCode
+                : (typeof e?.status === "number" ? e.status : undefined),
             duration: Date.now() - startTime,
             url: snapshot?.url ?? null,
             converted_from:
@@ -243,12 +246,7 @@ async function testModelRoute(c: Context) {
 
 
 async function updateModel(c: Context) {
-    const id = c.req.param("id");
-    const modelId = parseInt(id, 10);
-
-    if (isNaN(modelId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
+    const modelId = idUtil.requirePositiveInteger(c.req.param("id"));
 
     const updatedModel = await modelService.updateModel(modelId, await c.req.json());
 
@@ -262,12 +260,7 @@ async function updateModel(c: Context) {
 
 
 async function deleteModel(c: Context) {
-    const id = c.req.param("id");
-    const modelId = Number(id);
-
-    if (!Number.isInteger(modelId) || modelId <= 0) {
-        throw new customError.AppError("Invalid ID format");
-    }
+    const modelId = idUtil.requirePositiveInteger(c.req.param("id"));
 
     const deleted = await modelService.deleteModel(modelId);
 

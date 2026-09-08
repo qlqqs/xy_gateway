@@ -22,8 +22,22 @@
             <a-form-item label="接口类型" name="type"><a-select v-model:value="formState.type" placeholder="请选择接口类型" show-search option-filter-prop="label" :options="vendorTypeOptions" @change="handleTypeChange" /><div class="field-hint">认证方式将自动匹配为 {{ authModeLabel }}</div></a-form-item>
             <a-form-item v-if="formState.api_type === 'openai'" label="OpenAI 接口协议" name="openai_protocol"><a-select v-model:value="formState.openai_protocol" @change="handleProtocolChange"><a-select-option value="chat_completions">/v1/chat/completions</a-select-option><a-select-option value="responses">/v1/responses</a-select-option></a-select></a-form-item>
             <a-form-item label="API 地址" name="api_url"><a-input v-model:value="formState.api_url" placeholder="https://api.example.com/v1" /></a-form-item>
-            <a-form-item label="认证凭证" name="token"><a-input-password v-model:value="formState.token" :placeholder="authModeLabel === 'API Key' ? '请输入 API Key' : '请输入 Bearer Token'" /></a-form-item>
-            <a-form-item label="可用模型" name="models"><a-space direction="vertical" style="width: 100%"><a-select v-model:value="formState.models" mode="tags" :token-separators="[',', ' ']" placeholder="输入模型 ID 后回车，可添加多个"><a-select-option v-for="model in fetchedModels" :key="model" :value="model">{{ model }}</a-select-option></a-select><a-button size="small" :loading="modelsLoading" @click="fetchModels">自动获取模型</a-button></a-space><div v-if="modelsError" class="field-hint field-error">{{ modelsError }}</div><div v-else class="field-hint">支持手动输入，也可以使用当前接口地址和凭证自动获取。</div></a-form-item>
+            <a-form-item label="认证凭证（Key，可自定义）" name="token">
+                <CredentialInput v-model:value="formState.token" :placeholder="authModeLabel === 'API Key' ? '请输入或自定义 API Key' : '请输入或自定义 Bearer Token'" />
+            </a-form-item>
+            <a-form-item label="可用模型" name="models">
+                <ModelSelect
+                    v-model:value="formState.models"
+                    v-model:open="modelsOpen"
+                    :options="fetchedModels"
+                    :loading="modelsLoading"
+                    @fetch="fetchModels"
+                    @clear="clearModels"
+                    @update:value="modelsSuccess = ''"
+                />
+                <div v-if="modelsError" class="field-hint field-error" role="alert">{{ modelsError }}</div>
+                <div v-else-if="modelsSuccess" class="field-hint field-success" role="status" aria-live="polite">{{ modelsSuccess }}</div>
+            </a-form-item>
             <a-form-item label="代理配置"><a-select v-model:value="formState.proxy_type" allow-clear placeholder="不使用代理"><a-select-option :value="null">不使用</a-select-option><a-select-option value="http">HTTP</a-select-option><a-select-option value="socks5">SOCKS5</a-select-option></a-select></a-form-item>
             <a-form-item v-if="formState.proxy_type" label="代理地址"><a-input v-model:value="formState.proxy_url" placeholder="http://host:port 或 socks5://user:pass@host:port" /></a-form-item>
             <a-row :gutter="[16, 0]" class="scheduler-settings-row">
@@ -61,9 +75,9 @@
                     </a-form-item>
                 </a-col>
             </a-row>
-            <a-form-item label="分组" name="group_id">
-                <a-select v-model:value="formState.group_id" :options="groupOptions" allow-clear placeholder="选择分组（可选）" />
-                <div class="field-hint">用于标识供应商所属的调用分组</div>
+            <a-form-item label="分组" name="group_ids">
+                <a-select v-model:value="formState.group_ids" mode="multiple" :options="groupOptions" allow-clear placeholder="选择分组（可选，可多选）" max-tag-count="responsive" />
+                <div class="field-hint">供应商可以同时归属于多个调用分组</div>
             </a-form-item>
             <a-form-item label="状态" name="status"><a-radio-group v-model:value="formState.status"><a-radio value="active">启用</a-radio><a-radio value="disabled">停用</a-radio></a-radio-group></a-form-item>
             <a-form-item label="备注"><a-textarea v-model:value="formState.remark" :rows="3" placeholder="可填写环境、用途或维护说明" :maxlength="200" show-count /></a-form-item>
@@ -79,6 +93,8 @@ import type { CreateVendorRequest, Vendor, VendorType, VendorAuthMode, VendorPro
 import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 import { useVendorPresets } from '@/composables/useVendorPresets';
 import groupStore from '@/stores/groups';
+import ModelSelect from '@/views/Vendor/ModelSelect.vue';
+import CredentialInput from '@/views/Vendor/CredentialInput.vue';
 
 const emit = defineEmits<{
     success: [vendor: Vendor];
@@ -89,7 +105,9 @@ const loading = ref(false);
 const formRef = ref<FormInstance>();
 const modelsLoading = ref(false);
 const modelsError = ref('');
+const modelsSuccess = ref('');
 const fetchedModels = ref<string[]>([]);
+const modelsOpen = ref(false);
 
 const { presetUrls, vendorTypeOptions } = useVendorPresets();
 
@@ -98,7 +116,7 @@ const formState = reactive({
     channel_code: '',
     name: '',
     supplier_name: '',
-    group_id: null as number | null,
+    group_ids: [] as number[],
     token: '',
     api_type: 'openai' as 'openai' | 'anthropic',
     openai_protocol: 'chat_completions' as 'chat_completions' | 'responses',
@@ -179,19 +197,28 @@ const rules = {
     status: [{ required: true, message: '请选择状态' }],
 };
 
-function open() {
+async function open() {
+    try {
+        await groupStore.ensureLoaded();
+    } catch (error) {
+        notifyRequestError(error, '加载分组失败');
+        visible.value = false;
+        return;
+    }
     formState.type = 'openai';
     formState.channel_code = '';
     formState.name = '';
     formState.supplier_name = '';
-    formState.group_id = null;
+    formState.group_ids = [];
     formState.token = '';
     formState.api_type = 'openai';
     formState.openai_protocol = 'chat_completions';
     formState.api_url = presetUrls.openai?.openai || '';
     formState.models = [];
     fetchedModels.value = [];
+    modelsOpen.value = false;
     modelsError.value = '';
+    modelsSuccess.value = '';
     formState.concurrency = 1;
     formState.load_factor = null;
     formState.priority = 1;
@@ -204,23 +231,54 @@ function open() {
 }
 
 async function fetchModels() {
-    modelsLoading.value = true;
     modelsError.value = '';
+    modelsSuccess.value = '';
+    fetchedModels.value = [];
+    modelsOpen.value = false;
+    if (!formState.api_url.trim()) {
+        modelsError.value = '请先填写 API 地址。';
+        return;
+    }
+    if (!formState.token.trim()) {
+        modelsError.value = '请先填写认证凭证。';
+        return;
+    }
+    modelsLoading.value = true;
     try {
         const result = await vendorsStore.previewModels({
             type: formState.type,
             token: formState.token,
             urls: { [formState.api_type === 'openai' ? 'openai' : formState.api_type]: formState.api_type === 'openai' && formState.openai_protocol === 'responses' ? toEndpoint(formState.api_url, 'chat_completions') : formState.api_url },
-            config: { auth_mode: formState.auth_mode },
+            config: {
+                auth_mode: formState.auth_mode,
+                api_type: formState.api_type,
+                ...(formState.api_type === 'openai' ? { openai_protocol: formState.openai_protocol } : {}),
+            },
         });
-        fetchedModels.value = result.models;
-        if (!result.models.length) modelsError.value = '接口未返回可用模型，请检查地址或改为手动输入。';
+        const models = [...new Set(result.models.map(model => model.trim()).filter(Boolean))];
+        if (!models.length) {
+            modelsError.value = '接口未返回可用模型，请检查地址或改为手动输入。';
+        } else {
+            fetchedModels.value = models;
+            modelsOpen.value = true;
+            modelsSuccess.value = `已获取 ${fetchedModels.value.length} 个模型，请从下拉列表选择。`;
+        }
     } catch {
         modelsError.value = '模型获取失败，请检查 API 地址和认证凭证。';
     } finally {
         modelsLoading.value = false;
     }
 }
+
+
+function clearModels() {
+    formState.models = [];
+    fetchedModels.value = [];
+    modelsOpen.value = false;
+    modelsError.value = '';
+    modelsSuccess.value = '';
+}
+
 
 async function handleOk() {
     try {
@@ -234,10 +292,13 @@ async function handleOk() {
             config: {
                 auth_mode: formState.auth_mode,
                 supplier_name: formState.supplier_name,
-                group_id: formState.group_id,
+                group_id: formState.group_ids[0] ?? null,
+                group_ids: [...formState.group_ids],
                 channel_code: formState.channel_code,
                 api_type: formState.api_type,
-                openai_protocol: formState.openai_protocol,
+                ...(formState.api_type === 'openai'
+                    ? { openai_protocol: formState.openai_protocol }
+                    : {}),
                 status: formState.status,
                 remark: formState.remark,
                 available_models: formState.models,
@@ -308,6 +369,10 @@ defineExpose({ open });
 
 .field-error {
     color: #d4380d;
+}
+
+.field-success {
+    color: var(--accent-primary);
 }
 
 </style>

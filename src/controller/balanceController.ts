@@ -1,10 +1,11 @@
 import { Context } from "hono";
 import rechargeRecordManager from "../manager/rechargeRecordManager";
+import idUtil from "../util/idUtil";
 import { parsePaginationQuery } from "../util/paginationUtil";
 
 async function listRechargeRecords(c: Context) {
     const query = c.req.query();
-    const userId = query.user_id ? parseInt(query.user_id, 10) : undefined;
+    const userId = query.user_id ? idUtil.toPositiveInteger(query.user_id) ?? undefined : undefined;
     const type = query.type;
     const { pageSize, offset } = parsePaginationQuery(query, 10);
 
@@ -26,10 +27,9 @@ async function listRechargeRecords(c: Context) {
 }
 
 async function getRechargeRecord(c: Context) {
-    const id = c.req.param("id");
-    const recordId = parseInt(id, 10);
+    const recordId = idUtil.toPositiveInteger(c.req.param("id"));
 
-    if (isNaN(recordId)) {
+    if (recordId === null) {
         return c.json({ error: "Invalid ID format" }, 400);
     }
 

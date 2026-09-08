@@ -1,4 +1,5 @@
 import type { ReasoningEffort } from "./thinkingConfig";
+import type { CacheCreationDetails, InputTokenDetails, OutputTokenDetails } from "./protocolTypes";
 
 /**
  * Responses API 请求/响应类型定义
@@ -91,14 +92,22 @@ export interface ResponsesNonStreamResponse {
     output: ResponsesOutputItem[];
     usage?: {
         input_tokens: number;
-        input_tokens_details?: {
-            cached_tokens?: number;
-        };
+        input_tokens_details?: InputTokenDetails;
         output_tokens: number;
-        output_tokens_details?: {
-            reasoning_tokens?: number;
-        };
+        output_tokens_details?: OutputTokenDetails;
         total_tokens: number;
+        cache_creation?: CacheCreationDetails;
+        cached_tokens?: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_write_input_tokens?: number;
+        cache_read_tokens?: number;
+        cache_write_tokens?: number;
+        cache_creation_tokens?: number;
+        cache_creation_5m_tokens?: number;
+        cache_creation_1h_tokens?: number;
+        image_input_tokens?: number;
+        image_output_tokens?: number;
     };
     instructions?: string;
     max_output_tokens?: number;

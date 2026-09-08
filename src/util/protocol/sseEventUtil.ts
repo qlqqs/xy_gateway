@@ -8,14 +8,25 @@ interface SplitSSEEventsResult {
 }
 
 function splitEvents(buffer: string): SplitSSEEventsResult {
-    const events = buffer.split("\n\n");
-    const remainingBuffer = events.pop() ?? "";
-    return { events, remainingBuffer };
+    const events: string[] = [];
+    const delimiter = /\r?\n\r?\n/g;
+    let eventStart = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = delimiter.exec(buffer)) !== null) {
+        events.push(buffer.slice(eventStart, match.index));
+        eventStart = delimiter.lastIndex;
+    }
+
+    return {
+        events,
+        remainingBuffer: buffer.slice(eventStart),
+    };
 }
 
 
 function parseEvent(event: string): ParsedSSEEvent | null {
-    const lines = event.split("\n");
+    const lines = event.split(/\r?\n/);
     const dataLines = lines.filter((line) => line.startsWith("data:"));
     const data = dataLines.map((line) => line.slice(5).trim()).join("\n");
     if (!data) {

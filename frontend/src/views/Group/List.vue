@@ -111,6 +111,7 @@ import groupStore, { type GroupDraft, type GroupRecord, type GroupStatus, type I
 import modelsStore from '@/stores/models';
 import usersStore from '@/stores/users';
 import vendorsStore from '@/stores/vendors';
+import { notifyError, notifySuccess, notifyWarning } from '@/utils/requestFeedback';
 
 interface GroupRow extends GroupRecord {
     channelCount: number;
@@ -256,14 +257,20 @@ function removeGroup(group: GroupRecord) {
                 if (!await groupStore.remove(group.id)) {
                     throw new Error('分组不存在');
                 }
-                await Promise.allSettled([
-                    usersStore.refresh(),
-                    vendorsStore.refresh(),
-                ]);
-                message.success('分组已删除');
             } catch {
-                message.error('分组删除失败，请稍后重试');
+                notifyError('分组删除失败，请稍后重试');
+                return;
             }
+
+            const refreshResults = await Promise.allSettled([
+                usersStore.refresh(),
+                vendorsStore.refresh(),
+            ]);
+            if (refreshResults.some(result => result.status === 'rejected')) {
+                notifyWarning('分组已删除，但关联数据刷新失败，请刷新页面');
+                return;
+            }
+            notifySuccess('分组已删除');
         },
     });
 }

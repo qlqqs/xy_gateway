@@ -18,7 +18,9 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "09-08-external-control-api"
+  ],
   "parent": null,
   "relatedFiles": [],
   "notes": "",

@@ -104,6 +104,29 @@ describe("Vendor API (Positive)", () => {
             expect(response.body.name).toBe("Random Test Vendor");
             expect(response.body.urls).toHaveProperty("openai");
         });
+
+        it("should create vendor and configured models in one request", async () => {
+            const response = await requestHelper.post(
+                "/vendor/create.json",
+                {
+                    ...vendorFixtures.createRandomVendor({ name: "Aggregate Create Vendor" }),
+                    config: {
+                        available_models: [" model-b ", "model-a", "model-b"],
+                    },
+                },
+                adminToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body.config.available_models).toEqual(["model-b", "model-a"]);
+            expect(response.body.model_count).toBe(2);
+
+            const models = await requestHelper.get(
+                `/vendor/${response.body.id}/model/list.json`,
+                adminToken,
+            );
+            expect(models.body.map((model: any) => model.model_id)).toEqual(["model-a", "model-b"]);
+        });
     });
 
     describe("GET /vendor/list.json", () => {
@@ -246,6 +269,50 @@ describe("Vendor API (Positive)", () => {
             expect(response.body.type).toBe("deepseek");
         });
 
+        it("should switch the declared API type in both directions without stale protocol fields", async () => {
+            const created = await requestHelper.post(
+                "/vendor/create.json",
+                {
+                    ...vendorFixtures.VENDOR_FIXTURES.openai(),
+                    name: "Protocol switch vendor",
+                    urls: { openai: "https://switch.example.com/v1/chat/completions" },
+                    config: {
+                        api_type: "openai",
+                        openai_protocol: "chat_completions",
+                    },
+                },
+                adminToken,
+            );
+            expect(created.status).toBe(200);
+
+            const toAnthropic = await requestHelper.put(
+                `/vendor/${created.body.id}`,
+                {
+                    urls: { anthropic: "https://switch.example.com/v1/messages" },
+                    config: { api_type: "anthropic" },
+                },
+                adminToken,
+            );
+            expect(toAnthropic.status).toBe(200);
+            expect(toAnthropic.body.config.api_type).toBe("anthropic");
+            expect(toAnthropic.body.config.openai_protocol).toBeUndefined();
+
+            const toOpenai = await requestHelper.put(
+                `/vendor/${created.body.id}`,
+                {
+                    urls: { openai: "https://switch.example.com/v1/chat/completions" },
+                    config: {
+                        api_type: "openai",
+                        openai_protocol: "chat_completions",
+                    },
+                },
+                adminToken,
+            );
+            expect(toOpenai.status).toBe(200);
+            expect(toOpenai.body.config.api_type).toBe("openai");
+            expect(toOpenai.body.config.openai_protocol).toBe("chat_completions");
+        });
+
         it("should update vendor urls", async () => {
             const updateData = {
                 urls: {
@@ -302,9 +369,86 @@ describe("Vendor API (Positive)", () => {
             expect(response.body.urls).toEqual(originalUrls);
             expect(response.body.token).toBe(originalToken);
         });
+
+        it("should update configured models without replacing unchanged IDs or mappings", async () => {
+            const created = await requestHelper.post(
+                "/vendor/create.json",
+                {
+                    ...vendorFixtures.createRandomVendor({ name: "Aggregate Update Vendor" }),
+                    config: { available_models: ["stable-model", "removed-model"] },
+                },
+                adminToken,
+            );
+            expect(created.status).toBe(200);
+            expect(created.body.model_count).toBe(2);
+
+            const initialModels = await requestHelper.get(
+                `/vendor/${created.body.id}/model/list.json`,
+                adminToken,
+            );
+            const stableId = initialModels.body.find(
+                (model: any) => model.model_id === "stable-model",
+            )?.id;
+            expect(stableId).toEqual(expect.any(Number));
+
+            const routedModel = await requestHelper.post(
+                "/model/create.json",
+                {
+                    name: `aggregate-update-route-${Date.now()}`,
+                    enable: true,
+                    prices: {},
+                    mapping: {
+                        upstreams: [{
+                            vendor_id: created.body.id,
+                            vendor_model_id: stableId,
+                            enabled: true,
+                        }],
+                    },
+                },
+                adminToken,
+            );
+            expect(routedModel.status).toBe(200);
+
+            const updated = await requestHelper.put(
+                `/vendor/${created.body.id}`,
+                {
+                    name: "Aggregate Update Vendor Renamed",
+                    config: { available_models: ["stable-model", "added-model"] },
+                },
+                adminToken,
+            );
+            expect(updated.status).toBe(200);
+            expect(updated.body.name).toBe("Aggregate Update Vendor Renamed");
+            expect(updated.body.config.available_models).toEqual(["stable-model", "added-model"]);
+            expect(updated.body.model_count).toBe(2);
+
+            const models = await requestHelper.get(
+                `/vendor/${created.body.id}/model/list.json`,
+                adminToken,
+            );
+            expect(models.body.find((model: any) => model.model_id === "stable-model")?.id).toBe(stableId);
+            expect(models.body.map((model: any) => model.model_id)).toEqual(["added-model", "stable-model"]);
+
+            const persistedRoute = await requestHelper.get(
+                `/model/${routedModel.body.id}`,
+                adminToken,
+            );
+            expect(persistedRoute.body.mapping.upstreams[0].vendor_model_id).toBe(stableId);
+        });
     });
 
     describe("DELETE /vendor/:id", () => {
+        it("should reject malformed numeric IDs without deleting the matching vendor", async () => {
+            const response = await requestHelper.del(`/vendor/${createdVendorId}abc`, adminToken);
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe("Invalid ID format");
+
+            const vendorResponse = await requestHelper.get(`/vendor/${createdVendorId}`, adminToken);
+            expect(vendorResponse.status).toBe(200);
+            expect(vendorResponse.body.id).toBe(createdVendorId);
+        });
+
         it("should remove model mappings when deleting a referenced vendor", async () => {
             const vendorResponse = await requestHelper.post(
                 "/vendor/create.json",

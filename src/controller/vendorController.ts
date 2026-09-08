@@ -5,21 +5,27 @@ import vendorService from "../service/vendorService";
 import vendorDefaultUrls from "../util/vendorDefaultUrlsUtil";
 import vendorTestService from "../service/vendorTestService";
 import customError from "../util/customErrorUtil";
+import idUtil from "../util/idUtil";
 import { createListResponse, parsePaginationQuery } from "../util/paginationUtil";
 
 
-/**
- * Format vendor for API response (parse URLs using model method)
- */
-function formatVendor(vendor: SgVendor, modelCount = 0) {
+/** 格式化供应商 API 响应，并返回已同步的模型数量。 */
+function formatVendor(
+    vendor: SgVendor,
+    modelCount?: number,
+) {
+    const availableModels = vendor.config?.available_models ?? vendor.available_models ?? [];
     return {
         id: vendor.id,
         type: vendor.type,
         name: vendor.name,
         token: vendor.token,
         urls: vendor.urls,
-        config: vendor.config,
-        model_count: modelCount,
+        config: {
+            ...vendor.config.toJSON(),
+            available_models: availableModels,
+        },
+        model_count: modelCount ?? availableModels.length,
         created_at: vendor.created_at,
         updated_at: vendor.updated_at,
     };
@@ -43,12 +49,7 @@ async function listVendors(c: Context) {
 
 
 async function getVendor(c: Context) {
-    const id = c.req.param("id");
-    const vendorId = parseInt(id, 10);
-
-    if (isNaN(vendorId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
+    const vendorId = idUtil.requirePositiveInteger(c.req.param("id"));
 
     const vendor = await vendorManager.findById(vendorId);
 
@@ -67,7 +68,7 @@ async function getVendorsByIds(c: Context) {
         return c.json([]);
     }
 
-    const idList = ids.map(id => parseInt(String(id), 10)).filter(id => !isNaN(id));
+    const idList = idUtil.normalizePositiveIntegers(ids);
     if (idList.length === 0) {
         return c.json([]);
     }
@@ -96,22 +97,14 @@ async function createVendor(c: Context) {
     vendorService.validateSchedulingConfig(normalizedConfig);
     await vendorService.validateDomainConfig(normalizedConfig);
 
-    // Canonical scheduling/domain fields are formal vendor columns.  The model
-    // constructor has already copied config values into those columns; this
-    // explicit check prevents silently accepting malformed frontend payloads.
-    const instance = await vendorManager.create(vendor);
+    const instance = await vendorService.createVendor(vendor);
 
     return c.json(formatVendor(instance));
 }
 
 
 async function updateVendor(c: Context) {
-    const id = c.req.param("id");
-    const vendorId = parseInt(id, 10);
-
-    if (isNaN(vendorId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
+    const vendorId = idUtil.requirePositiveInteger(c.req.param("id"));
 
     const body = await c.req.json();
     const { type, name, token, urls, config } = body;
@@ -133,12 +126,7 @@ async function updateVendor(c: Context) {
 
 
 async function deleteVendor(c: Context) {
-    const id = c.req.param("id");
-    const vendorId = parseInt(id, 10);
-
-    if (isNaN(vendorId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
+    const vendorId = idUtil.requirePositiveInteger(c.req.param("id"));
 
     const vendor = await vendorManager.findById(vendorId);
 
@@ -155,12 +143,7 @@ async function deleteVendor(c: Context) {
 }
 
 async function testVendor(c: Context) {
-    const id = c.req.param("id");
-    const vendorId = parseInt(id, 10);
-
-    if (isNaN(vendorId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
+    const vendorId = idUtil.requirePositiveInteger(c.req.param("id"));
 
     const vendor = await vendorManager.findById(vendorId);
     if (!vendor) {

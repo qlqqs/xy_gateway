@@ -21,8 +21,22 @@
             <a-form-item label="接口类型" name="type"><a-select v-model:value="formState.type" placeholder="请选择接口类型" show-search option-filter-prop="label" :options="vendorTypeOptions" @change="handleTypeChange" /></a-form-item>
             <a-form-item v-if="formState.api_type === 'openai'" label="OpenAI 接口协议"><a-select v-model:value="formState.openai_protocol" @change="handleProtocolChange"><a-select-option value="chat_completions">/v1/chat/completions</a-select-option><a-select-option value="responses">/v1/responses</a-select-option></a-select></a-form-item>
             <a-form-item label="API 地址"><a-input v-model:value="formState.api_url" /></a-form-item>
-            <a-form-item label="认证凭证" name="token"><a-input-password v-model:value="formState.token" placeholder="请输入 API Token" /></a-form-item>
-            <a-form-item label="可用模型"><a-space direction="vertical" style="width: 100%"><a-select v-model:value="formState.models" mode="tags" :token-separators="[',', ' ']" placeholder="输入模型 ID 后回车"><a-select-option v-for="model in fetchedModels" :key="model" :value="model">{{ model }}</a-select-option></a-select><a-button size="small" :loading="modelsLoading" @click="fetchModels">自动获取模型</a-button></a-space><div v-if="modelsError" class="field-hint field-error">{{ modelsError }}</div><div v-else class="field-hint">支持手动输入，也可以使用当前接口地址和凭证自动获取。</div></a-form-item>
+            <a-form-item label="认证凭证（Key，可自定义）" name="token">
+                <CredentialInput v-model:value="formState.token" placeholder="请输入或自定义 API Key / Token" />
+            </a-form-item>
+            <a-form-item label="可用模型" name="models">
+                <ModelSelect
+                    v-model:value="formState.models"
+                    v-model:open="modelsOpen"
+                    :options="fetchedModels"
+                    :loading="modelsLoading"
+                    @fetch="fetchModels"
+                    @clear="clearModels"
+                    @update:value="modelsSuccess = ''"
+                />
+                <div v-if="modelsError" class="field-hint field-error" role="alert">{{ modelsError }}</div>
+                <div v-else-if="modelsSuccess" class="field-hint field-success" role="status" aria-live="polite">{{ modelsSuccess }}</div>
+            </a-form-item>
             <a-form-item label="代理配置"><a-select v-model:value="formState.proxy_type" allow-clear placeholder="不使用代理"><a-select-option :value="null">不使用</a-select-option><a-select-option value="http">HTTP</a-select-option><a-select-option value="socks5">SOCKS5</a-select-option></a-select></a-form-item>
             <a-form-item v-if="formState.proxy_type" label="代理地址"><a-input v-model:value="formState.proxy_url" placeholder="http://host:port 或 socks5://user:pass@host:port" /></a-form-item>
             <a-row :gutter="[16, 0]" class="scheduler-settings-row">
@@ -60,9 +74,9 @@
                     </a-form-item>
                 </a-col>
             </a-row>
-            <a-form-item label="分组" name="group_id">
-                <a-select v-model:value="formState.group_id" :options="groupOptions" allow-clear placeholder="选择分组（可选）" />
-                <div class="field-hint">用于标识供应商所属的调用分组</div>
+            <a-form-item label="分组" name="group_ids">
+                <a-select v-model:value="formState.group_ids" mode="multiple" :options="groupOptions" allow-clear placeholder="选择分组（可选，可多选）" max-tag-count="responsive" />
+                <div class="field-hint">供应商可以同时归属于多个调用分组</div>
             </a-form-item>
             <a-form-item label="状态"><a-radio-group v-model:value="formState.status"><a-radio value="active">启用</a-radio><a-radio value="disabled">停用</a-radio></a-radio-group></a-form-item>
             <a-form-item label="备注"><a-textarea v-model:value="formState.remark" :rows="3" :maxlength="200" show-count /></a-form-item>
@@ -78,6 +92,9 @@ import type { UpdateVendorRequest, Vendor, VendorApiType, VendorType, VendorAuth
 import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
 import { useVendorPresets } from '@/composables/useVendorPresets';
 import groupStore from '@/stores/groups';
+import ModelSelect from '@/views/Vendor/ModelSelect.vue';
+import CredentialInput from '@/views/Vendor/CredentialInput.vue';
+import vendorProtocol from '@/utils/vendorProtocol';
 
 const emit = defineEmits<{
     success: [vendor: Vendor];
@@ -88,7 +105,9 @@ const loading = ref(false);
 const formRef = ref<FormInstance>();
 const modelsLoading = ref(false);
 const modelsError = ref('');
+const modelsSuccess = ref('');
 const fetchedModels = ref<string[]>([]);
+const modelsOpen = ref(false);
 
 const { vendorTypeOptions, presetUrls } = useVendorPresets();
 
@@ -96,7 +115,7 @@ const currentId = ref<number>(0);
 const skipTlsVerify = ref<boolean | undefined>();
 
 const groupOptions = computed(() => groupStore.groups.value
-    .filter(group => group.status === 'active')
+    .filter(group => group.status === 'active' || formState.group_ids.includes(group.id))
     .map(group => ({ label: group.name, value: group.id })));
 
 const formState = reactive({
@@ -104,7 +123,7 @@ const formState = reactive({
     api_type: 'openai' as VendorApiType,
     channel_code: '',
     supplier_name: '',
-    group_id: null as number | null,
+    group_ids: [] as number[],
     name: '',
     token: '',
     api_url: '',
@@ -171,25 +190,43 @@ const rules = {
     priority: [{ required: true, type: 'number', min: 1, message: '优先级必须大于或等于 1' }],
 };
 
-function open(vendor: Vendor) {
+async function open(vendor: Vendor) {
+    try {
+        await groupStore.ensureLoaded();
+    } catch (error) {
+        notifyRequestError(error, '加载分组失败');
+        visible.value = false;
+        return;
+    }
     currentId.value = vendor.id;
     skipTlsVerify.value = vendor.config?.skip_tls_verify;
     formState.type = vendor.type;
-    formState.api_type = vendor.config?.api_type
-        || (formState.type === 'anthropic' ? 'anthropic' : 'openai');
+    formState.api_type = vendorProtocol.resolveApiType(vendor);
     formState.channel_code = vendor.config?.channel_code || '';
     formState.supplier_name = vendor.config?.supplier_name || '';
-    formState.group_id = vendor.config?.group_id ?? null;
+    formState.group_ids = vendor.config?.group_ids !== undefined
+        ? [...vendor.config.group_ids]
+        : (vendor.config?.group_id == null ? [] : [vendor.config.group_id]);
     formState.name = vendor.name;
     formState.token = vendor.token;
-    formState.openai_protocol = vendor.config?.openai_protocol || 'chat_completions';
+    formState.openai_protocol = vendorProtocol.resolveOpenAiProtocol(vendor, formState.api_type);
     const urlKey = formState.api_type === 'openai' && formState.openai_protocol === 'responses'
         ? 'responses'
         : formState.api_type;
-    formState.api_url = vendor.urls?.[urlKey] || vendor.urls?.[formState.type] || '';
-    formState.models = vendor.config?.available_models || [];
+    const presetKey = urlKey === 'responses' ? 'responses' : formState.api_type;
+    const presetUrl = presetUrls[formState.type]?.[presetKey];
+    const openAiFallback = urlKey === 'responses'
+        ? (vendor.urls?.openai || presetUrls[formState.type]?.openai)
+        : undefined;
+    formState.api_url = vendor.urls?.[urlKey]
+        || vendor.urls?.[formState.type]
+        || presetUrl
+        || (openAiFallback ? toEndpoint(openAiFallback, 'responses') : '');
+    formState.models = [...(vendor.config?.available_models || [])];
     fetchedModels.value = [...formState.models];
+    modelsOpen.value = false;
     modelsError.value = '';
+    modelsSuccess.value = '';
     formState.concurrency = vendor.config?.concurrency ?? 1;
     formState.load_factor = vendor.config?.load_factor ?? null;
     formState.priority = vendor.config?.priority ?? 1;
@@ -204,30 +241,60 @@ function open(vendor: Vendor) {
 }
 
 async function fetchModels() {
-    modelsLoading.value = true;
     modelsError.value = '';
+    modelsSuccess.value = '';
+    fetchedModels.value = [];
+    modelsOpen.value = false;
+    if (!formState.api_url.trim()) {
+        modelsError.value = '请先填写 API 地址。';
+        return;
+    }
+    if (!formState.token.trim()) {
+        modelsError.value = '请先填写认证凭证。';
+        return;
+    }
+    modelsLoading.value = true;
     try {
         const result = await vendorsStore.previewModels({
             type: formState.type,
             token: formState.token,
+            // 模型预览接口按 OpenAI 兼容的 /models 地址查询；Responses
+            // 协议需临时使用 chat completions 地址，保存时仍保留原地址。
             urls: {
-                [formState.api_type === 'openai' && formState.openai_protocol === 'responses'
-                    ? 'responses'
-                    : formState.api_type]:
-                    formState.api_type === 'openai' && formState.openai_protocol === 'responses'
-                        ? formState.api_url.replace(/\/responses\/?$/, '') + '/chat/completions'
-                        : formState.api_url,
+                [formState.api_type]: formState.api_type === 'openai' && formState.openai_protocol === 'responses'
+                    ? toEndpoint(formState.api_url, 'chat_completions')
+                    : formState.api_url,
             },
-            config: { auth_mode: formState.auth_mode },
+            config: {
+                auth_mode: formState.auth_mode,
+                api_type: formState.api_type,
+                ...(formState.api_type === 'openai' ? { openai_protocol: formState.openai_protocol } : {}),
+            },
         });
-        fetchedModels.value = result.models;
-        if (!result.models.length) modelsError.value = '接口未返回可用模型，请检查地址或手动输入。';
+        const models = [...new Set(result.models.map(model => model.trim()).filter(Boolean))];
+        if (!models.length) {
+            modelsError.value = '接口未返回可用模型，请检查地址或改为手动输入。';
+        } else {
+            fetchedModels.value = models;
+            modelsOpen.value = true;
+            modelsSuccess.value = `已获取 ${fetchedModels.value.length} 个模型，请从下拉列表选择。`;
+        }
     } catch {
         modelsError.value = '模型获取失败，请检查 API 地址和认证凭证。';
     } finally {
         modelsLoading.value = false;
     }
 }
+
+
+function clearModels() {
+    formState.models = [];
+    fetchedModels.value = [];
+    modelsOpen.value = false;
+    modelsError.value = '';
+    modelsSuccess.value = '';
+}
+
 
 async function handleOk() {
     try {
@@ -248,9 +315,12 @@ async function handleOk() {
                 ...(skipTlsVerify.value === undefined ? {} : { skip_tls_verify: skipTlsVerify.value }),
                 channel_code: formState.channel_code,
                 supplier_name: formState.supplier_name,
-                group_id: formState.group_id,
+                group_id: formState.group_ids[0] ?? null,
+                group_ids: [...formState.group_ids],
                 api_type: formState.api_type,
-                openai_protocol: formState.openai_protocol,
+                ...(formState.api_type === 'openai'
+                    ? { openai_protocol: formState.openai_protocol }
+                    : {}),
                 available_models: formState.models,
                 concurrency: formState.concurrency,
                 load_factor: formState.load_factor,
@@ -318,5 +388,9 @@ defineExpose({ open });
 
 .field-error {
     color: #d4380d;
+}
+
+.field-success {
+    color: var(--accent-primary);
 }
 </style>

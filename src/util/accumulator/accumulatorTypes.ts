@@ -4,6 +4,22 @@
  * （Anthropic 的 tool_use/thinking/signature 等字段也并入其中，便于上层统一处理）。
  */
 
+export interface AccumulatedUsage {
+    prompt_tokens?: number | null;
+    completion_tokens?: number | null;
+    cache_read_tokens?: number | null;
+    cache_write_tokens?: number | null;
+    cache_creation_5m_tokens?: number | null;
+    cache_creation_1h_tokens?: number | null;
+    image_input_tokens?: number | null;
+    image_output_tokens?: number | null;
+    completion_tokens_details?: {
+        reasoning_tokens?: number;
+        image_tokens?: number;
+    };
+}
+
+
 export interface AccumulatedResponse {
     id?: string;
     object?: string;
@@ -38,13 +54,5 @@ export interface AccumulatedResponse {
         };
         finish_reason: string | null;
     }>;
-    usage?: {
-        prompt_tokens?: number | null;
-        completion_tokens?: number | null;
-        cache_read_tokens?: number | null;
-        cache_write_tokens?: number | null;
-        completion_tokens_details?: {
-            reasoning_tokens?: number;
-        };
-    };
+    usage?: AccumulatedUsage;
 }

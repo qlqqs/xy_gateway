@@ -6,19 +6,34 @@ import { SgRecordStatus } from "../constants";
 import { MicroAmountCast } from "../util/protocol/billingUtil";
 
 
+interface SgRecordCostBreakdown {
+    input_cost: number;
+    image_input_cost: number;
+    output_cost: number;
+    image_output_cost: number;
+    cache_creation_cost: number;
+    cache_creation_5m_cost: number;
+    cache_creation_1h_cost: number;
+    cache_read_cost: number;
+    request_cost: number;
+    total_cost: number;
+}
+
+
 /**
  * 请求记录的 usage 对象，同时作为 Sutando 自定义 cast（Sutando 通过 instanceof CastsAttributes 识别）。
  * 存储/读写在类内外一致：DB 列为 TEXT JSON 串，模型层按类读写。
  *
  * 口径约定（prompt_tokens 按 OpenAI 原生语义 = 输入总量含缓存命中）：
- * - 存储层带版本号 usage_version：v1（存量）prompt_tokens 为非缓存数；v2（新写入）prompt_tokens 为总量。
- * - 构造时按版本完成「存储 → 展示」转换，实例内部恒为展示口径（prompt_tokens = 非缓存输入）；
+ * - 存储层带版本号 usage_version：v1 的 prompt_tokens 为非缓存数；v2 总量仅包含缓存读取；
+ *   v3 总量同时包含缓存读取和缓存创建。
+ * - 构造时按版本完成「存储 → 展示」转换，实例内部恒为展示口径（prompt_tokens = 普通输入）；
  *   toJSON() 直接输出内部字段，不再做版本判断。
  * - 各 token 字段区分「缺失」与「0」：上游未返回 → null；明确返回 0 → 0。
  */
 // @ts-expect-error Sutando .d.ts 声明 static get/set() 无参，运行时传 4 个实参
 class SgRecordUsage extends CastsAttributes {
-    /** usage 存储版本：1 = 旧口径（prompt_tokens 非缓存）；2 = OpenAI 口径（prompt_tokens 含缓存总量） */
+    /** usage 存储版本：1 = 普通输入；2 = 普通输入 + 缓存读取；3 = 普通输入 + 缓存读取 + 缓存创建 */
     version: number = 1;
 
     /** 输入 token（展示口径 = 非缓存输入）；上游未返回为 null，明确为 0 则为 0 */
@@ -33,9 +48,25 @@ class SgRecordUsage extends CastsAttributes {
     /** 写入缓存 token；是否计费由模型的 cache_write 价格决定；上游未返回为 null */
     cache_creation_tokens?: number | null;
 
+    /** 5 分钟缓存创建 token；是 cache_creation_tokens 的明细子集 */
+    cache_creation_5m_tokens?: number | null;
+
+    /** 1 小时缓存创建 token；是 cache_creation_tokens 的明细子集 */
+    cache_creation_1h_tokens?: number | null;
+
+    /** 图片输入 token；是普通输入 token 的子集 */
+    image_input_tokens?: number | null;
+
+    /** 图片输出 token；是 completion_tokens 的子集 */
+    image_output_tokens?: number | null;
+
+    /** 模型原价下的费用明细；最终倍率和实扣金额仍以 record 字段为准 */
+    cost_breakdown?: SgRecordCostBreakdown | null;
+
     /**
      * 构造时按存储版本完成「存储 → 展示」口径转换：
-     * - v2：存储的 prompt_tokens 为总量（含缓存），转成内部统一展示口径（非缓存输入）；
+     * - v2：存储的 prompt_tokens 为普通输入 + 缓存读取；
+     * - v3：存储的 prompt_tokens 为普通输入 + 缓存读取 + 缓存创建；
      * - v1：存储的 prompt_tokens 本就是非缓存，原样保留。
      * 转换后字段恒为展示口径，toJSON() 直接输出。
      */
@@ -44,21 +75,26 @@ class SgRecordUsage extends CastsAttributes {
         if (data) {
             this.version = data.version ?? 1;
             if (this.version >= 2 && data.prompt_tokens != null) {
-                this.prompt_tokens = data.cache_read_tokens != null
-                    ? Math.max(0, data.prompt_tokens - data.cache_read_tokens)
-                    : data.prompt_tokens;
+                const cacheTokens = (data.cache_read_tokens ?? 0)
+                    + (this.version >= 3 ? (data.cache_creation_tokens ?? 0) : 0);
+                this.prompt_tokens = Math.max(0, data.prompt_tokens - cacheTokens);
             } else {
                 this.prompt_tokens = data.prompt_tokens ?? null;
             }
             this.completion_tokens = data.completion_tokens ?? null;
             this.cache_read_tokens = data.cache_read_tokens ?? null;
             this.cache_creation_tokens = data.cache_creation_tokens ?? null;
+            this.cache_creation_5m_tokens = data.cache_creation_5m_tokens ?? null;
+            this.cache_creation_1h_tokens = data.cache_creation_1h_tokens ?? null;
+            this.image_input_tokens = data.image_input_tokens ?? null;
+            this.image_output_tokens = data.image_output_tokens ?? null;
+            this.cost_breakdown = data.cost_breakdown ?? null;
         }
     }
 
     /** API 展示口径：直接输出内部字段（构造时已按版本归一化）；缺失值输出 null（JSON.stringify 自动调用） */
-    toJSON(): Record<string, number | null> {
-        const result: Record<string, number | null> = {
+    toJSON(): Record<string, unknown> {
+        const result: Record<string, unknown> = {
             prompt_tokens: this.prompt_tokens ?? null,
             completion_tokens: this.completion_tokens ?? null,
             cache_read_tokens: this.cache_read_tokens ?? null,
@@ -66,22 +102,55 @@ class SgRecordUsage extends CastsAttributes {
         if (this.cache_creation_tokens != null) {
             result.cache_creation_tokens = this.cache_creation_tokens;
         }
+        if (this.cache_creation_5m_tokens != null) {
+            result.cache_creation_5m_tokens = this.cache_creation_5m_tokens;
+        }
+        if (this.cache_creation_1h_tokens != null) {
+            result.cache_creation_1h_tokens = this.cache_creation_1h_tokens;
+        }
+        if (this.image_input_tokens != null) {
+            result.image_input_tokens = this.image_input_tokens;
+        }
+        if (this.image_output_tokens != null) {
+            result.image_output_tokens = this.image_output_tokens;
+        }
+        if (this.cost_breakdown != null) {
+            result.cost_breakdown = this.cost_breakdown;
+        }
         return result;
     }
 
     /**
-     * 存储口径（v2：prompt_tokens 为总量 + usage_version 标记），供 static set() 与写侧序列化复用。
-     * 从展示口径反向还原：prompt_total = 非缓存输入 + 缓存读取；cache_creation 在存在时输出。
+     * 存储口径：新数据使用 v3；读取后原样保存旧 v2 时继续保持 v2 语义。
      */
-    toStorageJSON(): Record<string, number | null | undefined> {
-        const result: Record<string, number | null | undefined> = {
-            usage_version: 2,
-            prompt_tokens: this.prompt_tokens != null ? this.prompt_tokens + (this.cache_read_tokens ?? 0) : null,
+    toStorageJSON(): Record<string, unknown> {
+        const storageVersion = this.version >= 3 ? 3 : 2;
+        const cacheCreationTokens = storageVersion >= 3 ? (this.cache_creation_tokens ?? 0) : 0;
+        const result: Record<string, unknown> = {
+            usage_version: storageVersion,
+            prompt_tokens: this.prompt_tokens != null
+                ? this.prompt_tokens + (this.cache_read_tokens ?? 0) + cacheCreationTokens
+                : null,
             completion_tokens: this.completion_tokens,
             cache_read_tokens: this.cache_read_tokens,
         };
         if (this.cache_creation_tokens != null) {
             result.cache_creation_tokens = this.cache_creation_tokens;
+        }
+        if (this.cache_creation_5m_tokens != null) {
+            result.cache_creation_5m_tokens = this.cache_creation_5m_tokens;
+        }
+        if (this.cache_creation_1h_tokens != null) {
+            result.cache_creation_1h_tokens = this.cache_creation_1h_tokens;
+        }
+        if (this.image_input_tokens != null) {
+            result.image_input_tokens = this.image_input_tokens;
+        }
+        if (this.image_output_tokens != null) {
+            result.image_output_tokens = this.image_output_tokens;
+        }
+        if (this.cost_breakdown != null) {
+            result.cost_breakdown = this.cost_breakdown;
         }
         return result;
     }
@@ -99,7 +168,8 @@ class SgRecordUsage extends CastsAttributes {
         } catch {
             return null;
         }
-        return new SgRecordUsage({ ...parsed, version: parsed.usage_version === 2 ? 2 : 1 });
+        const version = parsed.usage_version === 3 ? 3 : parsed.usage_version === 2 ? 2 : 1;
+        return new SgRecordUsage({ ...parsed, version });
     }
 
     // 创建时收到纯对象，读改保存时收到 SgRecordUsage 实例，两者都需支持
@@ -174,3 +244,4 @@ const RECORD_SUMMARY_COLUMNS = [
 ];
 
 export { SgRecord, SgRecordUsage, RECORD_SUMMARY_COLUMNS };
+export type { SgRecordCostBreakdown };

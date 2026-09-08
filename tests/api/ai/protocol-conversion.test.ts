@@ -87,11 +87,12 @@ describe("AI Protocol Conversion API", () => {
             { model_id: "unsupported-upstream-model" },
             adminToken,
         );
-        await requestHelper.put(
-            `/vendor/${responsesErrorVendor.body.id}/model/${addResponsesVendorModel.body.id}.json`,
+        const updateResponsesVendorModel = await requestHelper.put(
+            `/vendor/${responsesErrorVendor.body.id}/model/${addResponsesVendorModel.body.id}`,
             { allowed_formats: ["responses"] },
             adminToken,
         );
+        expect(updateResponsesVendorModel.status).toBe(200);
         responsesErrorModelName = `anthropic-client-responses-error-${Date.now()}`;
         const responsesErrorModel = await requestHelper.post(
             "/model/create.json",
@@ -309,11 +310,12 @@ describe("AI Protocol Conversion API", () => {
             { model_id: "restricted-model" },
             adminToken,
         );
-        await requestHelper.put(
-            `/vendor/${dualFormatVendor.body.id}/model/${vendorModelResponse.body.id}.json`,
+        const updateVendorModelResponse = await requestHelper.put(
+            `/vendor/${dualFormatVendor.body.id}/model/${vendorModelResponse.body.id}`,
             { allowed_formats: ["anthropic"] },
             adminToken,
         );
+        expect(updateVendorModelResponse.status).toBe(200);
 
         // 3. Create a model with an automatic upstream (no vendor_model_id)
         // The model name matches the vendor_model's model_id

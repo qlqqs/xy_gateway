@@ -14,14 +14,25 @@ class SgVendorModel extends Model {
     updated_at!: Date;
 
     getAllowedFormats(): ApiFormat[] | null {
-        if (!this.allowed_formats) return null;
-        try { return JSON.parse(this.allowed_formats) as ApiFormat[]; } catch { return null; }
+        if (this.allowed_formats === null) return null;
+
+        try {
+            const parsed: unknown = JSON.parse(this.allowed_formats);
+            const validFormats = new Set<string>(Object.values(ApiFormat));
+            if (!Array.isArray(parsed) || !parsed.every(format =>
+                typeof format === "string" && validFormats.has(format))) {
+                return [];
+            }
+            return [...new Set(parsed)] as ApiFormat[];
+        } catch {
+            return [];
+        }
     }
 
     /**
      * 获取当前 vendorModel 支持的格式列表
-     * 语义：allowed_formats 为 null/空时表示未指定，路由层回退到 vendor 按 URL 自动判断；
-     *       非空时作为硬限制白名单，只允许列表内的格式。
+     * 语义：allowed_formats 为 SQL NULL 时表示未指定，路由层回退到 vendor 按 URL 自动判断；
+     *       合法数组作为硬限制白名单，空数组或损坏值均失败关闭。
      * @returns 支持的格式数组，未配置时返回 null
      */
     getSupportedFormats(): ApiFormat[] | null {

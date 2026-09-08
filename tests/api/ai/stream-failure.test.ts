@@ -38,6 +38,13 @@ let responsesCompleteThenHangModelName: string;
 
 
 describe("Stream Failure Handling", () => {
+    async function expectCooling(endpoint: string, body: object): Promise<void> {
+        const response = await requestHelper.post(endpoint, body, testUserToken);
+        expect(response.status).toBe(503);
+        expect(JSON.stringify(response.body)).toContain("No available upstream");
+    }
+
+
     beforeAll(async () => {
         await dbHelper.truncate();
         adminToken = await setupAdminUser();
@@ -204,6 +211,7 @@ describe("Stream Failure Handling", () => {
                 name: "Mock Responses Complete Then Hang",
                 token: "test-token",
                 urls: { responses: `${MOCK_BASE}/responses/complete-then-hang` },
+                concurrency: 1,
             },
             adminToken,
         );
@@ -232,6 +240,12 @@ describe("Stream Failure Handling", () => {
 
             expect(record.status).toBe("failed");
             expect(record.failed_code).toBe("stream_incomplete");
+
+            await expectCooling("/llm/v1/chat/completions", {
+                model: openaiIncompleteModelName,
+                messages: [{ role: "user", content: "hi" }],
+                stream: true,
+            });
         }, 15000);
 
         it("should set failed_code=upstream_disconnected when upstream destroys socket mid-stream", async () => {
@@ -246,6 +260,12 @@ describe("Stream Failure Handling", () => {
 
             expect(record.status).toBe("failed");
             expect(record.failed_code).toBe("upstream_disconnected");
+
+            await expectCooling("/llm/v1/chat/completions", {
+                model: openaiDisconnectModelName,
+                messages: [{ role: "user", content: "hi" }],
+                stream: true,
+            });
         }, 15000);
 
         it("should have null failed_code on successful stream", async () => {
@@ -300,6 +320,13 @@ describe("Stream Failure Handling", () => {
 
             expect(record.status).toBe("failed");
             expect(record.failed_code).toBe("stream_incomplete");
+
+            await expectCooling("/llm/v1/messages", {
+                model: anthropicIncompleteModelName,
+                messages: [{ role: "user", content: "hi" }],
+                stream: true,
+                max_tokens: 100,
+            });
         }, 15000);
     });
 
@@ -317,9 +344,15 @@ describe("Stream Failure Handling", () => {
 
             expect(record.status).toBe("failed");
             expect(record.failed_code).toBe("stream_incomplete");
+
+            await expectCooling("/llm/v1/responses", {
+                model: responsesIncompleteModelName,
+                input: "hi",
+                stream: true,
+            });
         }, 15000);
 
-        it("should set failed_code=upstream_error when converted Anthropic stream returns an SSE error event", async () => {
+        it("should fail before committing SSE when converted Anthropic stream starts with an error event", async () => {
             const response = await requestHelper.post(
                 "/llm/v1/responses",
                 {
@@ -330,10 +363,15 @@ describe("Stream Failure Handling", () => {
                 testUserToken,
             );
 
-            expect(response.status).toBe(200);
-            expect(typeof response.body).toBe("string");
-            expect(response.body).toContain("event: error");
-            expect(response.body).toContain("rate_limit_error");
+            expect(response.status).toBe(502);
+            expect(response.body).toEqual({
+                error: {
+                    message: expect.stringContaining("Upstream stream preflight failed"),
+                    type: "upstream_error",
+                    param: null,
+                    code: "upstream_error",
+                },
+            });
 
             const records = await requestHelper.getFinalizedRecords(adminToken, 1);
             const record = records[0];
@@ -348,7 +386,34 @@ describe("Stream Failure Handling", () => {
                     code: "1302",
                 },
             });
+
+            await expectCooling("/llm/v1/responses", {
+                model: responsesClientAnthropicStreamErrorModelName,
+                input: "hi",
+                stream: true,
+            });
         }, 15000);
+
+        it("should finish and release the vendor lease after response.completed even when upstream stays open", async () => {
+            const request = () => requestHelper.post(
+                "/llm/v1/responses",
+                { model: responsesCompleteThenHangModelName, input: "hi", stream: true },
+                testUserToken,
+            );
+
+            const firstResponse = await request();
+            expect(firstResponse.status).toBe(200);
+            expect(firstResponse.body).toContain("response.completed");
+
+            const firstRecord = (await requestHelper.getFinalizedRecords(adminToken, 1))[0];
+            expect(firstRecord.status).toBe("success");
+            expect(firstRecord.failed_code).toBeNull();
+
+            // concurrency=1；第二次请求成功说明首次流的供应商租约已经释放。
+            const secondResponse = await request();
+            expect(secondResponse.status).toBe(200);
+            expect(secondResponse.body).toContain("response.completed");
+        }, 5000);
     });
 
 

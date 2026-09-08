@@ -17,6 +17,7 @@ import {
     buildThinkingConfigFromOpenAIResponses,
     thinkingConfigToOpenAI,
 } from "./thinkingConfig";
+import protocolUsage from "./protocolUsageUtil";
 
 /**
  * Responses API → OpenAI Chat Completions 转换器
@@ -32,9 +33,7 @@ export class ResponsesToOpenAIConverter extends BaseConverter {
     private messageOpen = false;
     private contentPartOpen = false;
     private textBuf = "";
-    private inputTokens = 0;
-    private outputTokens = 0;
-    private cacheReadTokens = 0;
+    private pendingUsage: Record<string, any> = {};
     private reasoningActive = false;
     private reasoningItemId = "";
     private reasoningBuf = "";
@@ -42,6 +41,8 @@ export class ResponsesToOpenAIConverter extends BaseConverter {
     private funcArgsBuf: Record<number, string> = {};
     private funcNames: Record<number, string> = {};
     private funcCallIds: Record<number, string> = {};
+    // finish_reason 与 [DONE] 共用工具收尾状态；保留工具内容供最终响应组装，流结束后清空状态。
+    private completedFuncIndices = new Set<number>();
     private createdEmitted = false;
     private finishReason: string | null = null;
 
@@ -318,23 +319,35 @@ export class ResponsesToOpenAIConverter extends BaseConverter {
             status,
             model: upstreamRes.model,
             output,
-            usage: {
-                input_tokens: upstreamRes.usage?.prompt_tokens || 0,
-                output_tokens: upstreamRes.usage?.completion_tokens || 0,
-                total_tokens: upstreamRes.usage?.total_tokens || 0,
-                input_tokens_details: upstreamRes.usage?.prompt_tokens_details?.cached_tokens
-                    ? { cached_tokens: upstreamRes.usage.prompt_tokens_details.cached_tokens }
-                    : undefined,
-                output_tokens_details: upstreamRes.usage?.completion_tokens_details?.reasoning_tokens
-                    ? { reasoning_tokens: upstreamRes.usage.completion_tokens_details.reasoning_tokens }
-                    : undefined,
-            },
+            usage: protocolUsage.toResponsesUsage(protocolUsage.fromOpenAIUsage(upstreamRes.usage)),
         };
     }
 
     // ─── 流式响应转换：OpenAI SSE → Responses SSE ───
 
     protected doConvertStreamEvent(data: Record<string, unknown>, rawDataStr: string): ProtocolStreamEvent[] {
+        // 上游错误属于协议事件；已提交的流必须发送客户端可识别的错误，而不是静默 EOF。
+        if (data.error !== undefined || data.type === "error") {
+            const error = data.error && typeof data.error === "object" && !Array.isArray(data.error)
+                ? data.error as Record<string, unknown>
+                : data;
+            const event: ProtocolStreamEvent = {
+                event: "error",
+                data: JSON.stringify({
+                    type: "error",
+                    sequence_number: this.nextSeq(),
+                    code: typeof error.code === "string" ? error.code : "upstream_error",
+                    message: typeof error.message === "string"
+                        ? error.message
+                        : (typeof data.error === "string" ? data.error : "Upstream returned an error"),
+                    param: typeof error.param === "string" ? error.param : null,
+                }),
+            };
+            // 错误已结束本次响应；迟到的 [DONE] 不能再补发 response.completed。
+            this.resetState();
+            return [event];
+        }
+
         const out: ProtocolStreamEvent[] = [];
         const chunk = data as unknown as OpenAIChunk;
 
@@ -593,6 +606,7 @@ export class ResponsesToOpenAIConverter extends BaseConverter {
                 // 收尾 function_calls
                 const indices = Object.keys(this.funcCallIds).map(Number).sort((a, b) => a - b);
                 for (const i of indices) {
+                    if (this.completedFuncIndices.has(i)) continue;
                     out.push({
                         data: JSON.stringify({
                             type: "response.function_call_arguments.done",
@@ -617,77 +631,15 @@ export class ResponsesToOpenAIConverter extends BaseConverter {
                             },
                         }),
                     });
+                    this.completedFuncIndices.add(i);
                 }
             }
         }
 
-        // usage 帧 → response.completed
+        // OpenAI Chat 上游可能在 finish_reason 之后继续发送最终 usage 帧。
+        // usage 只累计，不能作为终态；response.completed 统一等 [DONE] 再生成。
         if (chunk.usage) {
-            this.inputTokens = chunk.usage.prompt_tokens ?? this.inputTokens;
-            this.outputTokens = chunk.usage.completion_tokens ?? this.outputTokens;
-            const cachedTokens = (chunk.usage as any).prompt_tokens_details?.cached_tokens;
-            if (cachedTokens !== undefined) {
-                this.cacheReadTokens = cachedTokens;
-            }
-
-            const outputArr: any[] = [];
-            if (this.textBuf) {
-                outputArr.push({
-                    id: this.currentMsgId,
-                    type: "message",
-                    status: "completed",
-                    content: [{ type: "output_text", text: this.textBuf }],
-                    role: "assistant",
-                });
-            }
-            if (this.reasoningBuf) {
-                outputArr.push({
-                    id: this.reasoningItemId,
-                    type: "reasoning",
-                    summary: [{ type: "summary_text", text: this.reasoningBuf }],
-                });
-            }
-            const funcIndices = Object.keys(this.funcCallIds).map(Number).sort((a, b) => a - b);
-            for (const i of funcIndices) {
-                outputArr.push({
-                    id: `fc_${this.funcCallIds[i]}`,
-                    type: "function_call",
-                    status: "completed",
-                    arguments: this.funcArgsBuf[i] || "{}",
-                    call_id: this.funcCallIds[i],
-                    name: this.funcNames[i] || "",
-                });
-            }
-
-            const status = (this.finishReason === "stop" || this.finishReason === "tool_calls" || this.finishReason === "length" || this.finishReason === "content_filter")
-                ? "completed"
-                : "completed";
-
-            out.push({
-                data: JSON.stringify({
-                    type: "response.completed",
-                    sequence_number: this.nextSeq(),
-                    response: {
-                        id: this.responseId,
-                        object: "response",
-                        created_at: Math.floor(Date.now() / 1000),
-                        status,
-                        model: this.requestModel,
-                        output: outputArr,
-                        usage: {
-                            input_tokens: this.inputTokens,
-                            input_tokens_details: this.cacheReadTokens ? {
-                                cached_tokens: this.cacheReadTokens,
-                            } : undefined,
-                            output_tokens: this.outputTokens,
-                            total_tokens: this.inputTokens + this.cacheReadTokens + this.outputTokens,
-                        },
-                    },
-                }),
-            });
-
-            // reset state
-            this.resetState();
+            this.pendingUsage = protocolUsage.mergeUsage(this.pendingUsage, chunk.usage as Record<string, any>);
         }
 
         return out;
@@ -696,7 +648,7 @@ export class ResponsesToOpenAIConverter extends BaseConverter {
     protected override handleDoneEvent(): ProtocolStreamEvent[] {
         const out: ProtocolStreamEvent[] = [];
 
-        // 如果还没有生成 response.completed，在 [DONE] 时兜底生成
+        // [DONE] 是 Chat 流唯一可靠终态；此前的 finish_reason 后仍可能有最终 usage。
         if (this.createdEmitted) {
             // 收尾未关闭的 block
             if (this.reasoningActive) {
@@ -776,6 +728,7 @@ export class ResponsesToOpenAIConverter extends BaseConverter {
 
             const funcIndices = Object.keys(this.funcCallIds).map(Number).sort((a, b) => a - b);
             for (const i of funcIndices) {
+                if (this.completedFuncIndices.has(i)) continue;
                 out.push({
                     data: JSON.stringify({
                         type: "response.function_call_arguments.done",
@@ -800,6 +753,7 @@ export class ResponsesToOpenAIConverter extends BaseConverter {
                         },
                     }),
                 });
+                this.completedFuncIndices.add(i);
             }
 
             // 生成 response.completed
@@ -846,14 +800,9 @@ export class ResponsesToOpenAIConverter extends BaseConverter {
                         status,
                         model: this.requestModel,
                         output: outputArr,
-                        usage: {
-                            input_tokens: this.inputTokens,
-                            input_tokens_details: this.cacheReadTokens ? {
-                                cached_tokens: this.cacheReadTokens,
-                            } : undefined,
-                            output_tokens: this.outputTokens,
-                            total_tokens: this.inputTokens + this.cacheReadTokens + this.outputTokens,
-                        },
+                        usage: protocolUsage.toResponsesUsage(
+                            protocolUsage.fromOpenAIUsage(this.pendingUsage),
+                        ),
                     },
                 }),
             });
@@ -870,9 +819,7 @@ export class ResponsesToOpenAIConverter extends BaseConverter {
         this.messageOpen = false;
         this.contentPartOpen = false;
         this.textBuf = "";
-        this.inputTokens = 0;
-        this.outputTokens = 0;
-        this.cacheReadTokens = 0;
+        this.pendingUsage = {};
         this.reasoningActive = false;
         this.reasoningItemId = "";
         this.reasoningBuf = "";
@@ -880,6 +827,7 @@ export class ResponsesToOpenAIConverter extends BaseConverter {
         this.funcArgsBuf = {};
         this.funcNames = {};
         this.funcCallIds = {};
+        this.completedFuncIndices.clear();
         this.createdEmitted = false;
         this.finishReason = null;
     }

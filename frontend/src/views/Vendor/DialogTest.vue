@@ -126,6 +126,7 @@ import { testModelRoute } from '@/api/model';
 import { notifyRequestError, notifySuccess, notifyWarning } from '@/utils/requestFeedback';
 import { message as antMessage } from 'ant-design-vue';
 import { CopyOutlined } from '@ant-design/icons-vue';
+import vendorProtocol from '@/utils/vendorProtocol';
 
 const visible = ref(false);
 const loading = ref(false);
@@ -235,7 +236,7 @@ function openVendorTest(vendor: Vendor, model?: string) {
     testModel.value = model ?? '';
     searchValue.value = '';
     activeTab.value = 'response';
-    format.value = vendor.type === 'anthropic' ? 'anthropic' : 'openai';
+    format.value = vendorProtocol.resolveRequestFormat(vendor);
 
     loadVendorModels(vendor.id, model);
 }

@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     modalConfirm: vi.fn(),
     messageSuccess: vi.fn(),
     messageError: vi.fn(),
+    messageWarning: vi.fn(),
     validate: vi.fn(),
 }));
 
@@ -27,6 +28,11 @@ vi.mock('@/stores/groups', () => ({ default: mocks.groupStore }));
 vi.mock('@/stores/models', () => ({ default: mocks.modelsStore }));
 vi.mock('@/stores/users', () => ({ default: mocks.usersStore }));
 vi.mock('@/stores/vendors', () => ({ default: mocks.vendorsStore }));
+vi.mock('@/utils/requestFeedback', () => ({
+    notifyError: mocks.messageError,
+    notifySuccess: mocks.messageSuccess,
+    notifyWarning: mocks.messageWarning,
+}));
 vi.mock('ant-design-vue/es', () => ({
     Modal: { confirm: mocks.modalConfirm },
     message: { success: mocks.messageSuccess, error: mocks.messageError },
@@ -258,6 +264,21 @@ describe('Group/List user actions', () => {
         expect(mocks.usersStore.refresh).toHaveBeenCalledTimes(1);
         expect(mocks.vendorsStore.refresh).toHaveBeenCalledTimes(1);
         expect(mocks.messageSuccess).toHaveBeenCalledWith('分组已删除');
+    });
+
+    it('warns when deletion succeeds but related resources fail to refresh', async () => {
+        mocks.usersStore.refresh.mockRejectedValueOnce(new Error('刷新失败'));
+        const wrapper = mountList();
+        await flushPromises();
+        await wrapper.get('button[aria-label="删除"]').trigger('click');
+        const config = mocks.modalConfirm.mock.calls[0]?.[0] as { onOk: () => Promise<void> };
+        await config.onOk();
+
+        expect(mocks.groupStore.remove).toHaveBeenCalledWith(1);
+        expect(mocks.vendorsStore.refresh).toHaveBeenCalledTimes(1);
+        expect(mocks.messageWarning).toHaveBeenCalledWith('分组已删除，但关联数据刷新失败，请刷新页面');
+        expect(mocks.messageSuccess).not.toHaveBeenCalledWith('分组已删除');
+        expect(mocks.messageError).not.toHaveBeenCalled();
     });
 
     it('shows a delete error and leaves related state untouched when removal fails', async () => {

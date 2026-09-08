@@ -53,6 +53,7 @@ const vendorTypes: VendorType[] = [
     'mimo',
     'mimo_token_plan',
     'opencode_go',
+    'openrouter',
     'other',
 ];
 
@@ -64,6 +65,19 @@ function toDate(value: unknown, fallback: Date): Date {
     const date = new Date(typeof value === 'string' || typeof value === 'number' ? value : NaN);
     return Number.isNaN(date.getTime()) ? fallback : date;
 }
+
+
+function toStrictPositiveId(value: unknown): number | null {
+    if (typeof value === 'number') {
+        return Number.isSafeInteger(value) && value > 0 ? value : null;
+    }
+    if (typeof value !== 'string' || !/^\+?\d+$/.test(value.trim())) {
+        return null;
+    }
+    const number = Number(value);
+    return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
 
 function toConfig(value: unknown): VendorConfig {
     if (!isRecord(value)) {
@@ -110,8 +124,30 @@ function toConfig(value: unknown): VendorConfig {
     if (typeof value.priority === 'number' && Number.isFinite(value.priority)) {
         config.priority = value.priority;
     }
-    if (value.group_id === null || (typeof value.group_id === 'number' && Number.isInteger(value.group_id))) {
-        config.group_id = value.group_id;
+    const rawGroupIds = value.group_ids !== undefined ? value.group_ids : value.groupIds;
+    if (Array.isArray(rawGroupIds)) {
+        const normalizedGroupIds = [...new Set(rawGroupIds
+            .map(toStrictPositiveId)
+            .filter((groupId): groupId is number => groupId !== null))];
+        const legacyGroupId = toStrictPositiveId(
+            value.group_id !== undefined ? value.group_id : value.groupId,
+        );
+        config.group_ids = normalizedGroupIds.length > 0 || rawGroupIds.length === 0
+            ? normalizedGroupIds
+            : (legacyGroupId === null ? [] : [legacyGroupId]);
+        config.group_id = config.group_ids[0] ?? null;
+    } else {
+        const rawGroupId = value.group_id !== undefined ? value.group_id : value.groupId;
+        if (rawGroupId === null) {
+            config.group_id = null;
+            config.group_ids = [];
+        } else {
+            const groupId = toStrictPositiveId(rawGroupId);
+            if (groupId !== null) {
+                config.group_id = groupId;
+                config.group_ids = [groupId];
+            }
+        }
     }
     if (value.proxy && isRecord(value.proxy)
         && (value.proxy.type === 'http' || value.proxy.type === 'socks5')
@@ -281,9 +317,10 @@ async function update(id: number, data: UpdateVendorRequest): Promise<Vendor> {
         throw new Error('供应商凭证不能为空');
     }
 
+    const incomingConfig = data.config === undefined ? {} : toConfig(data.config);
     const config = toConfig({
         ...current.config,
-        ...(data.config ?? {}),
+        ...incomingConfig,
     });
     if (data.config?.available_models !== undefined) {
         config.available_models = normalizeModels(data.config.available_models);
@@ -322,18 +359,29 @@ async function remove(id: number): Promise<{ success: boolean }> {
 }
 
 async function clearGroupReferences(groupId: number): Promise<number> {
-    const affected = state.filter(vendor => vendor.config.group_id === groupId);
+    const getGroupIds = (vendor: Vendor): number[] => vendor.config.group_ids
+        ?? (vendor.config.group_id == null ? [] : [vendor.config.group_id]);
+    const affected = state.filter(vendor => getGroupIds(vendor).includes(groupId));
     if (affected.length === 0) {
         return 0;
     }
 
-    const next = state.map(vendor => vendor.config.group_id === groupId
-        ? {
-            ...vendor,
-            config: { ...vendor.config, group_id: null },
-            updated_at: new Date(),
+    const next = state.map(vendor => {
+        const groupIds = getGroupIds(vendor);
+        if (!groupIds.includes(groupId)) {
+            return vendor;
         }
-        : vendor);
+        const remainingGroupIds = groupIds.filter(id => id !== groupId);
+        return {
+            ...vendor,
+            config: {
+                ...vendor.config,
+                group_id: remainingGroupIds?.[0] ?? null,
+                group_ids: remainingGroupIds,
+            },
+            updated_at: new Date(),
+        };
+    });
     persist(next);
     return affected.length;
 }

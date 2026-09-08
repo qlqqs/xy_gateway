@@ -1,5 +1,11 @@
 import { sutando } from "sutando";
-import { DatabaseAdapter, D1Adapter, SQLiteAdapter, MySQLAdapter } from "../util/dbAdapterUtil";
+import {
+    DatabaseAdapter,
+    D1Adapter,
+    SQLiteAdapter,
+    MySQLAdapter,
+} from "../util/dbAdapterUtil";
+import type { D1BatchExecutor } from "../util/dbAdapterUtil";
 import { MySQLDBAdapter } from "../util/db/mysqlDBAdapter";
 import { SQLiteDBAdapter } from "../util/db/sqliteDBAdapter";
 import dbMigrationService from "./dbMigrationService";
@@ -200,6 +206,13 @@ class ORMService {
     getKnex(): any {
         const queryBuilder = (sutando as any).connection();
         return (queryBuilder as any).connector;
+    }
+
+    captureD1Batch(requestDb: D1Database): D1BatchExecutor {
+        if (!(this._dbAdapter instanceof D1Adapter)) {
+            throw new customError.AppError("D1 database is not initialized", 500);
+        }
+        return this._dbAdapter.captureBatchExecutor(requestDb);
     }
 
     private static readonly EXPECTED_TABLES = [

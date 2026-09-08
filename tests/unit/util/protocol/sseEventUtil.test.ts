@@ -21,6 +21,25 @@ describe("sseEventUtil", () => {
         expect(result.remainingBuffer).toBe("event: one\ndata: partial");
     });
 
+    it("should split CRLF events and preserve a trailing partial event", () => {
+        const result = sseEvent.splitEvents(
+            "event: one\r\ndata: 1\r\n\r\nevent: two\r\ndata: partial\r\n",
+        );
+
+        expect(result.events).toEqual(["event: one\r\ndata: 1"]);
+        expect(result.remainingBuffer).toBe("event: two\r\ndata: partial\r\n");
+    });
+
+    it("should preserve a separator split across chunks", () => {
+        const first = sseEvent.splitEvents("event: one\r\ndata: 1\r\n");
+        expect(first.events).toEqual([]);
+        expect(first.remainingBuffer).toBe("event: one\r\ndata: 1\r\n");
+
+        const second = sseEvent.splitEvents(`${first.remainingBuffer}\r\ndata: partial`);
+        expect(second.events).toEqual(["event: one\r\ndata: 1"]);
+        expect(second.remainingBuffer).toBe("data: partial");
+    });
+
     it("should parse data, event and id fields", () => {
         const event = sseEvent.parseEvent("id: abc\nevent: message_delta\ndata: {\"type\":\"message_delta\"}");
 
@@ -35,6 +54,12 @@ describe("sseEventUtil", () => {
         const event = sseEvent.parseEvent("event: message\ndata: hello\ndata: world");
 
         expect(event?.data).toBe("hello\nworld");
+    });
+
+    it("should parse CRLF fields", () => {
+        const event = sseEvent.parseEvent("id: abc\r\nevent: message\r\ndata: hello\r\ndata: world");
+
+        expect(event).toEqual({ id: "abc", event: "message", data: "hello\nworld" });
     });
 
     it("should return null for events without data", () => {

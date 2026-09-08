@@ -44,14 +44,15 @@ function markFailure(
 }
 
 
-// 判定某次失败是否应记录为上游健康问题（触发全局冷却）
-// 仅"上游自身故障"需要记录：5xx 服务端错误、402 余额不足、网络不可达（无 HTTP 状态码）
-// 4xx 属于请求侧/配置侧错误（400/401/403/404/429 等），上游本身健康，不应被冷却
+// 判定某次失败是否应记录为上游健康问题（触发 vendor/model/format 粒度冷却）
+// 仅上游暂时不可用的失败需要记录：5xx、402、429 和网络不可达。
+// 429 表示当前上游已限流，短期冷却可避免后续请求持续命中同一受限上游；
+// 其余 4xx 属于请求侧或配置侧错误，不应影响上游健康状态。
 function shouldMarkFailure(status: number | null): boolean {
     if (status === null) {
         return true;
     }
-    return status >= 500 || status === 402;
+    return status >= 500 || status === 402 || status === 429;
 }
 
 

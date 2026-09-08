@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { DBAdapter } from "./dbAdapter";
 
 export class WranglerDBAdapter implements DBAdapter {
@@ -13,14 +13,15 @@ export class WranglerDBAdapter implements DBAdapter {
     }
 
     private runWrangler(args: string[]): string {
-        let cmd = `npx wrangler d1 execute ${this.dbName} ${this.target}`;
+        const command = process.platform === "win32" ? "npx.cmd" : "npx";
+        const commandArgs = ["wrangler", "d1", "execute", this.dbName, this.target];
         if (this.configPath) {
-            cmd += ` --config ${this.configPath}`;
+            commandArgs.push("--config", this.configPath);
         }
-        cmd += ` ${args.join(" ")}`;
-        console.log(`> ${cmd}`);
+        commandArgs.push(...args);
+        console.log(`> ${command} ${commandArgs.join(" ")}`);
         try {
-            const output = execSync(cmd, { encoding: "utf-8", stdio: "pipe" });
+            const output = execFileSync(command, commandArgs, { encoding: "utf-8", stdio: "pipe" });
             return output;
         } catch (e: any) {
             console.error("Wrangler command failed:", e.message);
@@ -31,17 +32,14 @@ export class WranglerDBAdapter implements DBAdapter {
     }
 
     exec(sql: string): void {
-        // Instead of passing huge SQL directly on CLI args which can lead to quotes issues,
-        // let's try direct --command first
-        const singleLine = sql.replace(/\n/g, " ");
-        this.runWrangler([`--command="${singleLine.replace(/"/g, '\\"')}"`]);
+        // 使用参数数组保留换行和引号。迁移常以 `--` 注释开头，压平为单行会使
+        // 整份 SQL 被 SQLite 当作注释；拼 shell 字符串还会引入额外转义风险。
+        this.runWrangler(["--command", sql]);
     }
 
     query<T>(sql: string): T[] {
         // Wrangler --json output format: [{results: [...], success: true, ...}]
-        const output = this.runWrangler([
-            `--json --command="${sql.replace(/"/g, '\\"')}"`,
-        ]);
+        const output = this.runWrangler(["--json", "--command", sql]);
         try {
             const match = output.match(/\[.*\]/s);
             if (match) {

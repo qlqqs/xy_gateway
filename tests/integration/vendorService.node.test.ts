@@ -1,18 +1,24 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SgVendor } from "../../src/model/sgVendor";
+import vendorManager from "../../src/manager/vendorManager";
+import vendorModelManager from "../../src/manager/vendorModelManager";
 import vendorService from "../../src/service/vendorService";
 import { ApiFormat } from "../../src/constants";
 import dbHelper from "../helpers/dbHelper";
 import ormTestHelper from "../helpers/ormTestHelper";
 
 
-describe("vendorService.findVendorByUrl", () => {
+describe("vendorService", () => {
     beforeAll(async () => {
         await ormTestHelper.connectNodeOrm();
     });
 
     beforeEach(async () => {
         await dbHelper.truncate();
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     async function createVendor(type: string, urls: Record<string, string> = {}): Promise<SgVendor> {
@@ -157,5 +163,61 @@ describe("vendorService.findVendorByUrl", () => {
         );
 
         expect(presetResult).toBeNull();
+    });
+
+    it("should create a vendor and its normalized model projection atomically", async () => {
+        const vendor = new SgVendor({
+            type: "openai",
+            name: "Aggregate create vendor",
+            token: "secret",
+            urls: {},
+            config: { available_models: [" beta-model ", "alpha-model", "beta-model"] },
+        });
+
+        const created = await vendorService.createVendor(vendor);
+        const models = await vendorModelManager.listByVendor(Number(created.id));
+
+        expect(created.config.available_models).toEqual(["beta-model", "alpha-model"]);
+        expect(created.available_models).toEqual(["beta-model", "alpha-model"]);
+        expect(models.map(model => model.model_id)).toEqual(["alpha-model", "beta-model"]);
+    });
+
+    it("should roll back vendor creation when model synchronization fails", async () => {
+        const vendor = new SgVendor({
+            type: "openai",
+            name: "Aggregate create rollback vendor",
+            token: "secret",
+            urls: {},
+            config: { available_models: ["model-a"] },
+        });
+        vi.spyOn(vendorModelManager, "syncByVendorWithConnection")
+            .mockRejectedValueOnce(new Error("sync failed"));
+
+        await expect(vendorService.createVendor(vendor)).rejects.toThrow("sync failed");
+
+        expect(await vendorManager.findByName("Aggregate create rollback vendor")).toBeNull();
+    });
+
+    it("should roll back vendor fields when model synchronization fails during update", async () => {
+        const created = await vendorService.createVendor(new SgVendor({
+            type: "openai",
+            name: "Aggregate update rollback vendor",
+            token: "secret",
+            urls: {},
+            config: { available_models: ["stable-model"] },
+        }));
+        vi.spyOn(vendorModelManager, "syncByVendorWithConnection")
+            .mockRejectedValueOnce(new Error("sync failed"));
+
+        await expect(vendorService.updateVendor(Number(created.id), {
+            name: "Unexpected updated name",
+            config: { available_models: ["replacement-model"] },
+        })).rejects.toThrow("sync failed");
+
+        const reloaded = await vendorManager.findById(Number(created.id));
+        const models = await vendorModelManager.listByVendor(Number(created.id));
+        expect(reloaded?.name).toBe("Aggregate update rollback vendor");
+        expect(reloaded?.config.available_models).toEqual(["stable-model"]);
+        expect(models.map(model => model.model_id)).toEqual(["stable-model"]);
     });
 });

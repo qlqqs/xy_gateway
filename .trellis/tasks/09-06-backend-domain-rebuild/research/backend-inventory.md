@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | 用户认证 | `User.keys[]`，每个 Key 独立分组/状态/限制 | `user.token` 单字段，`findByToken()` 直接查用户 | 必须拆出 `user_key` 并重写 auth context |
 | 分组 | 协议、模型范围、倍率、状态 | 无表、无 route、无 service | 新建完整领域，不适合塞进 vendor config |
-| 供应商 | `concurrency/load_factor/priority/group_id/status` | config cast 未声明/未序列化这些字段，路由也不使用 | 调度字段需正式持久化并进入候选过滤 |
+| 供应商 | `concurrency/load_factor/priority/config.group_ids[]/status` | config cast 原先未声明/未序列化完整多分组关系，路由也未使用 | `group_ids[]` 需作为规范关系进入候选过滤，`group_id` 仅作首项投影 |
 | 模型 | `mapping.upstreams[]` | controller 强制 `routing_mode/routing_config` | 新 DTO 与旧接口直接不兼容，应硬切 |
 | 路由 | 分组池 + 优先级 + 权重 + 并发 | single/load_balance/first_available，主要按用户/请求随机 | 重写候选和 scheduler，保留 failover/健康冷却思想 |
 | 计费 | Key 额度 + 分组倍率 + 三种计费模式 | 仅成功后扣用户余额，无 Key/倍率/幂等结算 | 统一 BillingService 和 settlement |
@@ -37,7 +37,7 @@
 ## 不能直接照搬的语义
 
 - 前端 `rateLimit` 是最大并发；sub2api 的 API Key rate limit 是 5h/1d/7d 美元用量窗口。
-- 本项目 Key 绑定一个 group、vendor 也绑定一个 group；sub2api account/group 是多对多。
+- 本项目每个 Key 绑定至多一个分组，供应商可通过 `config.group_ids[]` 分配至多个分组；这与 sub2api 的 account/group 多对多领域结构不同。
 - 本项目模型显式 `mapping.upstreams`；sub2api 按平台账号池和模型映射调度。
 - 本项目以人民币、整数微元和每百万 token 定价；sub2api 主要以美元/每 token 浮点字段计算。
 - 本项目需要继续支持 Worker/D1/Tauri；sub2api 的强一致实现依赖 PostgreSQL/Redis。

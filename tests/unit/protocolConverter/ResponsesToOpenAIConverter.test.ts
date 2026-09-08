@@ -631,6 +631,7 @@ describe("ResponsesToOpenAIConverter", () => {
                 },
             };
             events.push(...streamConverter.convertStreamEvent(JSON.stringify(chunk4)));
+            events.push(...streamConverter.convertStreamEvent("[DONE]"));
 
             // 验证事件
             const eventTypes = events.map((e) => JSON.parse(e.data).type);
@@ -742,14 +743,20 @@ describe("ResponsesToOpenAIConverter", () => {
                 },
             };
             events.push(...streamConverter.convertStreamEvent(JSON.stringify(chunk5)));
+            events.push(...streamConverter.convertStreamEvent("[DONE]"));
 
             // 验证 response.completed 的内容
-            const completedEvent = events.find((e) => JSON.parse(e.data).type === "response.completed");
-            const completedData = JSON.parse(completedEvent.data);
+            const parsedEvents = events.map((event) => JSON.parse(event.data));
+            const completedData = parsedEvents.find((event) => event.type === "response.completed");
             expect(completedData.response.output).toHaveLength(1);
             expect(completedData.response.output[0].type).toBe("function_call");
             expect(completedData.response.output[0].name).toBe("get_weather");
             expect(completedData.response.output[0].arguments).toBe('{"city":"Beijing"}');
+            expect(parsedEvents.filter((event) => event.type === "response.function_call_arguments.done"))
+                .toHaveLength(1);
+            expect(parsedEvents.filter((event) => event.type === "response.output_item.done"
+                && event.item?.type === "function_call"))
+                .toHaveLength(1);
         });
 
         it("should convert reasoning stream", () => {
@@ -812,6 +819,7 @@ describe("ResponsesToOpenAIConverter", () => {
                 },
             };
             events.push(...streamConverter.convertStreamEvent(JSON.stringify(chunk4)));
+            events.push(...streamConverter.convertStreamEvent("[DONE]"));
 
             // 验证 response.completed 的内容
             const completedEvent = events.find((e) => JSON.parse(e.data).type === "response.completed");
@@ -886,7 +894,7 @@ describe("ResponsesToOpenAIConverter", () => {
             expect(completedData.response.output[0].content[0].text).toBe("Hi");
         });
 
-        it("should generate response.completed when usage is combined with finish_reason frame", () => {
+        it("should wait for [DONE] when usage is combined with finish_reason frame", () => {
             const streamConverter = new ResponsesToOpenAIConverter("gpt-4");
             const events: any[] = [];
 
@@ -923,7 +931,17 @@ describe("ResponsesToOpenAIConverter", () => {
             };
             events.push(...streamConverter.convertStreamEvent(JSON.stringify(chunk2)));
 
-            // 应该已经有 response.completed（不需要 [DONE]）
+            const preDoneEventTypes = events.map((e) => {
+                try {
+                    return JSON.parse(e.data).type;
+                } catch {
+                    return null;
+                }
+            });
+            expect(preDoneEventTypes).not.toContain("response.completed");
+
+            events.push(...streamConverter.convertStreamEvent("[DONE]"));
+
             const eventTypes = events.map((e) => {
                 try {
                     return JSON.parse(e.data).type;
@@ -931,7 +949,7 @@ describe("ResponsesToOpenAIConverter", () => {
                     return null;
                 }
             });
-            expect(eventTypes).toContain("response.completed");
+            expect(eventTypes.filter(type => type === "response.completed")).toHaveLength(1);
 
             // 验证 response.completed 的内容
             const completedEvent = events.find((e) => {
@@ -949,6 +967,155 @@ describe("ResponsesToOpenAIConverter", () => {
             expect(completedData.response.usage.output_tokens).toBe(5);
         });
     });
+
+    it("finish_reason 后继续累计最终 usage，直到 DONE 才完成一次", () => {
+        const streamConverter = new ResponsesToOpenAIConverter("gpt-4");
+        const events: any[] = [];
+
+        events.push(...streamConverter.convertStreamEvent(JSON.stringify({
+            id: "chatcmpl-usage",
+            choices: [{ index: 0, delta: { content: "Hello" }, finish_reason: null }],
+            usage: { prompt_tokens: 10, completion_tokens: 1, total_tokens: 11 },
+        })));
+
+        events.push(...streamConverter.convertStreamEvent(JSON.stringify({
+            choices: [{ index: 0, delta: { content: " world" }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+        })));
+
+        events.push(...streamConverter.convertStreamEvent(JSON.stringify({
+            choices: [],
+            usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+        })));
+
+        const preDoneEvents = events.map(event => JSON.parse(event.data));
+        expect(preDoneEvents.some(event => event.type === "response.completed")).toBe(false);
+
+        const doneEvents = streamConverter.convertStreamEvent("[DONE]")
+            .map(event => JSON.parse(event.data));
+        const completed = doneEvents.filter(event => event.type === "response.completed");
+        expect(completed).toHaveLength(1);
+        expect(completed[0].response.output[0].content[0].text).toBe("Hello world");
+        expect(completed[0].response.usage.output_tokens).toBe(8);
+        expect(completed[0].response.usage.total_tokens).toBe(18);
+
+        expect(streamConverter.convertStreamEvent("[DONE]"))
+            .toHaveLength(0);
+    });
+
+
+    it("只有中途 usage 时等到 DONE 才完成，且保留已累计用量", () => {
+        const streamConverter = new ResponsesToOpenAIConverter("gpt-4");
+        streamConverter.convertStreamEvent(JSON.stringify({
+            choices: [{ index: 0, delta: { content: "Hello" }, finish_reason: null }],
+            usage: { prompt_tokens: 10, completion_tokens: 1, total_tokens: 11 },
+        }));
+        const finishing = streamConverter.convertStreamEvent(JSON.stringify({
+            choices: [{ index: 0, delta: { content: " world" }, finish_reason: "stop" }],
+        }));
+        expect(finishing.some(event => event.data.includes('"response.completed"'))).toBe(false);
+        const completed = streamConverter.convertStreamEvent("[DONE]")
+            .map(event => JSON.parse(event.data))
+            .find(event => event.type === "response.completed");
+        expect(completed.response.output[0].content[0].text).toBe("Hello world");
+        expect(completed.response.usage.input_tokens).toBe(10);
+    });
+
+
+    it.each([
+        { error: { message: "upstream busy", code: "server_error", param: "model" } },
+        { type: "error", message: "upstream busy", code: "server_error", param: "model" },
+    ])("将中途上游错误转换为 Responses 错误终态：%j", errorPayload => {
+        const streamConverter = new ResponsesToOpenAIConverter("gpt-4");
+        const started = streamConverter.convertStreamEvent(JSON.stringify({
+            choices: [{ index: 0, delta: { content: "hello" }, finish_reason: null }],
+        })).map(event => JSON.parse(event.data));
+        const events = streamConverter.convertStreamEvent(JSON.stringify(errorPayload));
+
+        expect(events).toHaveLength(1);
+        expect(events[0].event).toBe("error");
+        const error = JSON.parse(events[0].data);
+        expect(error).toEqual({
+            type: "error", code: "server_error", message: "upstream busy", param: "model",
+            sequence_number: started[started.length - 1].sequence_number + 1,
+        });
+        expect(streamConverter.convertStreamEvent("[DONE]")).toHaveLength(0);
+    });
+
+
+    it("首帧错误只生成错误事件，并为缺失的错误字段提供默认值", () => {
+        const streamConverter = new ResponsesToOpenAIConverter("gpt-4");
+        const events = streamConverter.convertStreamEvent(JSON.stringify({ error: { message: "upstream busy" } }));
+
+        expect(events).toHaveLength(1);
+        expect(events[0].event).toBe("error");
+        expect(JSON.parse(events[0].data)).toEqual({
+            type: "error", code: "upstream_error", message: "upstream busy", param: null,
+            sequence_number: 1,
+        });
+        expect(streamConverter.convertStreamEvent("[DONE]")).toHaveLength(0);
+    });
+
+
+    it.each(["tool_calls", null])("工具仅收尾一次，finish_reason=%s 时均等待 DONE 完成", (finishReason) => {
+        const streamConverter = new ResponsesToOpenAIConverter("gpt-4");
+
+        // 复用转换器并复用工具索引，验证上一条流的收尾状态不会泄漏。
+        for (let request = 0; request < 2; request++) {
+            const toolCalls = [0, 1].map(index => ({
+                index,
+                id: `call_${request}_${index}`,
+                type: "function",
+                function: { name: `lookup_${index}`, arguments: JSON.stringify({ index }) },
+            }));
+            const events = streamConverter.convertStreamEvent(JSON.stringify({
+                choices: [{ index: 0, delta: { tool_calls: toolCalls }, finish_reason: null }],
+            })).map(event => JSON.parse(event.data));
+
+            if (finishReason) {
+                events.push(...streamConverter.convertStreamEvent(JSON.stringify({
+                    choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+                    usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+                })).map(event => JSON.parse(event.data)));
+            }
+            events.push(...streamConverter.convertStreamEvent(JSON.stringify({
+                choices: [],
+                usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+            })).map(event => JSON.parse(event.data)));
+
+            expect(events.filter(event => event.type === "response.completed")).toHaveLength(0);
+            for (const tool of toolCalls) {
+                expect(events.filter(event => event.type === "response.function_call_arguments.done"
+                    && event.item_id === `fc_${tool.id}`)).toHaveLength(finishReason ? 1 : 0);
+            }
+
+            events.push(...streamConverter.convertStreamEvent("[DONE]")
+                .map(event => JSON.parse(event.data)));
+
+            for (const tool of toolCalls) {
+                const argumentsDone = events.filter(event => event.type === "response.function_call_arguments.done"
+                    && event.item_id === `fc_${tool.id}`);
+                expect(argumentsDone).toHaveLength(1);
+                expect(argumentsDone[0].arguments).toBe(tool.function.arguments);
+                expect(events.filter(event => event.type === "response.output_item.done"
+                    && event.item.id === `fc_${tool.id}`)).toHaveLength(1);
+            }
+            const completed = events.filter(event => event.type === "response.completed");
+            expect(completed).toHaveLength(1);
+            expect(events[events.length - 1]).toBe(completed[0]);
+            expect(completed[0].response.usage.output_tokens).toBe(8);
+            expect(completed[0].response.output).toEqual(toolCalls.map(tool => ({
+                id: `fc_${tool.id}`,
+                type: "function_call",
+                status: "completed",
+                arguments: tool.function.arguments,
+                call_id: tool.id,
+                name: tool.function.name,
+            })));
+            expect(streamConverter.convertStreamEvent("[DONE]")).toHaveLength(0);
+        }
+    });
+
 
     // ─── ConverterFactory 测试 ───
 

@@ -64,11 +64,73 @@ describe("Group API (Positive)", () => {
         expect(updated.status).toBe(200);
         expect(updated.body.description).toBe("已更新");
 
+        expect(updated.body.channelCount).toBe(0);
         const removed = await requestHelper.del(`/group/${created.body.id}`, adminToken);
         expect(removed.status).toBe(200);
         expect(removed.body).toEqual({ success: true });
 
         const afterDelete = await requestHelper.get(`/group/${created.body.id}`, adminToken);
         expect(afterDelete.status).toBe(404);
+    });
+
+
+    it("counts a vendor in every assigned group and preserves remaining groups on deletion", async () => {
+        const groupPayload = (name: string) => ({
+            name,
+            description: "多分组供应商回归",
+            inboundProtocols: ["openai_chat"],
+            customModels: [],
+            whitelistEnabled: false,
+            rateMultiplier: 1,
+            status: "active",
+        });
+        const firstGroup = await requestHelper.post(
+            "/group/create.json",
+            groupPayload("供应商分组一"),
+            adminToken,
+        );
+        const secondGroup = await requestHelper.post(
+            "/group/create.json",
+            groupPayload("供应商分组二"),
+            adminToken,
+        );
+        const vendor = await requestHelper.post(
+            "/vendor/create.json",
+            {
+                type: "other",
+                name: "多分组删除回归供应商",
+                token: "multi-group-delete-token",
+                urls: { openai: "https://example.test/v1/chat/completions" },
+                config: { group_ids: [firstGroup.body.id, secondGroup.body.id] },
+            },
+            adminToken,
+        );
+        expect(vendor.status).toBe(200);
+
+        const listed = await requestHelper.get("/group/list.json", adminToken);
+        expect(listed.body.list.find((item: { id: number }) => item.id === firstGroup.body.id)?.channelCount).toBe(1);
+        expect(listed.body.list.find((item: { id: number }) => item.id === secondGroup.body.id)?.channelCount).toBe(1);
+
+        const updatedSecondGroup = await requestHelper.put(
+            `/group/${secondGroup.body.id}`,
+            { name: "供应商分组二（已更新）" },
+            adminToken,
+        );
+        expect(updatedSecondGroup.status).toBe(200);
+        expect(updatedSecondGroup.body).toMatchObject({
+            name: "供应商分组二（已更新）",
+            channelCount: 1,
+        });
+
+        const removed = await requestHelper.del(`/group/${firstGroup.body.id}`, adminToken);
+        expect(removed.status).toBe(200);
+
+        const updatedVendor = await requestHelper.get(`/vendor/${vendor.body.id}`, adminToken);
+        expect(updatedVendor.body.config).toMatchObject({
+            group_id: secondGroup.body.id,
+            group_ids: [secondGroup.body.id],
+        });
+        const remainingGroup = await requestHelper.get(`/group/${secondGroup.body.id}`, adminToken);
+        expect(remainingGroup.body.channelCount).toBe(1);
     });
 });

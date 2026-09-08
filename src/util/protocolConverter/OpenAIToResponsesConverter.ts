@@ -16,6 +16,7 @@ import {
     buildThinkingConfigFromOpenAI,
     thinkingConfigToOpenAIResponses,
 } from "./thinkingConfig";
+import protocolUsage from "./protocolUsageUtil";
 
 /**
  * OpenAI Chat Completions → Responses API 转换器
@@ -202,24 +203,9 @@ export class OpenAIToResponsesConverter extends BaseConverter {
         const finalId = requestId || upstreamRes.id;
         const responseId = finalId.startsWith("chatcmpl-") ? finalId : `chatcmpl-${finalId.replace("resp_", "")}`;
 
-        const inputTokens = upstreamRes.usage?.input_tokens || 0;
-        const outputTokens = upstreamRes.usage?.output_tokens || 0;
-        const totalTokens = upstreamRes.usage?.total_tokens || (inputTokens + outputTokens);
-        const cachedTokens = upstreamRes.usage?.input_tokens_details?.cached_tokens;
-        const reasoningTokens = upstreamRes.usage?.output_tokens_details?.reasoning_tokens;
-
-        const usage: OpenAIResponse["usage"] = {
-            prompt_tokens: inputTokens,
-            completion_tokens: outputTokens,
-            total_tokens: totalTokens,
-        };
-
-        if (cachedTokens !== undefined) {
-            usage.prompt_tokens_details = { cached_tokens: cachedTokens };
-        }
-        if (reasoningTokens !== undefined) {
-            usage.completion_tokens_details = { reasoning_tokens: reasoningTokens };
-        }
+        const usage = protocolUsage.toOpenAIUsage(
+            protocolUsage.fromResponsesUsage(upstreamRes.usage),
+        );
 
         const message: OpenAIResponse["choices"][0]["message"] = {
             role: "assistant",
@@ -403,24 +389,9 @@ export class OpenAIToResponsesConverter extends BaseConverter {
 
                 // 发送 usage（单独的 chunk）
                 if (usage) {
-                    const inputTokens = usage.input_tokens || 0;
-                    const outputTokens = usage.output_tokens || 0;
-                    const totalTokens = usage.total_tokens || (inputTokens + outputTokens);
-                    const cachedTokens = usage.input_tokens_details?.cached_tokens;
-                    const reasoningTokens = usage.output_tokens_details?.reasoning_tokens;
-
-                    const usageData: any = {
-                        prompt_tokens: inputTokens,
-                        completion_tokens: outputTokens,
-                        total_tokens: totalTokens,
-                    };
-
-                    if (cachedTokens !== undefined) {
-                        usageData.prompt_tokens_details = { cached_tokens: cachedTokens };
-                    }
-                    if (reasoningTokens !== undefined) {
-                        usageData.completion_tokens_details = { reasoning_tokens: reasoningTokens };
-                    }
+                    const usageData = protocolUsage.toOpenAIUsage(
+                        protocolUsage.fromResponsesUsage(usage),
+                    );
 
                     out.push({
                         data: JSON.stringify({

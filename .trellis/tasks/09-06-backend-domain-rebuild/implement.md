@@ -11,7 +11,7 @@
 
 1. 新增 `SgUserKey`、`SgUserGroup`、`SgModelUpstream` model 及对应 manager。
 2. 新增 SQLite/MySQL migration：创建新表、供应商调度列、record 关联/计费列和必要索引。
-3. 重写用户、分组、供应商和模型 service/controller DTO；模型保存事务内替换上游映射。
+3. 重写用户、分组、供应商和模型 service/controller DTO；供应商以 `config.group_ids[]` 往返多分组并同步 `group_id` 首项投影，模型保存事务内替换上游映射。
 4. 删除新代码对 `user.token`、`routing_mode/routing_config` 的依赖；更新 `EXPECTED_TABLES`。
 5. 增加 manager/service/API 聚焦测试和新 fixture。
 
@@ -29,11 +29,11 @@
 
 ## 阶段 3：供应商调度和并发
 
-1. 将 `mapping.upstreams` 查询转换成候选对象；按分组/状态/协议/健康状态过滤。
-2. 实现优先级分层和负载因子加权调度，保留请求级 tried set 和失败冷却。
+1. 将 `mapping.upstreams` 查询转换成候选对象；按 Key 分组是否包含于供应商 `config.group_ids[]`、状态、协议和健康状态过滤，未分组 Key 只匹配空集合。
+2. 实现优先级分层和负载因子加权调度，保留请求级 tried set；上游 429、5xx、402、网络及响应解析/转换失败按 `(vendor, model, format)` 进入现有时长的失败冷却，本地业务 429 不进入冷却。
 3. 建立 Key/Vendor 并发租约接口和单进程实现；所有 stream/non-stream/异常/取消路径统一释放。
 4. 在记录活动中保存每次候选选择、跳过理由和最终命中结果。
-5. 增加调度分布、优先级、容量耗尽、failover 和租约泄漏测试。
+5. 增加多分组池隔离、调度分布、优先级、容量耗尽、429 冷却、failover 和租约泄漏测试。
 
 验收：同一优先级按权重分配，低优先级只在高优先级不可用时使用，容量限制在单实例准确。
 

@@ -39,11 +39,11 @@ function buildRequest(
 
     const vendorAuthMode = vendor.auth_mode ?? vendor.config?.auth_mode ?? VendorAuthMode.BEARER_TOKEN;
     if (format === ApiFormat.ANTHROPIC) {
+        headers.set("anthropic-version", "2023-06-01");
         if (vendorAuthMode === VendorAuthMode.BEARER_TOKEN) {
             headers.set("Authorization", vendor.token.startsWith("Bearer ") ? vendor.token : `Bearer ${vendor.token}`);
         } else {
             headers.set("x-api-key", vendor.token);
-            headers.set("anthropic-version", "2023-06-01");
         }
         headers.set("Content-Type", "application/json");
         body = JSON.stringify({

@@ -158,7 +158,7 @@ import DialogTest from '@/views/Vendor/DialogTest.vue';
 import UpstreamModel from './UpstreamModel.vue';
 import type { Model, ModelQuery } from '@/types/model';
 import type { VendorModel } from '@/types/vendor';
-import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
+import { notifyRequestError, notifySuccess, notifyWarning } from '@/utils/requestFeedback';
 
 const { loading, data, pagination, searchForm, loadData, handleSearch, handleReset, handleTableChange } = useResourceTable<Model, ModelQuery>({
     initialSearchForm: {
@@ -184,6 +184,8 @@ function hasConfiguredPrice(model: Model): boolean {
         prices.input,
         prices.output,
         prices.cache_write,
+        prices.cache_write_5m,
+        prices.cache_write_1h,
         prices.cache_read,
         prices.image_input,
         prices.image_output,
@@ -219,11 +221,14 @@ function handleEdit(record: Model) {
 }
 
 async function handleSuccess() {
-    await Promise.allSettled([
+    const refreshResults = await Promise.allSettled([
         groupsStore.refresh(),
         usersStore.refresh(),
     ]);
-    loadData();
+    if (refreshResults.some(result => result.status === 'rejected')) {
+        notifyWarning('模型已保存，但关联数据刷新失败，请刷新页面');
+    }
+    void loadData();
 }
 
 function handleTest(record: Model) {
@@ -240,11 +245,15 @@ function handleDelete(record: Model) {
         onOk: async () => {
             try {
                 await modelsStore.remove(record.id);
-                await Promise.allSettled([
+                const refreshResults = await Promise.allSettled([
                     groupsStore.refresh(),
                     usersStore.refresh(),
                 ]);
-                notifySuccess('删除成功');
+                if (refreshResults.some(result => result.status === 'rejected')) {
+                    notifyWarning('模型已删除，但关联数据刷新失败，请刷新页面');
+                } else {
+                    notifySuccess('删除成功');
+                }
                 void loadData();
             } catch (error) {
                 notifyRequestError(error, '删除失败');

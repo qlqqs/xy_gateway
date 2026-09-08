@@ -46,6 +46,12 @@ export const VENDOR_PRESETS: Record<VendorType, VendorPreset> = {
         label: 'OpenCode Go',
         openai: 'https://opencode.ai/zen/go/v1',
     },
+    openrouter: {
+        label: 'OpenRouter',
+        openai: 'https://openrouter.ai/api/v1/chat/completions',
+        anthropic: 'https://openrouter.ai/api/v1/messages',
+        responses: 'https://openrouter.ai/api/v1/responses',
+    },
     anthropic: {
         label: 'Anthropic',
         anthropic: 'https://api.anthropic.com',
@@ -58,4 +64,3 @@ export const VENDOR_PRESETS: Record<VendorType, VendorPreset> = {
         label: 'Other',
     },
 };
-

@@ -23,6 +23,7 @@
                         <a-select-option value="mimo">Mimo</a-select-option>
                         <a-select-option value="mimo_token_plan">Mimo Token Plan</a-select-option>
                         <a-select-option value="opencode_go">OpenCode Go</a-select-option>
+                        <a-select-option value="openrouter">OpenRouter</a-select-option>
                         <a-select-option value="openai">OpenAI</a-select-option>
                         <a-select-option value="anthropic">Anthropic</a-select-option>
                         <a-select-option value="google">Google</a-select-option>
@@ -121,7 +122,7 @@ import DialogCreate from './DialogCreate.vue';
 import DialogEdit from './DialogEdit.vue';
 import DialogTest from './DialogTest.vue';
 import type { Vendor, VendorQuery, VendorType } from '@/types/vendor';
-import { notifyRequestError, notifySuccess } from '@/utils/requestFeedback';
+import { notifyRequestError, notifySuccess, notifyWarning } from '@/utils/requestFeedback';
 
 const { loading, data, pagination, searchForm, loadData, handleSearch, handleReset, handleTableChange } = useResourceTable<Vendor, VendorQuery>({
     initialSearchForm: {
@@ -153,19 +154,31 @@ function handleCreate() {
 }
 
 async function handleCreateSuccess() {
-    await Promise.allSettled([groupsStore.refresh()]);
-    loadData();
+    const [groupRefresh] = await Promise.allSettled([groupsStore.refresh()]);
+    if (groupRefresh.status === 'rejected') {
+        notifyWarning('供应商已创建，但分组统计刷新失败，请刷新页面');
+    }
+    void loadData();
 }
 
-function handleEdit(record: Vendor) {
-    editDialogRef.value?.open(record);
+async function handleEdit(record: Vendor) {
+    try {
+        const vendor = await vendorsStore.fetch(record.id);
+        if (!vendor) throw new Error('供应商不存在');
+        editDialogRef.value?.open(vendor);
+    } catch (error) {
+        notifyRequestError(error, '加载供应商失败');
+    }
 }
 
 async function handleEditSuccess() {
-    await Promise.allSettled([
+    const refreshResults = await Promise.allSettled([
         modelsStore.refresh(),
         groupsStore.refresh(),
     ]);
+    if (refreshResults.some(result => result.status === 'rejected')) {
+        notifyWarning('供应商已更新，但关联数据刷新失败，请刷新页面');
+    }
     void loadData();
 }
 
@@ -186,11 +199,15 @@ function handleDelete(record: Vendor) {
                 if (!result.success) {
                     throw new Error('供应商不存在');
                 }
-                await Promise.allSettled([
+                const refreshResults = await Promise.allSettled([
                     modelsStore.refresh(),
                     groupsStore.refresh(),
                 ]);
-                notifySuccess('删除成功');
+                if (refreshResults.some(result => result.status === 'rejected')) {
+                    notifyWarning('供应商已删除，但关联数据刷新失败，请刷新页面');
+                } else {
+                    notifySuccess('删除成功');
+                }
                 void loadData();
             } catch (error) {
                 notifyRequestError(error, '删除失败');
@@ -208,6 +225,7 @@ function getTypeLabel(type: VendorType): string {
         mimo: 'Mimo',
         mimo_token_plan: 'Mimo Token Plan',
         opencode_go: 'OpenCode Go',
+        openrouter: 'OpenRouter',
         openai: 'OpenAI',
         anthropic: 'Anthropic',
         google: 'Google',
@@ -225,6 +243,7 @@ function getTypeColor(type: VendorType): string {
         mimo: 'blue',
         mimo_token_plan: 'blue',
         opencode_go: 'cyan',
+        openrouter: 'blue',
         openai: 'green',
         anthropic: 'orange',
         google: '',

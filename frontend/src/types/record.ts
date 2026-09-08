@@ -1,19 +1,51 @@
 import type { BaseEntity, PaginationParams } from './index';
+import type { ModelBillingMode } from './model';
 
 export type RequestStatus = 'init' | 'processing' | 'success' | 'failed';
-export type FailedCode = 'client_disconnected' | 'upstream_disconnected' | 'stream_incomplete' | 'upstream_error' | null;
+export type SettlementStatus = 'pending' | 'settled' | 'skipped';
+export type FailedCode =
+    | 'client_disconnected'
+    | 'upstream_disconnected'
+    | 'stream_incomplete'
+    | 'upstream_error'
+    | 'no_available_upstream'
+    | 'insufficient_balance'
+    | 'billing_error'
+    | 'model_not_found'
+    | null;
 
-/** 记录的 token 用量（后端已按展示口径归一化：prompt_tokens = 非缓存输入，cache_read_tokens 独立返回；上游未返回的字段为 null，返回 0 则为 0） */
+export interface RecordCostBreakdown {
+    input_cost: number;
+    image_input_cost: number;
+    output_cost: number;
+    image_output_cost: number;
+    cache_creation_cost: number;
+    cache_creation_5m_cost: number;
+    cache_creation_1h_cost: number;
+    cache_read_cost: number;
+    request_cost: number;
+    total_cost: number;
+}
+
+/** 记录的 token 用量；prompt_tokens 为普通输入，缓存创建和读取独立返回。 */
 export interface RecordUsage {
     prompt_tokens: number | null;
     completion_tokens: number | null;
     cache_read_tokens: number | null;
     cache_creation_tokens?: number | null;
+    cache_creation_5m_tokens?: number | null;
+    cache_creation_1h_tokens?: number | null;
+    image_input_tokens?: number | null;
+    image_output_tokens?: number | null;
+    cost_breakdown?: RecordCostBreakdown | null;
 }
 
 export interface Record extends BaseEntity {
     user_id: number | null;
+    key_id: number | null;
+    group_id: number | null;
     model_id: number | null;
+    requested_model: string | null;
     request_data: string | null;
     response_data: string | null;
     status: RequestStatus | null;
@@ -24,7 +56,11 @@ export interface Record extends BaseEntity {
     first_token_latency: number | null;
     start_at: string | number | null;
     end_at: string | number | null;
+    billing_mode: ModelBillingMode | null;
+    base_cost: number;
+    rate_multiplier: number;
     cost: number;
+    settlement_status: SettlementStatus;
 
     // 关联数据
     user_name?: string | null;

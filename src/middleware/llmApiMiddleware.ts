@@ -5,6 +5,7 @@ import recordService from "../service/recordService";
 import customError from "../util/customErrorUtil";
 import authContextService from "../service/authContextService";
 import accessPolicyService from "../service/accessPolicyService";
+import ormService from "../service/ormService";
 
 
 function extractLlmToken(c: Context): string {
@@ -57,15 +58,14 @@ function parseLlmRequestBody(body: string): string {
 
 
 function getClientIp(c: Context): string | null {
-    // Cloudflare supplies a single trusted address.  For Node/Tauri deployments
-    // use the conventional proxy headers when present and fall back to null;
-    // policy code treats a missing address as not matching an enabled whitelist.
-    const candidates = [
-        c.req.header("CF-Connecting-IP"),
-        c.req.header("X-Real-IP"),
-        c.req.header("X-Forwarded-For")?.split(",")[0],
-    ];
-    return candidates.find(value => value?.trim())?.trim() ?? null;
+    if (ormService.isWorker) {
+        return c.req.header("CF-Connecting-IP")?.trim() || null;
+    }
+
+    const env = c.env as {
+        server?: { incoming?: { socket?: { remoteAddress?: string } } };
+    };
+    return env.server?.incoming?.socket?.remoteAddress?.trim() || null;
 }
 
 async function authenticateLlmContext(c: Context) {
@@ -85,11 +85,8 @@ const requireLlmRequestContext = (format: ApiFormat): MiddlewareHandler => {
         const body = await c.req.text();
         const modelName = parseLlmRequestBody(body);
         const clientIp = getClientIp(c);
-        // Run identity/status/IP/protocol/model-whitelist gates before
-        // looking up the model.  This keeps policy ordering deterministic and
-        // avoids exposing model existence to a disabled/expired key.  The
-        // second pass below adds the price-dependent balance/quota checks once
-        // the model entity is available.
+        // 查找模型前先执行身份、状态、IP、协议和模型白名单检查，避免向无权限 Key
+        // 暴露模型是否存在；拿到模型后再执行依赖价格的余额与额度检查。
         await accessPolicyService.assertLlmAccess(
             authContext,
             format,
@@ -117,10 +114,8 @@ const requireLlmRequestContext = (format: ApiFormat): MiddlewareHandler => {
                 modelConfig,
             );
         } catch (error: any) {
-            // A policy rejection still represents a user request.  Persist
-            // the balance failure before returning so operators can explain
-            // why a request was denied; the sender is never reached in this
-            // branch, so this cannot create a duplicate record.
+            // 策略拒绝仍是一条用户请求。余额不足时先写失败记录，便于定位拒绝原因；
+            // 此分支不会进入 sender，因此不会重复创建记录。
             if (error?.code === "insufficient_balance") {
                 await recordService.recordFailedRequest(
                     authContext.user.id >= 0 ? authContext.user.id : null,
@@ -156,8 +151,7 @@ const requireLlmModelsAuth: MiddlewareHandler = async (c: Context, next) => {
     c.set("api_format", ApiFormat.OPENAI);
     const { authContext } = await authenticateLlmContext(c);
     if (!authContext) {
-        // Keep the catalogue endpoint's historical error wording; request
-        // endpoints still use the protocol-standard "Invalid API key" below.
+        // 保留模型目录接口的历史错误文案；推理接口仍使用协议约定的 Invalid API key。
         throw new customError.AppError("Invalid token", 401, "authentication_error");
     }
     accessPolicyService.assertModelsAccess(authContext, ApiFormat.OPENAI, getClientIp(c));

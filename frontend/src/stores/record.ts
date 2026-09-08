@@ -70,7 +70,10 @@ export const useRecordStore = defineStore('record', () => {
      */
     async function enrichRecords(recordList: Record[]) {
         const userIds = [...new Set(recordList.map(r => r.user_id).filter(id => id !== null && Number(id) !== -1))] as number[];
-        const modelIds = [...new Set(recordList.map(r => r.model_id).filter(id => id !== null))] as number[];
+        const modelIds = [...new Set(recordList
+            .filter(record => !record.requested_model)
+            .map(record => record.model_id)
+            .filter(id => id !== null))] as number[];
 
         const vendorIds = [...new Set(recordList.map(r => r.vendor_id).filter(id => id !== null && id !== undefined))] as number[];
         const userMap = new Map(userStore.users.map(user => [user.id, user.name]));
@@ -99,7 +102,9 @@ export const useRecordStore = defineStore('record', () => {
                 record.user_name = userMap.get(uid) || `用户${uid}`;
             }
 
-            if (mid) {
+            if (record.requested_model) {
+                record.model_name = record.requested_model;
+            } else if (mid) {
                 const model = modelMap.get(mid);
                 if (model) {
                     record.model_name = model.name;
@@ -130,7 +135,7 @@ export const useRecordStore = defineStore('record', () => {
             const recordDetail: RecordDetail = {
                 ...record,
                 user_name: null,
-                model_name: null,
+                model_name: record.requested_model || null,
                 vendor_name: null,
             };
 
@@ -154,10 +159,12 @@ export const useRecordStore = defineStore('record', () => {
                 );
             }
 
-            const localModel = record.model_id
+            const localModel = !record.requested_model && record.model_id
                 ? modelsStore.models.find(model => model.id === Number(record.model_id))
                 : undefined;
-            if (localModel) {
+            if (record.requested_model) {
+                recordDetail.model_name = record.requested_model;
+            } else if (localModel) {
                 recordDetail.model_name = localModel.name;
             } else if (record.model_id) {
                 promises.push(

@@ -237,6 +237,12 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
         handleOpenAIChatUnavailable(req, res);
     } else if (url.includes("/chat/completions/balance")) {
         handleOpenAIChatBalance(req, res);
+    } else if (url.includes("/chat/completions/malformed")) {
+        req.resume();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end("{malformed-json");
+    } else if (url.includes("/chat/completions/created")) {
+        handleOpenAIChat(req, res, 201);
     } else if (url.includes("/chat/completions")) {
         handleOpenAIChat(req, res);
     } else if (url.includes("/responses/incomplete")) {
@@ -249,6 +255,10 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
         handleResponsesError(req, res);
     } else if (url.includes("/responses")) {
         handleOpenAIResponses(req, res);
+    } else if (url.includes("/messages/malformed")) {
+        req.resume();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end("{malformed-json");
     } else if (url.includes("/messages/stream-error")) {
         handleAnthropicStreamError(req, res);
     } else if (url.includes("/messages/incomplete")) {
@@ -269,7 +279,7 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
 /**
  * Handle OpenAI chat completions
  */
-function handleOpenAIChat(req: IncomingMessage, res: ServerResponse): void {
+function handleOpenAIChat(req: IncomingMessage, res: ServerResponse, successStatus: number = 200): void {
     let body = "";
 
     req.on("data", (chunk) => {
@@ -289,7 +299,7 @@ function handleOpenAIChat(req: IncomingMessage, res: ServerResponse): void {
                     handleOpenAIStreamResponse(res, data);
                 }
             } else {
-                handleOpenAINonStreamResponse(res, data);
+                handleOpenAINonStreamResponse(res, data, successStatus);
             }
         } catch (e) {
             const errorMsg = `Error parsing request body: ${e}`;
@@ -344,7 +354,7 @@ function handleOpenAIChatError(req: IncomingMessage, res: ServerResponse): void 
 /**
  * Handle OpenAI non-streaming response
  */
-function handleOpenAINonStreamResponse(res: ServerResponse, data: any): void {
+function handleOpenAINonStreamResponse(res: ServerResponse, data: any, status: number = 200): void {
     const response = {
         id: `chatcmpl-${Date.now()}`,
         object: "chat.completion",
@@ -370,7 +380,7 @@ function handleOpenAINonStreamResponse(res: ServerResponse, data: any): void {
         _received_headers: receivedHeaders,
     };
 
-    res.writeHead(200, { "Content-Type": "application/json" });
+    res.writeHead(status, { "Content-Type": "application/json" });
     res.end(JSON.stringify(response));
 }
 
@@ -623,6 +633,18 @@ function handleResponsesNonStreamResponse(res: ServerResponse, data: any): void 
     const msgId = `msg_mock_${Date.now()}`;
     const respId = `resp_mock_${Date.now()}`;
     const now = Math.floor(Date.now() / 1000);
+    const defaultUsage = {
+        input_tokens: 10,
+        input_tokens_details: { cached_tokens: data.cached_tokens ?? 0 },
+        output_tokens: 15,
+        output_tokens_details: { reasoning_tokens: 0 },
+        total_tokens: 25,
+    };
+    const usage = data.mock_usage !== null
+        && typeof data.mock_usage === "object"
+        && !Array.isArray(data.mock_usage)
+        ? data.mock_usage
+        : defaultUsage;
 
     const response = {
         id: respId,
@@ -645,13 +667,7 @@ function handleResponsesNonStreamResponse(res: ServerResponse, data: any): void 
                 ],
             },
         ],
-        usage: {
-            input_tokens: 10,
-            input_tokens_details: { cached_tokens: data.cached_tokens ?? 0 },
-            output_tokens: 15,
-            output_tokens_details: { reasoning_tokens: 0 },
-            total_tokens: 25,
-        },
+        usage,
         error: null,
         incomplete_details: null,
         instructions: null,
@@ -903,6 +919,7 @@ function handleAnthropicNonStreamResponse(
             input_tokens: 10,
             output_tokens: 15,
         },
+        _received_headers: receivedHeaders,
     };
 
     res.writeHead(200, { "Content-Type": "application/json" });

@@ -4,12 +4,37 @@ import type {
     CreateVendorRequest,
     UpdateVendorRequest,
     Vendor,
-    VendorConfig,
     VendorModel,
     VendorQuery,
     VendorUrls,
 } from '@/types/vendor';
 import apiUtils, { type ApiRecord } from './apiRepositoryUtils';
+
+
+function toStrictPositiveId(value: unknown): number | null {
+    if (typeof value === 'number') {
+        return Number.isSafeInteger(value) && value > 0 ? value : null;
+    }
+    if (typeof value !== 'string' || !/^\+?\d+$/.test(value.trim())) {
+        return null;
+    }
+    const number = Number(value);
+    return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+
+function normalizeGroupIds(value: unknown, fallback: number | null = null): number[] {
+    if (!Array.isArray(value)) return fallback === null ? [] : [fallback];
+    const normalized = [...new Set(value
+        .map(toStrictPositiveId)
+        .filter((groupId): groupId is number => groupId !== null))];
+    // 显式空数组表示未分组；损坏的非空数组则保留正式标量投影，避免把已分组
+    // 供应商错误放宽到未分组池。该规则与后端 SgVendor 保持一致。
+    return normalized.length > 0 || value.length === 0
+        ? normalized
+        : (fallback === null ? [] : [fallback]);
+}
+
 
 function normalizeVendorModel(value: unknown): VendorModel {
     const raw = apiUtils.assertRecord(value, '后端供应商模型响应格式无效');
@@ -33,6 +58,17 @@ function normalizeVendor(value: unknown): Vendor {
         ))
         : {};
     const config = apiUtils.isRecord(raw.config) ? { ...raw.config } : {};
+    const rawGroupIds = config.group_ids !== undefined ? config.group_ids : config.groupIds;
+    const legacyGroupId = toStrictPositiveId(
+        config.group_id !== undefined ? config.group_id : config.groupId,
+    );
+    const groupIds = Array.isArray(rawGroupIds)
+        ? normalizeGroupIds(rawGroupIds, legacyGroupId)
+        : (legacyGroupId === null ? [] : [legacyGroupId]);
+    const groupId = groupIds[0] ?? null;
+    delete config.groupIds;
+    delete config.groupId;
+    config.group_ids = groupIds;
     return {
         id: apiUtils.toPositiveId(raw.id),
         type: apiUtils.toString(raw.type) as Vendor['type'],
@@ -44,9 +80,8 @@ function normalizeVendor(value: unknown): Vendor {
             ...(config.available_models === undefined
                 ? {}
                 : { available_models: apiUtils.toStringArray(config.available_models) }),
-            ...(config.group_id === null || config.group_id === undefined
-                ? { group_id: null }
-                : { group_id: apiUtils.toPositiveId(config.group_id) || null }),
+            group_id: groupId,
+            group_ids: groupIds,
             ...(config.status === 'disabled' ? { status: 'disabled' as const } : { status: 'active' as const }),
             ...(config.concurrency === undefined ? {} : { concurrency: apiUtils.toNumber(config.concurrency, 1) }),
             ...(config.priority === undefined ? {} : { priority: apiUtils.toNumber(config.priority, 1) }),
@@ -60,13 +95,56 @@ function normalizeVendor(value: unknown): Vendor {
     };
 }
 
-function serializeVendor(data: CreateVendorRequest | UpdateVendorRequest): ApiRecord {
+function serializeVendor(data: CreateVendorRequest | UpdateVendorRequest, isUpdate = false): ApiRecord {
     const payload: ApiRecord = {};
     if (data.type !== undefined) payload.type = data.type;
     if (data.name !== undefined) payload.name = data.name;
     if (data.token !== undefined) payload.token = data.token;
     if (data.urls !== undefined) payload.urls = { ...data.urls };
-    if (data.config !== undefined) payload.config = { ...data.config };
+    if (data.config !== undefined) {
+        const config: ApiRecord = { ...data.config };
+        // group_ids 是传输层规范字段；边界仍兼容 UI 旧对象中的 camelCase，
+        // 并同步首个 ID 到旧标量字段。
+        const rawGroupIds = config.group_ids !== undefined ? config.group_ids : config.groupIds;
+        const rawGroupId = config.group_id !== undefined ? config.group_id : config.groupId;
+        const legacyGroupId = toStrictPositiveId(rawGroupId);
+        if (Array.isArray(rawGroupIds)) {
+            const groupIds = normalizeGroupIds(rawGroupIds, legacyGroupId);
+            if (groupIds.length > 0 || rawGroupIds.length === 0 || legacyGroupId !== null) {
+                config.group_ids = groupIds;
+                config.group_id = groupIds[0] ?? null;
+            } else {
+                delete config.group_ids;
+                delete config.group_id;
+            }
+        } else if (rawGroupIds !== undefined) {
+            // 只有显式空数组表示解绑。损坏的列表值优先回退旧标量；两者都无效时
+            // 省略关系字段，避免更新请求意外清空现有分组。
+            if (legacyGroupId !== null) {
+                config.group_ids = [legacyGroupId];
+                config.group_id = legacyGroupId;
+            } else {
+                delete config.group_ids;
+                delete config.group_id;
+            }
+        } else {
+            if (rawGroupId !== undefined) {
+                if (legacyGroupId !== null) {
+                    config.group_id = legacyGroupId;
+                    config.group_ids = [legacyGroupId];
+                } else if (isUpdate) {
+                    delete config.group_id;
+                    delete config.group_ids;
+                } else {
+                    config.group_id = null;
+                    config.group_ids = [];
+                }
+            }
+        }
+        delete config.groupIds;
+        delete config.groupId;
+        payload.config = config;
+    }
     return payload;
 }
 
@@ -85,21 +163,11 @@ async function get(id: number): Promise<Vendor | null> {
 }
 
 async function create(data: CreateVendorRequest): Promise<Vendor> {
-    const vendor = normalizeVendor(await request.post<unknown>('/vendor/create.json', serializeVendor(data)));
-    const syncedModels = await syncConfiguredModels(vendor.id, data.config);
-    if (syncedModels) {
-        vendor.model_count = syncedModels.length;
-    }
-    return vendor;
+    return normalizeVendor(await request.post<unknown>('/vendor/create.json', serializeVendor(data)));
 }
 
 async function update(id: number, data: UpdateVendorRequest): Promise<Vendor> {
-    const vendor = normalizeVendor(await request.put<unknown>(`/vendor/${id}`, serializeVendor(data)));
-    const syncedModels = await syncConfiguredModels(vendor.id, data.config);
-    if (syncedModels) {
-        vendor.model_count = syncedModels.length;
-    }
-    return vendor;
+    return normalizeVendor(await request.put<unknown>(`/vendor/${id}`, serializeVendor(data, true)));
 }
 
 async function remove(id: number): Promise<{ success: boolean }> {
@@ -123,35 +191,6 @@ async function listModels(vendorId: number): Promise<VendorModel[]> {
     const response = await request.get<unknown>(`/vendor/${vendorId}/model/list.json`);
     if (!Array.isArray(response)) throw new Error('后端供应商模型列表格式无效');
     return response.map(normalizeVendorModel);
-}
-
-/**
- * 将供应商表单中的可用模型同步到规范化 vendor_model 表。
- *
- * 使用增量 add/delete 而不是后端的全量 sync 接口，保留仍存在模型的
- * 稳定记录 ID，避免编辑供应商时无意义地清空模型上游映射。
- */
-async function syncConfiguredModels(vendorId: number, config?: VendorConfig): Promise<VendorModel[] | null> {
-    if (!config || config.available_models === undefined) return null;
-
-    const desired = [...new Set(config.available_models
-        .map(model => model.trim())
-        .filter(Boolean))];
-    const existing = await listModels(vendorId);
-    const desiredSet = new Set(desired);
-    const existingByName = new Map(existing.map(model => [model.model_id, model]));
-
-    // 写操作按顺序执行。本地 Node 默认使用 SQLite，供应商表单保存时并发
-    // DELETE/INSERT 可能争用唯一写锁并导致请求失败。
-    for (const model of existing.filter(item => !desiredSet.has(item.model_id))) {
-        await request.delete<unknown>(`/vendor/${vendorId}/model/${model.id}`);
-    }
-
-    for (const modelId of desired.filter(item => !existingByName.has(item))) {
-        await request.post<unknown>(`/vendor/${vendorId}/model/add.json`, { model_id: modelId });
-    }
-
-    return listModels(vendorId);
 }
 
 async function batchModels(ids: number[]): Promise<VendorModel[]> {

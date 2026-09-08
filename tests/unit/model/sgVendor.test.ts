@@ -372,5 +372,135 @@ describe("SgVendor.getUrlByFormat — URL merge & resolution", () => {
             const parsed = JSON.parse(json);
             expect(parsed).toEqual({ auth_mode: VendorAuthMode.BEARER_TOKEN });
         });
+
+        it("prefers explicitly supplied top-level group_ids over nested legacy config", () => {
+            const vendor = new SgVendor({
+                config: { group_ids: [1, 2] },
+                group_ids: [3, 4],
+            });
+
+            expect(vendor.getGroupIds()).toEqual([3, 4]);
+            expect(vendor.group_id).toBe(3);
+            expect(vendor.config.toJSON()).toMatchObject({
+                group_id: 3,
+                group_ids: [3, 4],
+            });
+        });
+
+        it("falls back to the formal group column for malformed persisted group_ids", () => {
+            const getGroupIds = SgVendor.prototype.getGroupIds;
+            const vendor = (groupIds: unknown) => ({
+                config: { group_ids: groupIds },
+                group_id: 7,
+            }) as unknown as SgVendor;
+
+            expect(getGroupIds.call(vendor("invalid"))).toEqual([7]);
+            expect(getGroupIds.call(vendor([null, "invalid"]))).toEqual([7]);
+        });
+
+        it("keeps the formal group fallback when constructing a raw database row", () => {
+            const malformed = new SgVendor({
+                id: 1,
+                group_id: 7,
+                config: JSON.stringify({ group_ids: ["invalid"], remark: "keep" }),
+            });
+            const explicitlyUngrouped = new SgVendor({
+                id: 2,
+                group_id: 7,
+                config: JSON.stringify({ group_ids: [] }),
+            });
+
+            expect(malformed.getGroupIds()).toEqual([7]);
+            expect(malformed.group_id).toBe(7);
+            expect(malformed.config.toJSON()).toMatchObject({
+                remark: "keep",
+                group_id: 7,
+                group_ids: [7],
+            });
+            expect(explicitlyUngrouped.getGroupIds()).toEqual([]);
+            expect(explicitlyUngrouped.group_id).toBeNull();
+        });
+
+
+        it("原始行构造保留 JSON 正式列，并正确读取字符串布尔值", () => {
+            const vendor = new SgVendor({
+                id: 3,
+                type: "other",
+                group_id: 7,
+                config: JSON.stringify({ group_ids: [7, 8] }),
+                urls: JSON.stringify({ openai: "https://upstream.example/v1" }),
+                available_models: JSON.stringify(["model-a", "model-b"]),
+                proxy: JSON.stringify({ type: "http", url: "http://proxy.example:8080" }),
+                skip_tls_verify: "0",
+                concurrency: "5",
+                priority: "2",
+                load_factor: null,
+            });
+
+            expect(vendor.getGroupIds()).toEqual([7, 8]);
+            expect(vendor.available_models).toEqual(["model-a", "model-b"]);
+            expect(vendor.proxy).toEqual({ type: "http", url: "http://proxy.example:8080" });
+            expect(vendor.skip_tls_verify).toBe(false);
+            expect(vendor.getUrlByFormat(ApiFormat.OPENAI)).toBe("https://upstream.example/v1/chat/completions");
+            expect(vendor.getEffectiveWeight()).toBe(5);
+            expect(vendor.config.toJSON()).toMatchObject({
+                available_models: ["model-a", "model-b"],
+                proxy: { type: "http", url: "http://proxy.example:8080" },
+                skip_tls_verify: false,
+                group_ids: [7, 8],
+            });
+        });
+
+        it("keeps an explicit empty group_ids array ungrouped", () => {
+            const getGroupIds = SgVendor.prototype.getGroupIds;
+            const vendor = {
+                config: { group_ids: [] },
+                group_id: 7,
+            } as unknown as SgVendor;
+
+            expect(getGroupIds.call(vendor)).toEqual([]);
+        });
+
+        it("preserves unrelated config fields during a partial group update", () => {
+            const vendor = new SgVendor({
+                config: {
+                    api_type: "openai",
+                    openai_protocol: "responses",
+                    concurrency: 7,
+                    group_ids: [1, 2],
+                },
+            });
+
+            vendor.fill({ config: { group_id: 3 } });
+
+            expect(vendor.getGroupIds()).toEqual([3]);
+            expect(vendor.config.toJSON()).toMatchObject({
+                api_type: "openai",
+                openai_protocol: "responses",
+                concurrency: 7,
+                group_id: 3,
+                group_ids: [3],
+            });
+        });
+
+        it("preserves unrelated config fields when clearing all groups", () => {
+            const vendor = new SgVendor({
+                config: {
+                    api_type: "anthropic",
+                    concurrency: 4,
+                    group_ids: [1, 2],
+                },
+            });
+
+            vendor.fill({ group_ids: [] });
+
+            expect(vendor.getGroupIds()).toEqual([]);
+            expect(vendor.config.toJSON()).toMatchObject({
+                api_type: "anthropic",
+                concurrency: 4,
+                group_id: null,
+                group_ids: [],
+            });
+        });
     });
 });

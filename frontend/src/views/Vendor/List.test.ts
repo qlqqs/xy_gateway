@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
     vendorsStore: {
         vendors: [] as Vendor[],
         list: vi.fn(),
+        fetch: vi.fn(),
         remove: vi.fn(),
     },
     modelsStore: { refresh: vi.fn() },
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     testOpen: vi.fn(),
     modalConfirm: vi.fn(),
     notifySuccess: vi.fn(),
+    notifyWarning: vi.fn(),
     notifyRequestError: vi.fn(),
     dialogStubs: {
         create: {
@@ -52,6 +54,7 @@ vi.mock('@/stores/models', () => ({ default: mocks.modelsStore }));
 vi.mock('@/stores/groups', () => ({ default: mocks.groupsStore }));
 vi.mock('@/utils/requestFeedback', () => ({
     notifySuccess: mocks.notifySuccess,
+    notifyWarning: mocks.notifyWarning,
     notifyRequestError: mocks.notifyRequestError,
 }));
 vi.mock('ant-design-vue/es', () => ({ Modal: { confirm: mocks.modalConfirm } }));
@@ -149,6 +152,7 @@ describe('Vendor/List user actions', () => {
         vi.clearAllMocks();
         mocks.vendorsStore.vendors = reactive([vendor]);
         mocks.vendorsStore.list.mockResolvedValue({ list: [vendor], total: 1 });
+        mocks.vendorsStore.fetch.mockResolvedValue(vendor);
         mocks.vendorsStore.remove.mockResolvedValue({ success: true });
         mocks.modelsStore.refresh.mockResolvedValue(undefined);
         mocks.groupsStore.refresh.mockResolvedValue(undefined);
@@ -176,6 +180,16 @@ describe('Vendor/List user actions', () => {
         expect(mocks.vendorsStore.list).toHaveBeenLastCalledWith({ keyword: undefined, type: undefined, page: 2, pageSize: 20 });
     });
 
+    it('renders OpenRouter in the type filter and vendor label', async () => {
+        const openRouterVendor = { ...vendor, type: 'openrouter' as const, name: 'OpenRouter channel' };
+        mocks.vendorsStore.list.mockResolvedValueOnce({ list: [openRouterVendor], total: 1 });
+        const wrapper = mountList();
+        await flushPromises();
+
+        expect(wrapper.findAll('option').map(option => option.text())).toContain('OpenRouter');
+        expect(wrapper.text()).toContain('OpenRouter');
+    });
+
     it('opens create, edit and test dialogs from the corresponding user actions', async () => {
         const wrapper = mountList();
         await flushPromises();
@@ -184,10 +198,40 @@ describe('Vendor/List user actions', () => {
         expect(mocks.createOpen).toHaveBeenCalledTimes(1);
 
         await wrapper.get('button[aria-label="编辑"]').trigger('click');
+        await flushPromises();
+        expect(mocks.vendorsStore.fetch).toHaveBeenCalledWith(vendor.id);
         expect(mocks.editOpen).toHaveBeenCalledWith(vendor);
 
         await wrapper.get('button[aria-label="测试"]').trigger('click');
         expect(mocks.testOpen).toHaveBeenCalledWith(vendor);
+    });
+
+    it('opens edit with the latest vendor details instead of the list snapshot', async () => {
+        const latestVendor = {
+            ...vendor,
+            config: { ...vendor.config, group_id: 5, group_ids: [5, 6] },
+        };
+        mocks.vendorsStore.fetch.mockResolvedValueOnce(latestVendor);
+        const wrapper = mountList();
+        await flushPromises();
+
+        await wrapper.get('button[aria-label="编辑"]').trigger('click');
+        await flushPromises();
+
+        expect(mocks.editOpen).toHaveBeenCalledWith(latestVendor);
+        expect(mocks.editOpen).not.toHaveBeenCalledWith(vendor);
+    });
+
+    it('reports detail loading failures without opening edit', async () => {
+        mocks.vendorsStore.fetch.mockRejectedValueOnce(new Error('network down'));
+        const wrapper = mountList();
+        await flushPromises();
+
+        await wrapper.get('button[aria-label="编辑"]').trigger('click');
+        await flushPromises();
+
+        expect(mocks.editOpen).not.toHaveBeenCalled();
+        expect(mocks.notifyRequestError).toHaveBeenCalledWith(expect.any(Error), '加载供应商失败');
     });
 
     it('refreshes related resources after child-dialog success events', async () => {
@@ -205,6 +249,30 @@ describe('Vendor/List user actions', () => {
         expect(mocks.vendorsStore.list).toHaveBeenCalledTimes(3);
     });
 
+    it('warns when create succeeds but group statistics fail to refresh', async () => {
+        mocks.groupsStore.refresh.mockRejectedValueOnce(new Error('refresh failed'));
+        const wrapper = mountList();
+        await flushPromises();
+
+        wrapper.findComponent({ name: 'DialogCreate' }).vm.$emit('success', vendor);
+        await flushPromises();
+
+        expect(mocks.notifyWarning).toHaveBeenCalledWith('供应商已创建，但分组统计刷新失败，请刷新页面');
+        expect(mocks.vendorsStore.list).toHaveBeenCalledTimes(2);
+    });
+
+    it('warns when edit succeeds but related resources fail to refresh', async () => {
+        mocks.modelsStore.refresh.mockRejectedValueOnce(new Error('refresh failed'));
+        const wrapper = mountList();
+        await flushPromises();
+
+        wrapper.findComponent({ name: 'DialogEdit' }).vm.$emit('success', vendor);
+        await flushPromises();
+
+        expect(mocks.notifyWarning).toHaveBeenCalledWith('供应商已更新，但关联数据刷新失败，请刷新页面');
+        expect(mocks.vendorsStore.list).toHaveBeenCalledTimes(2);
+    });
+
     it('deletes only after confirmation and reports success', async () => {
         const wrapper = mountList();
         await flushPromises();
@@ -219,6 +287,19 @@ describe('Vendor/List user actions', () => {
         expect(mocks.modelsStore.refresh).toHaveBeenCalledTimes(1);
         expect(mocks.groupsStore.refresh).toHaveBeenCalledTimes(1);
         expect(mocks.notifySuccess).toHaveBeenCalledWith('删除成功');
+    });
+
+    it('warns when deletion succeeds but related resources fail to refresh', async () => {
+        mocks.groupsStore.refresh.mockRejectedValueOnce(new Error('refresh failed'));
+        const wrapper = mountList();
+        await flushPromises();
+        await wrapper.get('button[aria-label="删除"]').trigger('click');
+        const config = mocks.modalConfirm.mock.calls[0]?.[0] as { onOk: () => Promise<void> };
+        await config.onOk();
+
+        expect(mocks.vendorsStore.remove).toHaveBeenCalledWith(vendor.id);
+        expect(mocks.notifyWarning).toHaveBeenCalledWith('供应商已删除，但关联数据刷新失败，请刷新页面');
+        expect(mocks.notifySuccess).not.toHaveBeenCalledWith('删除成功');
     });
 
     it('shows a normalized error and does not refresh when deletion fails', async () => {

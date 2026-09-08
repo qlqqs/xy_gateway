@@ -88,15 +88,17 @@ async function validateUpstreams(modelName: string, upstreams: ModelUpstreamInpu
         if (!vendor) throw new customError.NotFoundError("Vendor not found");
         if (upstream.enabled !== false) enabledCount += 1;
         const vendorModelId = upstream.vendor_model_id ?? null;
-        const key = `${upstream.vendor_id}:${vendorModelId ?? modelName}`;
-        if (seen.has(key)) throw new customError.AppError("Duplicate upstream mapping");
-        seen.add(key);
+        let resolvedModelName = modelName;
         if (vendorModelId !== null) {
             const vendorModel = await vendorModelManager.findById(vendorModelId);
             if (!vendorModel || Number(vendorModel.vendor_id) !== upstream.vendor_id) {
                 throw new customError.AppError("Vendor model does not belong to the selected vendor");
             }
+            resolvedModelName = String(vendorModel.model_id);
         }
+        const key = `${upstream.vendor_id}:${resolvedModelName}`;
+        if (seen.has(key)) throw new customError.AppError("Duplicate upstream mapping");
+        seen.add(key);
     }
     if (requireEnabled && enabledCount === 0) {
         throw new customError.AppError("At least one upstream must be enabled");
@@ -134,11 +136,9 @@ function insertId(result: unknown): number {
 }
 
 /**
- * MySQL checks the foreign-key parent row while inserting each normalized
- * mapping.  Two model writes for the same vendor can therefore deadlock even
- * though each aggregate touches disjoint model rows.  Deadlocks are
- * transaction-local and safe to retry from the beginning; never retry other
- * errors (or a transaction whose commit outcome is unknown).
+ * MySQL 在插入每条规范化映射时都会检查外键父行。同一供应商的两次模型写入
+ * 即使操作不同模型行也可能死锁。死锁仅影响当前事务，可从头安全重试；
+ * 不得重试其他错误（或 commit 结果不确定的事务）。
  */
 async function runAggregateTransaction<T>(knex: any, work: (transaction: any) => Promise<T>): Promise<T> {
     const maxAttempts = process.env.DB_DRIVER === "mysql" ? 3 : 1;
@@ -162,9 +162,8 @@ async function runAggregateTransaction<T>(knex: any, work: (transaction: any) =>
 }
 
 /**
- * Persist the model row and its normalized upstream mappings as one aggregate.
- * Node/MySQL use a real Knex transaction; D1 executes the same ordered writes
- * without claiming cross-statement atomicity (the documented Worker limit).
+ * 将模型行及其规范化上游映射作为一个聚合持久化。Node/MySQL 使用真实 Knex 事务；
+ * D1 按相同顺序执行写入，但不声称跨语句原子性（已记录的 Worker 限制）。
  */
 async function persistAggregate(
     request: ModelRequest,
@@ -183,10 +182,9 @@ async function persistAggregate(
             id = insertId(await db("model").insert(data));
             insertedId = id;
         } else {
-            const changed = await db("model").where("id", id).update(data);
-            if (Number(changed) === 0) {
-                throw new customError.NotFoundError("Model not found");
-            }
+            // 入口已确认模型存在。MySQL 对无字段变化的 UPDATE 可能返回 0，
+            // 不能把 affectedRows 当作资源存在性判断，否则重复保存会误报 404。
+            await db("model").where("id", id).update(data);
         }
         await replaceMappings(id, request.mapping.upstreams, db);
         return id;
@@ -196,10 +194,8 @@ async function persistAggregate(
         try {
             return await persist(knex);
         } catch (error) {
-            // D1 has no multi-statement transaction.  If creation inserted a
-            // model row before a mapping statement failed, remove exactly that
-            // row; never look it up by name, since a concurrent request may
-            // own another model with the same transient name.
+            // D1 没有多语句事务。如果创建已插入模型行、映射写入随后失败，仅删除该确切行；
+            // 不得按名称查找，因为并发请求可能拥有同一临时名称的另一模型。
             if (modelId === undefined && insertedId !== undefined) {
                 await modelManager.deleteModel(insertedId).catch(() => undefined);
             }
@@ -224,8 +220,7 @@ async function createModel(input: unknown): Promise<SgModel> {
         persisted.mapping = { upstreams: request.mapping.upstreams as any };
         return persisted;
     } catch (error) {
-        // Node/MySQL transactions roll the aggregate back.  Worker/D1 cleanup
-        // is performed inside persistAggregate with the exact inserted id.
+        // Node/MySQL 事务会回滚整个聚合。Worker/D1 在 persistAggregate 内按确切插入 ID 清理。
         throw error;
     }
 }
@@ -244,15 +239,13 @@ async function updateModel(id: number, input: unknown): Promise<SgModel | null> 
     try {
         await persistAggregate(request, id);
     } catch (error) {
-        // Knex rolls the model and mapping writes back together on Node/MySQL.
-        // Worker/D1 has no multi-statement transaction; the old aggregate is
-        // left untouched only when the first model update itself fails.
+        // Node/MySQL 上 Knex 会一并回滚模型与映射写入。Worker/D1 没有多语句事务；
+        // 只有第一次模型更新本身失败时，旧聚合才能保持不变。
         throw error;
     }
     if (previousName && previousName !== request.name) {
-        // Model names are embedded in group/key whitelist snapshots.  Keep
-        // those references coherent as part of the same domain operation;
-        // otherwise a rename would silently make an allowed model unusable.
+        // 模型名称嵌入分组/Key 白名单快照中。将这些引用作为同一领域操作保持一致，
+        // 否则重命名会静默导致原本允许的模型不可用。
         await userGroupManager.renameModelReference(previousName, request.name);
         await userKeyManager.renameModelReference(previousName, request.name);
     }

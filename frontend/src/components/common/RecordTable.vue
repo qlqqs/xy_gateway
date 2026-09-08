@@ -20,7 +20,7 @@
                     <div v-if="getTokens(record) !== null">
                         <span class="token-item" title="输入 Token">
                             <ArrowUpOutlined class="token-icon input" />
-                            {{ getTokens(record)!.prompt }}<template v-if="getTokens(record)!.cacheRead !== null"> (+ {{ getTokens(record)!.cacheRead!.toLocaleString() }})</template>
+                            {{ getTokens(record)!.prompt }}
                         </span>
                         <span class="token-divider">/</span>
                         <span class="token-item" title="输出 Token">
@@ -29,8 +29,11 @@
                         </span>
                     </div>
                     <div v-else>-</div>
-                    <div v-if="getCacheHitRate(record) !== null" class="metric-sub">
-                        缓存 {{ getCacheHitRate(record)!.rate.toFixed(1) }}%
+                    <div v-if="getCacheStats(record) !== null" class="metric-sub">
+                        缓存命中 {{ getCacheStats(record)!.rate.toFixed(1) }}%
+                        <template v-if="getCacheStats(record)!.write !== null">
+                            · 写入 {{ getCacheStats(record)!.write!.toLocaleString() }}
+                        </template>
                     </div>
                 </div>
             </template>
@@ -85,6 +88,7 @@ import { useRouter } from 'vue-router';
 import { ArrowUpOutlined, ArrowDownOutlined, EyeOutlined } from '@ant-design/icons-vue';
 import { formatDate } from '@/utils/format';
 import type { Record } from '@/types/record';
+import { FAILED_CODE_LABELS } from '@/constants/record';
 import dayjs from 'dayjs';
 
 interface Props {
@@ -135,23 +139,23 @@ function handleView(record: Record) {
     });
 }
 
-function getTokens(record: Record): { prompt: number; output: number; cacheRead: number | null } | null {
+function getTokens(record: Record): { prompt: number; output: number } | null {
     if (!record.usage) return null;
     const u = record.usage;
     if (u.prompt_tokens == null && u.completion_tokens == null) return null;
-    const cacheRead = u.cache_read_tokens != null ? (u.cache_read_tokens as number) : null;
-    return { prompt: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0, cacheRead };
+    return { prompt: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0 };
 }
 
-function getCacheHitRate(record: Record): { rate: number; tokens: number } | null {
+function getCacheStats(record: Record): { rate: number; read: number; write: number | null } | null {
     if (!record.usage) return null;
     const u = record.usage;
-    if (u.cache_read_tokens == null) return null;
-    const cacheRead = u.cache_read_tokens;
+    if (u.cache_read_tokens == null && u.cache_creation_tokens == null) return null;
+    const cacheRead = u.cache_read_tokens ?? 0;
+    const cacheWrite = u.cache_creation_tokens ?? null;
     const promptTokens = u.prompt_tokens ?? 0;
-    const total = promptTokens + cacheRead;
+    const total = promptTokens + cacheRead + (cacheWrite ?? 0);
     const rate = total <= 0 ? 0 : Math.floor(cacheRead / total * 1000) / 10;
-    return { rate, tokens: cacheRead };
+    return { rate, read: cacheRead, write: cacheWrite };
 }
 
 
@@ -197,13 +201,6 @@ function getStatusColor(status: string | null): string {
             return 'default';
     }
 }
-
-const FAILED_CODE_LABELS: { [key: string]: string } = {
-    client_disconnected: '客户端断开',
-    upstream_disconnected: '上游断开',
-    stream_incomplete: '流不完整',
-    upstream_error: '上游错误',
-};
 
 function getStatusText(status: string | null, failedCode?: string | null): string {
     switch (status) {

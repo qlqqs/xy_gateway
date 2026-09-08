@@ -127,6 +127,8 @@ describe("AI Messages API (Anthropic)", () => {
             expect(response.body).toHaveProperty("model");
             expect(response.body).toHaveProperty("stop_reason");
             expect(response.body).toHaveProperty("usage");
+            expect(response.body._received_headers["anthropic-version"]).toBe("2023-06-01");
+            expect(response.body._received_headers.authorization).toMatch(/^Bearer /);
 
             // Verify record was created
             const records = await requestHelper.getFinalizedRecords(adminToken, 1);
@@ -168,6 +170,7 @@ describe("AI Messages API (Anthropic)", () => {
             expect(response.status).toBe(200);
             expect(response.body.type).toBe("message");
             expect(response.body.role).toBe("assistant");
+            expect(response.body._received_headers["anthropic-version"]).toBe("2023-06-01");
         }, 30000);
 
         it("should handle streaming Anthropic message request", async () => {

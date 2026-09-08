@@ -152,6 +152,13 @@ describe("Model API (Negative)", () => {
             expect(response.body).toHaveProperty("error");
         });
 
+        it("should reject malformed numeric IDs instead of reading the numeric prefix", async () => {
+            const response = await requestHelper.get(`/model/${existingModelId}abc`, adminToken);
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe("Invalid ID format");
+        });
+
         it("should return error for negative ID", async () => {
             const response = await requestHelper.get("/model/-1");
 
@@ -186,6 +193,41 @@ describe("Model API (Negative)", () => {
 
             expect(response.status).toBeGreaterThanOrEqual(400);
             expect(response.body).toHaveProperty("error");
+        });
+
+        it("should reject malformed numeric IDs without updating the numeric prefix", async () => {
+            const response = await requestHelper.put(
+                `/model/${existingModelId}abc`,
+                modelFixtures.createRandomModel(existingVendorId, "malformed-id-update"),
+                adminToken,
+            );
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe("Invalid ID format");
+
+            const modelResponse = await requestHelper.get(`/model/${existingModelId}`, adminToken);
+            expect(modelResponse.status).toBe(200);
+            expect(modelResponse.body.name).toBe(existingModelName);
+        });
+
+        it("should allow saving an unchanged model payload", async () => {
+            const current = await requestHelper.get(`/model/${existingModelId}`, adminToken);
+            const response = await requestHelper.put(
+                `/model/${existingModelId}`,
+                {
+                    name: current.body.name,
+                    mapping: current.body.mapping,
+                    enable: current.body.enable,
+                    prices: current.body.prices,
+                },
+                adminToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body).toMatchObject({
+                id: existingModelId,
+                name: existingModelName,
+            });
         });
 
         it("should return error for negative ID", async () => {

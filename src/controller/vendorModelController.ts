@@ -4,6 +4,7 @@ import vendorManager from "../manager/vendorManager";
 import vendorModelManager from "../manager/vendorModelManager";
 import vendorService from "../service/vendorService";
 import customError from "../util/customErrorUtil";
+import idUtil from "../util/idUtil";
 import { ApiFormat } from "../constants";
 
 
@@ -16,10 +17,7 @@ function serializeVendorModel(m: SgVendorModel) {
 
 
 async function listVendorModels(c: Context) {
-    const vendorId = parseInt(c.req.param("id"), 10);
-    if (isNaN(vendorId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
+    const vendorId = idUtil.requirePositiveInteger(c.req.param("id"));
 
     const models = await vendorModelManager.listByVendor(vendorId);
 
@@ -28,10 +26,7 @@ async function listVendorModels(c: Context) {
 
 
 async function fetchVendorModels(c: Context) {
-    const vendorId = parseInt(c.req.param("id"), 10);
-    if (isNaN(vendorId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
+    const vendorId = idUtil.requirePositiveInteger(c.req.param("id"));
 
     const vendor = await vendorManager.findById(vendorId);
     if (!vendor) {
@@ -44,40 +39,16 @@ async function fetchVendorModels(c: Context) {
 
 
 async function syncVendorModels(c: Context) {
-    const vendorId = parseInt(c.req.param("id"), 10);
-    if (isNaN(vendorId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
-
-    const vendor = await vendorManager.findById(vendorId);
-    if (!vendor) {
-        throw new customError.NotFoundError("Vendor not found");
-    }
-
+    const vendorId = idUtil.requirePositiveInteger(c.req.param("id"));
     const body = await c.req.json();
-    const { model_ids } = body;
-
-    if (!Array.isArray(model_ids)) {
-        throw new customError.AppError("model_ids must be an array");
-    }
-
-    const updated = await vendorModelManager.syncByVendor(vendorId, model_ids);
+    const updated = await vendorService.syncVendorModels(vendorId, body.model_ids);
 
     return c.json(updated.map(serializeVendorModel));
 }
 
 
 async function addVendorModel(c: Context) {
-    const vendorId = parseInt(c.req.param("id"), 10);
-    if (isNaN(vendorId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
-
-    const vendor = await vendorManager.findById(vendorId);
-    if (!vendor) {
-        throw new customError.NotFoundError("Vendor not found");
-    }
-
+    const vendorId = idUtil.requirePositiveInteger(c.req.param("id"));
     const body = await c.req.json();
     const { model_id } = body;
 
@@ -85,9 +56,10 @@ async function addVendorModel(c: Context) {
         throw new customError.AppError("model_id is required");
     }
 
-    const trimmed = model_id.trim();
-
-    const record = await vendorModelManager.add(vendorId, trimmed);
+    const record = await vendorService.addVendorModel(vendorId, model_id);
+    if (!record) {
+        throw new customError.NotFoundError("Vendor model not found");
+    }
 
     return c.json(serializeVendorModel(record));
 }
@@ -101,7 +73,7 @@ async function getVendorModelsByIds(c: Context) {
         return c.json([]);
     }
 
-    const idList = ids.map((id: unknown) => parseInt(String(id), 10)).filter((id: number) => !isNaN(id));
+    const idList = idUtil.normalizePositiveIntegers(ids);
     if (idList.length === 0) {
         return c.json([]);
     }
@@ -112,21 +84,29 @@ async function getVendorModelsByIds(c: Context) {
 
 
 async function updateVendorModel(c: Context) {
-    const vendorId = parseInt(c.req.param("id"), 10);
-    const recordId = parseInt(c.req.param("modelId"), 10);
-
-    if (isNaN(vendorId) || isNaN(recordId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
+    const vendorId = idUtil.requirePositiveInteger(c.req.param("id"));
+    const recordId = idUtil.requirePositiveInteger(c.req.param("modelId"));
 
     const body = await c.req.json();
-    const { allowed_formats } = body;
+    const allowed_formats = body?.allowed_formats;
+
+    if (allowed_formats !== null && !Array.isArray(allowed_formats)) {
+        throw new customError.AppError("allowed_formats must be null or an array of API formats");
+    }
 
     let allowedFormatsJson: string | null = null;
-    if (Array.isArray(allowed_formats) && allowed_formats.length > 0) {
-        const validFormats = Object.values(ApiFormat);
-        const filtered = allowed_formats.filter((f: unknown) => validFormats.includes(f as ApiFormat));
-        allowedFormatsJson = filtered.length > 0 ? JSON.stringify(filtered) : null;
+    if (Array.isArray(allowed_formats)) {
+        const validFormats = new Set<string>(Object.values(ApiFormat));
+        const normalized: ApiFormat[] = [];
+        for (const format of allowed_formats) {
+            if (typeof format !== "string" || !validFormats.has(format)) {
+                throw new customError.AppError("allowed_formats contains an invalid API format");
+            }
+            if (!normalized.includes(format as ApiFormat)) {
+                normalized.push(format as ApiFormat);
+            }
+        }
+        allowedFormatsJson = JSON.stringify(normalized);
     }
 
     const updated = await vendorModelManager.update(recordId, vendorId, allowedFormatsJson);
@@ -139,14 +119,10 @@ async function updateVendorModel(c: Context) {
 
 
 async function deleteVendorModel(c: Context) {
-    const vendorId = parseInt(c.req.param("id"), 10);
-    const recordId = parseInt(c.req.param("modelId"), 10);
+    const vendorId = idUtil.requirePositiveInteger(c.req.param("id"));
+    const recordId = idUtil.requirePositiveInteger(c.req.param("modelId"));
 
-    if (isNaN(vendorId) || isNaN(recordId)) {
-        throw new customError.AppError("Invalid ID format");
-    }
-
-    const removed = await vendorModelManager.remove(recordId, vendorId);
+    const removed = await vendorService.removeVendorModel(vendorId, recordId);
     if (!removed) {
         throw new customError.NotFoundError("Vendor model not found");
     }

@@ -25,6 +25,8 @@ export interface ModelPrices {
     input?: number;
     output?: number;
     cache_write?: number;
+    cache_write_5m?: number;
+    cache_write_1h?: number;
     cache_read?: number;
     image_input?: number;
     image_output?: number;

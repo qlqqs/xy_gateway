@@ -22,7 +22,25 @@ interface AnthropicChunk {
             input_tokens?: number;
             output_tokens?: number;
             cache_read_input_tokens?: number;
+            cache_read_tokens?: number;
+            cached_tokens?: number;
             cache_creation_input_tokens?: number;
+            cache_creation_tokens?: number;
+            cache_write_input_tokens?: number;
+            cache_write_tokens?: number;
+            cache_creation?: {
+                ephemeral_5m_input_tokens?: number;
+                ephemeral_1h_input_tokens?: number;
+            };
+            input_tokens_details?: {
+                cached_tokens?: number;
+                cache_creation_tokens?: number;
+                cache_write_tokens?: number;
+                cache_creation_5m_tokens?: number;
+                cache_creation_1h_tokens?: number;
+                image_tokens?: number;
+            };
+            output_tokens_details?: { image_tokens?: number };
         };
     };
     content_block?: {
@@ -37,7 +55,25 @@ interface AnthropicChunk {
         input_tokens?: number;
         output_tokens?: number;
         cache_read_input_tokens?: number;
+        cache_read_tokens?: number;
+        cached_tokens?: number;
         cache_creation_input_tokens?: number;
+        cache_creation_tokens?: number;
+        cache_write_input_tokens?: number;
+        cache_write_tokens?: number;
+        cache_creation?: {
+            ephemeral_5m_input_tokens?: number;
+            ephemeral_1h_input_tokens?: number;
+        };
+        input_tokens_details?: {
+            cached_tokens?: number;
+            cache_creation_tokens?: number;
+            cache_write_tokens?: number;
+            cache_creation_5m_tokens?: number;
+            cache_creation_1h_tokens?: number;
+            image_tokens?: number;
+        };
+        output_tokens_details?: { image_tokens?: number };
     };
     delta?: {
         type?: "text_delta" | "thinking_delta" | "signature_delta" | "input_json_delta";
@@ -51,14 +87,37 @@ interface AnthropicChunk {
     index?: number;
 }
 
+
+function firstPositiveOrDefined(...values: Array<number | null | undefined>): number | undefined {
+    let zeroValue: number | undefined;
+    for (const value of values) {
+        if (value === null || value === undefined || !Number.isFinite(value)) continue;
+        if (value > 0) return value;
+        zeroValue = Math.max(0, value);
+    }
+    return zeroValue;
+}
+
+
+function mergeStreamToken(
+    current: number | null | undefined,
+    incoming: number | undefined,
+    preservePositive: boolean,
+): number | null {
+    if (incoming === undefined) return current ?? null;
+    if (preservePositive && incoming === 0 && current != null && current > 0) return current;
+    return incoming;
+}
+
+
 export class AnthropicAccumulator extends AccumulatorBase {
     private response: AccumulatedResponse = {
         choices: [{ index: 0, message: { content: "", thinking: "", signature: "" }, finish_reason: null }],
     };
 
     /**
-     * 非缓存输入基数（Anthropic input_tokens 语义：不含缓存命中）。
-     * 口径统一为总量 = 该基数 + cache_read_input_tokens，跨 chunk 分开合并避免相互覆盖。
+     * 普通输入基数（Anthropic input_tokens 语义：不含缓存读取和缓存创建）。
+     * 口径统一为总量 = 该基数 + cache_read_input_tokens + cache_creation_input_tokens。
      * 上游未提供时为 null（区别于返回 0）。
      */
     private inputTokens: number | null = null;
@@ -127,7 +186,7 @@ export class AnthropicAccumulator extends AccumulatorBase {
 
             // 初始化 usage（input_tokens 在这里提供）:统一交由 accumulateUsage 合并
             if (msg.message.usage) {
-                this.accumulateUsage(msg.message.usage);
+                this.accumulateUsage(msg.message.usage, false);
             }
             return;
         }
@@ -195,7 +254,7 @@ export class AnthropicAccumulator extends AccumulatorBase {
             if (msg.message?.usage || msg.usage) {
                 const usage = msg.usage || msg.message?.usage;
                 if (usage) {
-                    this.accumulateUsage(usage);
+                    this.accumulateUsage(usage, true);
                 }
             }
             return;
@@ -212,19 +271,93 @@ export class AnthropicAccumulator extends AccumulatorBase {
         input_tokens?: number;
         output_tokens?: number;
         cache_read_input_tokens?: number;
+        cache_read_tokens?: number;
+        cached_tokens?: number;
         cache_creation_input_tokens?: number;
-    }): void {
+        cache_creation_tokens?: number;
+        cache_write_input_tokens?: number;
+        cache_write_tokens?: number;
+        cache_creation?: {
+            ephemeral_5m_input_tokens?: number;
+            ephemeral_1h_input_tokens?: number;
+        };
+        input_tokens_details?: {
+            cached_tokens?: number;
+            cache_creation_tokens?: number;
+            cache_write_tokens?: number;
+            cache_creation_5m_tokens?: number;
+            cache_creation_1h_tokens?: number;
+            image_tokens?: number;
+        };
+        output_tokens_details?: { image_tokens?: number };
+    }, preservePositive: boolean): void {
         const prev = this.response.usage;
-        if (usage.input_tokens !== undefined) {
-            this.inputTokens = usage.input_tokens;
+        this.inputTokens = mergeStreamToken(this.inputTokens, usage.input_tokens, preservePositive);
+        const inputDetails = usage.input_tokens_details;
+        const cacheRead = mergeStreamToken(
+            prev?.cache_read_tokens,
+            firstPositiveOrDefined(
+                usage.cache_read_input_tokens,
+                usage.cache_read_tokens,
+                usage.cached_tokens,
+                inputDetails?.cached_tokens,
+            ),
+            preservePositive,
+        );
+        const cacheCreation5m = mergeStreamToken(
+            prev?.cache_creation_5m_tokens,
+            firstPositiveOrDefined(
+                usage.cache_creation?.ephemeral_5m_input_tokens,
+                inputDetails?.cache_creation_5m_tokens,
+            ),
+            preservePositive,
+        );
+        const cacheCreation1h = mergeStreamToken(
+            prev?.cache_creation_1h_tokens,
+            firstPositiveOrDefined(
+                usage.cache_creation?.ephemeral_1h_input_tokens,
+                inputDetails?.cache_creation_1h_tokens,
+            ),
+            preservePositive,
+        );
+        const detailedCacheCreation = cacheCreation5m !== null || cacheCreation1h !== null
+            ? (cacheCreation5m ?? 0) + (cacheCreation1h ?? 0)
+            : null;
+        let cacheWrite = mergeStreamToken(
+            prev?.cache_write_tokens,
+            firstPositiveOrDefined(
+                usage.cache_creation_input_tokens,
+                usage.cache_creation_tokens,
+                usage.cache_write_input_tokens,
+                usage.cache_write_tokens,
+                inputDetails?.cache_creation_tokens,
+                inputDetails?.cache_write_tokens,
+            ),
+            preservePositive,
+        );
+        if ((cacheWrite === null || cacheWrite === 0) && (detailedCacheCreation ?? 0) > 0) {
+            cacheWrite = detailedCacheCreation;
         }
-        const cacheRead = usage.cache_read_input_tokens ?? prev?.cache_read_tokens ?? null;
         this.response.usage = {
-            // 统一 OpenAI 口径：prompt_tokens = 非缓存输入基数 + 缓存命中（总量含缓存）；缺失字段为 null
-            prompt_tokens: this.inputTokens != null ? this.inputTokens + (cacheRead ?? 0) : null,
-            completion_tokens: usage.output_tokens ?? prev?.completion_tokens ?? null,
+            // 统一 OpenAI 口径：prompt_tokens 是普通输入、缓存读取和缓存创建的总量。
+            prompt_tokens: this.inputTokens != null
+                ? this.inputTokens + (cacheRead ?? 0) + (cacheWrite ?? 0)
+                : null,
+            completion_tokens: mergeStreamToken(prev?.completion_tokens, usage.output_tokens, preservePositive),
             cache_read_tokens: cacheRead,
-            cache_write_tokens: usage.cache_creation_input_tokens ?? prev?.cache_write_tokens ?? null,
+            cache_write_tokens: cacheWrite,
+            cache_creation_5m_tokens: cacheCreation5m,
+            cache_creation_1h_tokens: cacheCreation1h,
+            image_input_tokens: mergeStreamToken(
+                prev?.image_input_tokens,
+                inputDetails?.image_tokens,
+                preservePositive,
+            ),
+            image_output_tokens: mergeStreamToken(
+                prev?.image_output_tokens,
+                usage.output_tokens_details?.image_tokens,
+                preservePositive,
+            ),
         };
     }
 
@@ -271,7 +404,7 @@ export class AnthropicAccumulator extends AccumulatorBase {
                 { index: 0, message: { content: "", thinking: "", signature: "" }, finish_reason: null },
             ],
         };
-        this.inputTokens = 0;
+        this.inputTokens = null;
         this.resetState();
     }
 }

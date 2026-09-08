@@ -5,9 +5,8 @@ import { ApiFormat } from "../../../src/constants";
 /**
  * SgVendorModel.allowed_formats 语义测试
  *
- * allowed_formats 为 null/空（未指定）时，getSupportedFormats() 返回 null，
- * 由路由层回退到 vendor 按 URL 自动判断支持的格式；
- * 非空时作为硬限制白名单，原样返回列表，只允许列表内的格式。
+ * allowed_formats 仅在 SQL NULL（未指定）时返回 null，由路由层回退到
+ * vendor 按 URL 自动判断支持的格式；合法数组作为硬限制白名单，损坏值失败关闭。
  */
 
 function makeVendorModel(allowedFormats: string | null): SgVendorModel {
@@ -23,9 +22,9 @@ describe("SgVendorModel.getSupportedFormats", () => {
         expect(vm.getSupportedFormats()).toBeNull();
     });
 
-    it("returns null when allowed_formats is empty string", () => {
+    it("fails closed when allowed_formats is an empty string", () => {
         const vm = makeVendorModel("");
-        expect(vm.getSupportedFormats()).toBeNull();
+        expect(vm.getSupportedFormats()).toEqual([]);
     });
 
     it("returns the parsed allowlist as a hard restriction", () => {
@@ -36,5 +35,26 @@ describe("SgVendorModel.getSupportedFormats", () => {
     it("returns empty array for an explicitly empty allowlist, blocking all formats", () => {
         const vm = makeVendorModel("[]");
         expect(vm.getSupportedFormats()).toEqual([]);
+    });
+
+
+    it.each([
+        "not-json",
+        JSON.stringify({ format: ApiFormat.OPENAI }),
+        JSON.stringify([ApiFormat.OPENAI, "invalid"]),
+        JSON.stringify([ApiFormat.OPENAI, null]),
+    ])("fails closed for malformed persisted allowlist %s", allowedFormats => {
+        const vm = makeVendorModel(allowedFormats);
+        expect(vm.getSupportedFormats()).toEqual([]);
+    });
+
+
+    it("deduplicates a valid persisted allowlist", () => {
+        const vm = makeVendorModel(JSON.stringify([
+            ApiFormat.OPENAI,
+            ApiFormat.OPENAI,
+            ApiFormat.RESPONSES,
+        ]));
+        expect(vm.getSupportedFormats()).toEqual([ApiFormat.OPENAI, ApiFormat.RESPONSES]);
     });
 });

@@ -12,6 +12,7 @@ import config from "../../config";
  */
 
 let testUserId: number;
+let testKeyId: number;
 let testUserToken: string;
 let testVendorId: number;
 let testModelId: number;
@@ -30,6 +31,7 @@ describe("Record API", () => {
             adminToken,
         );
         testUserId = user.body.id;
+        testKeyId = user.body.keys[0].id;
         testUserToken = user.body.keys[0].value;
 
         // Create test vendor
@@ -363,6 +365,38 @@ describe("Record API", () => {
             expect(recordResponse.body.first_token_latency).toBeGreaterThan(0);
             expect(recordResponse.body).toHaveProperty("start_at");
             expect(recordResponse.body).toHaveProperty("end_at");
+            expect(recordResponse.body).toMatchObject({
+                user_id: testUserId,
+                key_id: testKeyId,
+                group_id: null,
+                model_id: openaiModelId,
+                requested_model: openaiModelName,
+                billing_mode: null,
+                base_cost: 0,
+                rate_multiplier: 1,
+                cost: 0,
+                settlement_status: "settled",
+            });
+
+            const listResponse = await requestHelper.get(
+                `/record/list.json?model_ids=${openaiModelId}`,
+                adminToken,
+            );
+            const summary = listResponse.body.list.find(
+                (item: { id: number }) => item.id === record.id,
+            );
+            expect(summary).toMatchObject({
+                key_id: testKeyId,
+                group_id: null,
+                requested_model: openaiModelName,
+                billing_mode: null,
+                base_cost: 0,
+                rate_multiplier: 1,
+                cost: 0,
+                settlement_status: "settled",
+                request_data: null,
+                response_data: null,
+            });
         });
 
         it("should include statistics in latest records endpoint", async () => {

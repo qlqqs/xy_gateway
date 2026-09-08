@@ -113,6 +113,8 @@ type TokenPriceKey =
     | 'input'
     | 'output'
     | 'cache_write'
+    | 'cache_write_5m'
+    | 'cache_write_1h'
     | 'cache_read'
     | 'image_input'
     | 'image_output';
@@ -141,7 +143,19 @@ const tokenPriceFields: TokenPriceField[] = [
         key: 'cache_write',
         label: '缓存写入价格',
         shortLabel: '缓存写入',
-        tooltip: '缓存写入 token 的计费价格（元/百万 tokens）',
+        tooltip: '未提供 TTL 明细时使用的缓存创建价格（元/百万 tokens）',
+    },
+    {
+        key: 'cache_write_5m',
+        label: '5 分钟缓存写入价格',
+        shortLabel: '缓存 5m',
+        tooltip: '5 分钟缓存创建 token 的计费价格（元/百万 tokens）',
+    },
+    {
+        key: 'cache_write_1h',
+        label: '1 小时缓存写入价格',
+        shortLabel: '缓存 1h',
+        tooltip: '1 小时缓存创建 token 的计费价格（元/百万 tokens）',
     },
     {
         key: 'cache_read',

@@ -121,6 +121,78 @@ describe("OpenAIChatAccumulator stream state", () => {
         expect(usage.cache_write_tokens).toBe(1234);
     });
 
+    it("captures TTL cache creation and image details while preserving explicit zero", () => {
+        const acc = new openaiChatAccumulator.OpenAIChatAccumulator();
+        acc.addEvent({ data: JSON.stringify({
+            choices: [],
+            usage: {
+                prompt_tokens: 1_000,
+                completion_tokens: 50,
+                prompt_tokens_details: {
+                    cached_tokens: 600,
+                    cache_creation_tokens: 250,
+                    cache_creation_5m_tokens: 200,
+                    cache_creation_1h_tokens: 50,
+                    image_tokens: 30,
+                },
+                completion_tokens_details: { reasoning_tokens: 12, image_tokens: 0 },
+            },
+        }) });
+
+        expect(acc.getUsage()).toMatchObject({
+            cache_read_tokens: 600,
+            cache_write_tokens: 250,
+            cache_creation_5m_tokens: 200,
+            cache_creation_1h_tokens: 50,
+            image_input_tokens: 30,
+            image_output_tokens: 0,
+        });
+    });
+
+    it("derives aggregate cache creation from nested TTL details", () => {
+        const acc = new openaiChatAccumulator.OpenAIChatAccumulator();
+        acc.addEvent({ data: JSON.stringify({
+            choices: [],
+            usage: {
+                prompt_tokens: 100,
+                completion_tokens: 10,
+                cache_creation_tokens: 0,
+                cache_creation: {
+                    ephemeral_5m_input_tokens: 3,
+                    ephemeral_1h_input_tokens: 4,
+                },
+            },
+        }) });
+
+        expect(acc.getUsage()).toMatchObject({
+            cache_write_tokens: 7,
+            cache_creation_5m_tokens: 3,
+            cache_creation_1h_tokens: 4,
+        });
+    });
+
+    it("keeps official nested zero ahead of compatible top-level cache aliases", () => {
+        const acc = new openaiChatAccumulator.OpenAIChatAccumulator();
+        acc.addEvent({ data: JSON.stringify({
+            choices: [],
+            usage: {
+                prompt_tokens: 20,
+                completion_tokens: 2,
+                prompt_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 0,
+                },
+                cache_read_input_tokens: 18,
+                cache_creation_input_tokens: 19,
+            },
+        }) });
+
+        expect(acc.getUsage()).toMatchObject({
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+        });
+    });
+
     it("ignores invalid JSON payloads without changing state", () => {
         const acc = new openaiChatAccumulator.OpenAIChatAccumulator();
         acc.addEvent({ data: "this is not json" });

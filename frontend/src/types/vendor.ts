@@ -1,6 +1,6 @@
 import type { BaseEntity, TableQuery } from './index';
 
-export type VendorType = 'openai' | 'anthropic' | 'google' | 'aliyun' | 'aliyun_coding' | 'volcengine_coding' | 'deepseek' | 'mimo' | 'mimo_token_plan' | 'opencode_go' | 'other';
+export type VendorType = 'openai' | 'anthropic' | 'google' | 'aliyun' | 'aliyun_coding' | 'volcengine_coding' | 'deepseek' | 'mimo' | 'mimo_token_plan' | 'opencode_go' | 'openrouter' | 'other';
 
 export type VendorAuthMode = 'api_key' | 'bearer_token';
 
@@ -35,6 +35,7 @@ export interface VendorConfig {
     load_factor?: number | null;
     priority?: number;
     group_id?: number | null;
+    group_ids?: number[];
     proxy?: VendorProxyConfig | null;
 }
 

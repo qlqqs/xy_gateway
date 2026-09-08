@@ -6,7 +6,13 @@
  */
 
 import { describe, it, expect } from "vitest";
-import senderService from "../../../src/service/senderService";
+import {
+    isEventStreamResponse,
+    isRetryableUpstreamError,
+    UpstreamResponseError,
+    UpstreamTransportError,
+} from "../../../src/service/senderService";
+import { RetryableUpstreamResponseError } from "../../../src/service/responseHandlerService";
 import usageUtils from "../../../src/util/protocol/usageUtil";
 import protocolUtils from "../../../src/util/protocol/protocolUtil";
 import type { SgModel } from "../../../src/model/sgModel";
@@ -37,13 +43,13 @@ describe("resolveUpstreamFormat", () => {
         expect(upstreamFormat).toBe(ApiFormat.RESPONSES);
     });
 
-    it("falls back to client format when no supported conversion path", () => {
+    it("converts OpenAI to Responses when that is the only supported format", () => {
         const upstreamFormat = protocolUtils.resolveUpstreamFormat(
             ApiFormat.OPENAI,
             [ApiFormat.RESPONSES],
         );
 
-        expect(upstreamFormat).toBe(ApiFormat.OPENAI);
+        expect(upstreamFormat).toBe(ApiFormat.RESPONSES);
     });
 
     it("returns client format directly when vendor supports it", () => {
@@ -86,6 +92,56 @@ describe("resolveUpstreamFormat", () => {
 });
 
 
+describe("isRetryableUpstreamError", () => {
+    it("only retries explicit upstream-attempt error types", () => {
+        expect(isRetryableUpstreamError(
+            new UpstreamResponseError(new Response(null, { status: 503 })),
+        )).toBe(true);
+        expect(isRetryableUpstreamError(
+            new UpstreamTransportError(new Error("connection reset")),
+        )).toBe(true);
+        expect(isRetryableUpstreamError(
+            new RetryableUpstreamResponseError(
+                "conversion",
+                "conversion failed",
+                new Error("malformed response"),
+            ),
+        )).toBe(true);
+        expect(isRetryableUpstreamError(
+            new customError.AppError("settlement failed", 503, "billing_error"),
+        )).toBe(false);
+        expect(isRetryableUpstreamError(
+            new customError.AppError("misclassified local failure", 502, "upstream_error"),
+        )).toBe(false);
+        expect(isRetryableUpstreamError(new Error("local failure"))).toBe(false);
+    });
+});
+
+
+describe("isEventStreamResponse", () => {
+    it.each([
+        "text/event-stream",
+        "Text/Event-Stream; Charset=UTF-8",
+        "text/event-stream ; charset=utf-8",
+    ])("accepts SSE media type regardless of case or parameters: %s", contentType => {
+        const response = new Response(null, { headers: { "Content-Type": contentType } });
+
+        expect(isEventStreamResponse(response)).toBe(true);
+    });
+
+
+    it.each([
+        "application/json",
+        "text/event-streaming",
+        "application/x-ndjson; profile=stream",
+    ])("rejects non-SSE media type: %s", contentType => {
+        const response = new Response(null, { headers: { "Content-Type": contentType } });
+
+        expect(isEventStreamResponse(response)).toBe(false);
+    });
+});
+
+
 describe("normalizeUsage", () => {
     it("reads cached tokens from OpenAI-compatible usage details on Responses format", () => {
         const normalized = usageUtils.normalizeUsage(ApiFormat.RESPONSES, {
@@ -105,7 +161,7 @@ describe("normalizeUsage", () => {
         expect(normalized!.recordUsage.cache_read_tokens).toBe(40);
     });
 
-    it("normalizes ANTHROPIC raw usage to total prompt (input_tokens + cache_read), recording cache write", () => {
+    it("normalizes ANTHROPIC raw usage to total prompt including cache read and creation", () => {
         const normalized = usageUtils.normalizeUsage(ApiFormat.ANTHROPIC, {
             input_tokens: 100,
             output_tokens: 20,
@@ -114,10 +170,11 @@ describe("normalizeUsage", () => {
         });
 
         expect(normalized).not.toBeNull();
-        expect(normalized!.promptTokens).toBe(140);
+        expect(normalized!.promptTokens).toBe(155);
+        expect(normalized!.inputTokens).toBe(100);
         expect(normalized!.outputTokens).toBe(20);
         expect(normalized!.cacheReadTokens).toBe(40);
-        // recordUsage 展示口径：prompt = 总量 140 - 缓存 40 = 非缓存输入 100
+        // recordUsage 展示口径：prompt = 总量 155 - 读取 40 - 创建 15 = 普通输入 100
         expect(normalized!.recordUsage.prompt_tokens).toBe(100);
         expect(normalized!.recordUsage.completion_tokens).toBe(20);
         expect(normalized!.recordUsage.cache_read_tokens).toBe(40);
@@ -133,7 +190,7 @@ describe("normalizeUsage", () => {
         });
 
         expect(normalized).not.toBeNull();
-        expect(normalized!.promptTokens).toBe(7);
+        expect(normalized!.promptTokens).toBe(8);
         expect(normalized!.cacheReadTokens).toBe(2);
         expect(normalized!.recordUsage.prompt_tokens).toBe(5);
         expect(normalized!.recordUsage.cache_read_tokens).toBe(2);
@@ -152,6 +209,93 @@ describe("normalizeUsage", () => {
         expect(normalized!.recordUsage.prompt_tokens).toBeNull();
         expect(normalized!.recordUsage.completion_tokens).toBe(6);
         expect(normalized!.recordUsage.cache_read_tokens).toBeNull();
+    });
+
+    it("reads Anthropic cache TTL details and image token details", () => {
+        const normalized = usageUtils.normalizeUsage(ApiFormat.ANTHROPIC, {
+            input_tokens: 100,
+            output_tokens: 30,
+            cache_read_input_tokens: 20,
+            cache_creation: {
+                ephemeral_5m_input_tokens: 7,
+                ephemeral_1h_input_tokens: 3,
+            },
+            input_tokens_details: { image_tokens: 25 },
+            output_tokens_details: { image_tokens: 8 },
+        });
+
+        expect(normalized).toMatchObject({
+            promptTokens: 130,
+            inputTokens: 100,
+            cacheReadTokens: 20,
+            cacheWriteTokens: 10,
+            cacheCreation5mTokens: 7,
+            cacheCreation1hTokens: 3,
+            imageInputTokens: 25,
+            imageOutputTokens: 8,
+        });
+        expect(normalized!.recordUsage.toJSON()).toMatchObject({
+            prompt_tokens: 100,
+            cache_creation_tokens: 10,
+            cache_creation_5m_tokens: 7,
+            cache_creation_1h_tokens: 3,
+            image_input_tokens: 25,
+            image_output_tokens: 8,
+        });
+    });
+
+    it("uses Anthropic compatible cache values when standard aggregate fields are zero", () => {
+        const normalized = usageUtils.normalizeUsage(ApiFormat.ANTHROPIC, {
+            input_tokens: 100,
+            output_tokens: 20,
+            cache_read_input_tokens: 0,
+            cached_tokens: 9,
+            cache_creation_input_tokens: 0,
+            cache_creation: {
+                ephemeral_5m_input_tokens: 3,
+                ephemeral_1h_input_tokens: 4,
+            },
+        });
+
+        expect(normalized).toMatchObject({
+            promptTokens: 116,
+            inputTokens: 100,
+            cacheReadTokens: 9,
+            cacheWriteTokens: 7,
+            cacheCreation5mTokens: 3,
+            cacheCreation1hTokens: 4,
+        });
+        expect(normalized!.recordUsage.toJSON()).toMatchObject({
+            prompt_tokens: 100,
+            cache_read_tokens: 9,
+            cache_creation_tokens: 7,
+        });
+    });
+
+    it("reads OpenAI-compatible cache creation aliases without double-counting input", () => {
+        const normalized = usageUtils.normalizeUsage(ApiFormat.OPENAI, {
+            prompt_tokens: 1_000,
+            completion_tokens: 50,
+            prompt_tokens_details: {
+                cached_tokens: 600,
+                cache_creation_tokens: 250,
+                cache_creation_5m_tokens: 200,
+                cache_creation_1h_tokens: 50,
+                image_tokens: 30,
+            },
+            completion_tokens_details: { image_tokens: 10 },
+        });
+
+        expect(normalized).toMatchObject({
+            promptTokens: 1_000,
+            inputTokens: 150,
+            cacheReadTokens: 600,
+            cacheWriteTokens: 250,
+            cacheCreation5mTokens: 200,
+            cacheCreation1hTokens: 50,
+            imageInputTokens: 30,
+            imageOutputTokens: 10,
+        });
     });
 
     it("returns null when usage is missing", () => {
@@ -177,7 +321,7 @@ describe("serializeStoredUsage", () => {
         const usageJson = usageUtils.serializeStoredUsage(normalized!.recordUsage);
         expect(usageJson).not.toBeNull();
         expect(JSON.parse(usageJson!)).toMatchObject({
-            usage_version: 2,
+            usage_version: 3,
             prompt_tokens: 53067,
             completion_tokens: 262,
             cache_read_tokens: 52864,
@@ -205,7 +349,60 @@ describe("serializeStoredUsage", () => {
 
         const cost = usageUtils.calculateCost(model, 1_000_000, 1_000_000, 100_000, 50_000);
 
-        expect(cost).toBeCloseTo(3.4, 12);
+        expect(cost).toBeCloseTo(3.35, 12);
+    });
+
+    it("calculates TTL cache and image token cost breakdown", () => {
+        const model = {
+            prices: {
+                input: 10,
+                output: 20,
+                cache_read: 2,
+                cache_write: 4,
+                cache_write_5m: 5,
+                cache_write_1h: 8,
+                image_input: 30,
+                image_output: 40,
+            },
+        } as SgModel;
+
+        const breakdown = usageUtils.calculateCostBreakdown(model, {
+            promptTokens: 1_000_000,
+            outputTokens: 500_000,
+            cacheReadTokens: 100_000,
+            cacheWriteTokens: 200_000,
+            cacheCreation5mTokens: 50_000,
+            cacheCreation1hTokens: 150_000,
+            imageInputTokens: 100_000,
+            imageOutputTokens: 200_000,
+        });
+
+        expect(breakdown).toMatchObject({
+            input_cost: 6,
+            image_input_cost: 3,
+            output_cost: 6,
+            image_output_cost: 8,
+            cache_creation_cost: 1.45,
+            cache_creation_5m_cost: 0.25,
+            cache_creation_1h_cost: 1.2,
+            cache_read_cost: 0.2,
+            total_cost: 24.65,
+        });
+    });
+
+    it("falls back aggregate cache creation to the 5m price when TTL details are missing", () => {
+        const model = {
+            prices: { cache_write: 4, cache_write_5m: 5, cache_write_1h: 8 },
+        } as SgModel;
+
+        const breakdown = usageUtils.calculateCostBreakdown(model, {
+            promptTokens: 200_000,
+            cacheWriteTokens: 200_000,
+        });
+
+        expect(breakdown.cache_creation_cost).toBe(1);
+        expect(breakdown.cache_creation_5m_cost).toBe(1);
+        expect(breakdown.total_cost).toBe(1);
     });
 
     it("uses the default per-request price without token usage", () => {

@@ -15,6 +15,7 @@
 import type { ProtocolStreamEvent } from "../protocolConverter/protocolTypes";
 import type { ResponsesStreamEvent } from "../protocolConverter/responsesTypes";
 import { AccumulatorBase } from "./accumulatorBase";
+import type { AccumulatedUsage } from "./accumulatorTypes";
 
 interface ResponsesContentPart {
     type?: string;
@@ -35,11 +36,7 @@ interface ResponsesOutputItem {
  * 上游 Responses 原生键（input_tokens / input_tokens_details.cached_tokens）在落地时转换。
  * 缺失字段为 null，明确返回 0 则为 0（与 SgRecordUsage 同口径）。
  */
-interface ResponsesUsage {
-    prompt_tokens?: number | null;
-    completion_tokens?: number | null;
-    cache_read_tokens?: number | null;
-}
+type ResponsesUsage = AccumulatedUsage;
 
 interface ResponsesAccumulatedResponse {
     id?: string;
@@ -237,10 +234,61 @@ export class ResponsesAccumulator extends AccumulatorBase {
      */
     private toCanonicalUsage(usage: Record<string, any> | undefined): ResponsesUsage | undefined {
         if (!usage) return undefined;
+        const inputDetails = usage.input_tokens_details as Record<string, any> | undefined;
+        const promptDetails = usage.prompt_tokens_details as Record<string, any> | undefined;
+        const outputDetails = usage.output_tokens_details as Record<string, any> | undefined;
+        const completionDetails = usage.completion_tokens_details as Record<string, any> | undefined;
+        const cacheCreation = usage.cache_creation as Record<string, any> | undefined;
+        const cacheCreation5m = cacheCreation?.ephemeral_5m_input_tokens
+            ?? inputDetails?.cache_creation_5m_tokens
+            ?? promptDetails?.cache_creation_5m_tokens
+            ?? usage.cache_creation_5m_tokens
+            ?? null;
+        const cacheCreation1h = cacheCreation?.ephemeral_1h_input_tokens
+            ?? inputDetails?.cache_creation_1h_tokens
+            ?? promptDetails?.cache_creation_1h_tokens
+            ?? usage.cache_creation_1h_tokens
+            ?? null;
+        let cacheWrite = inputDetails?.cache_write_tokens
+            ?? promptDetails?.cache_write_tokens
+            ?? inputDetails?.cache_creation_tokens
+            ?? promptDetails?.cache_creation_tokens
+            ?? usage.cache_creation_input_tokens
+            ?? usage.cache_write_input_tokens
+            ?? usage.cache_write_tokens
+            ?? usage.cache_creation_tokens
+            ?? (cacheCreation5m !== null || cacheCreation1h !== null
+                ? (cacheCreation5m ?? 0) + (cacheCreation1h ?? 0)
+                : null);
+        const detailedCacheCreation = (cacheCreation5m ?? 0) + (cacheCreation1h ?? 0);
+        if ((cacheWrite === null || cacheWrite === 0) && detailedCacheCreation > 0) {
+            cacheWrite = detailedCacheCreation;
+        }
+        const canonicalOutputDetails = outputDetails ?? completionDetails;
         return {
-            prompt_tokens: usage.input_tokens ?? null,
-            completion_tokens: usage.output_tokens ?? null,
-            cache_read_tokens: (usage.input_tokens_details as Record<string, any> | undefined)?.cached_tokens ?? null,
+            prompt_tokens: usage.input_tokens ?? usage.prompt_tokens ?? null,
+            completion_tokens: usage.output_tokens ?? usage.completion_tokens ?? null,
+            cache_read_tokens: inputDetails?.cached_tokens
+                ?? promptDetails?.cached_tokens
+                ?? usage.cache_read_input_tokens
+                ?? usage.cache_read_tokens
+                ?? usage.cached_tokens
+                ?? null,
+            cache_write_tokens: cacheWrite,
+            cache_creation_5m_tokens: cacheCreation5m,
+            cache_creation_1h_tokens: cacheCreation1h,
+            image_input_tokens: inputDetails?.image_tokens
+                ?? promptDetails?.image_tokens
+                ?? usage.image_input_tokens
+                ?? null,
+            image_output_tokens: outputDetails?.image_tokens
+                ?? completionDetails?.image_tokens
+                ?? usage.image_output_tokens
+                ?? null,
+            completion_tokens_details: canonicalOutputDetails ? {
+                reasoning_tokens: canonicalOutputDetails.reasoning_tokens,
+                image_tokens: canonicalOutputDetails.image_tokens,
+            } : undefined,
         };
     }
 

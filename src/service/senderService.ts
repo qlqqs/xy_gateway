@@ -12,7 +12,7 @@ import { ConverterFactory } from "../util/protocolConverter/ConverterFactory";
 import type { BaseConverter } from "../util/protocolConverter/BaseConverter";
 import customError from "../util/customErrorUtil";
 import streamLogService from "./streamLogService";
-import responseHandlerService from "./responseHandlerService";
+import responseHandlerService, { RetryableUpstreamResponseError } from "./responseHandlerService";
 import fetchUtil from "../util/fetchUtil";
 import routingService, { type ModelRoutingResult } from "./routingService/core";
 import configService from "./configService";
@@ -30,11 +30,37 @@ class UpstreamResponseError extends Error {
 }
 
 
+class UpstreamTransportError extends Error {
+    constructor(readonly originalError: unknown) {
+        super(originalError instanceof Error ? originalError.message : String(originalError));
+        this.name = "UpstreamTransportError";
+    }
+}
+
+
+function isRetryableUpstreamError(error: unknown): boolean {
+    return error instanceof UpstreamResponseError
+        || error instanceof UpstreamTransportError
+        || error instanceof RetryableUpstreamResponseError;
+}
+
+
+function isEventStreamResponse(response: Response): boolean {
+    const contentType = response.headers.get("content-type");
+    if (!contentType) return false;
+    return contentType.split(";", 1)[0].trim().toLowerCase() === "text/event-stream";
+}
+
+
 // 网络异常合成 502 错误响应，与 HTTP 错误响应统一为 Response 回传
 function buildUpstreamFailureResponse(c: Context, error: unknown): Response {
+    const errorCode = error instanceof RetryableUpstreamResponseError
+        ? error.code
+        : undefined;
     const appError = new customError.AppError(
         `All upstreams failed: ${error instanceof Error ? error.message : String(error)}`,
         502,
+        errorCode,
     );
     const apiFormat = c.get("api_format");
     const body = apiFormat
@@ -86,13 +112,22 @@ async function sendRequestToUpstream(
         console.log(`[senderService] Checking balance for user ${user.id}: ${user.balance}`);
     }
 
-    // 1. 记录本次上游尝试：跨尝试更新同一条 record，最终保留最后一次尝试（即最终命中的上游）
+    // 1. 跨尝试复用同一条 record。上一上游可能已写入失败终态，
+    // 新尝试开始前必须恢复待结算状态，并清空上一尝试的响应与统计数据。
     const recordId = Number(record.id);
     await recordService.update(recordId, {
         status: SgRecordStatus.PROCESSING,
         vendor_id: vendor.id,
         vendor_model_name: vendorModelName,
         upstream_format: upstreamFormat !== clientFormat ? upstreamFormat : null,
+        failed_code: null,
+        response_data: null,
+        usage: null,
+        first_token_latency: null,
+        end_at: null,
+        base_cost: 0,
+        cost: 0,
+        settlement_status: "pending",
     });
 
     // 2. 构建上游请求 headers，过滤掉 Cloudflare 注入的 cf- 前缀 header
@@ -102,6 +137,7 @@ async function sendRequestToUpstream(
     const EXCLUDED_HEADERS = [
         "authorization",
         "x-api-key",
+        "x-goog-api-key",
         "anthropic-version",
         "content-length",
         "host",
@@ -139,11 +175,11 @@ async function sendRequestToUpstream(
     const vendorSkipTlsVerify = vendor.skip_tls_verify ?? vendor.config?.skip_tls_verify ?? false;
 
     if (upstreamFormat === ApiFormat.ANTHROPIC) {
+        finalHeaders.set("anthropic-version", "2023-06-01");
         if (vendorAuthMode === VendorAuthMode.BEARER_TOKEN) {
             finalHeaders.set("Authorization", vendor.token.startsWith("Bearer ") ? vendor.token : `Bearer ${vendor.token}`);
         } else {
             finalHeaders.set("x-api-key", vendor.token);
-            finalHeaders.set("anthropic-version", "2023-06-01");
         }
     } else {
         finalHeaders.set("Authorization", vendor.token.startsWith("Bearer ") ? vendor.token : `Bearer ${vendor.token}`);
@@ -272,33 +308,57 @@ async function sendRequestToUpstream(
         });
     } catch (e: any) {
         console.error("Upstream fetch failed:", e);
+        const failedCode = c.req.raw.signal.aborted
+            ? FailedCode.CLIENT_DISCONNECTED
+            : FailedCode.UPSTREAM_DISCONNECTED;
         await recordService.update(recordId, {
             status: SgRecordStatus.FAILED,
+            failed_code: failedCode,
             response_data: String(e),
             settlement_status: "skipped",
             cost: 0,
             end_at: new Date(),
         });
-        await requestActivityService.append(recordId, RequestActivityStage.UPSTREAM_ATTEMPT, "上游请求失败", {
+        await requestActivityService.append(recordId, RequestActivityStage.UPSTREAM_ATTEMPT, failedCode === FailedCode.CLIENT_DISCONNECTED
+            ? "客户端在上游响应前断开"
+            : "上游请求失败", {
             vendor_id: vendor.id,
             vendor_name: vendor.name,
             url,
+            failed_code: failedCode,
             error: e instanceof Error ? e.message : String(e),
         }, ActivityLevel.ERROR);
         onComplete?.();
-        throw e;
+        throw new UpstreamTransportError(e);
     }
     console.log("upstream response status:", upstreamRes.status);
 
-    const isStream =
-        upstreamRes.ok &&
-        upstreamRes.headers.get("content-type")?.startsWith("text/event-stream");
+    const isStream = upstreamRes.ok && isEventStreamResponse(upstreamRes);
 
     // 8. 按响应类型分发处理（三种协议统一走 responseHandlerService，按 clientFormat 选累加器/解析口径）
     if (isStream) {
-        return responseHandlerService.handleStreamResponse(
+        // 预检会推进转换器状态，必须使用独立实例；正式转换器只消费回放后的流。
+        const probeConverter = needsConversion
+            ? ConverterFactory.create(clientFormat, upstreamFormat)
+            : null;
+        probeConverter?.updateModel(requestModel);
+        const preparedResponse = await responseHandlerService.prepareStreamResponse(
             c,
             upstreamRes,
+            record,
+            clientFormat,
+            upstreamFormat,
+            probeConverter,
+        );
+        let streamFailureReported = false;
+        const reportStreamFailure = () => {
+            if (streamFailureReported) return;
+            streamFailureReported = true;
+            upstreamHealthService.markFailure(vendor.id, vendorModelName, upstreamFormat);
+        };
+        return responseHandlerService.handleStreamResponse(
+            c,
+            preparedResponse,
             record,
             modelConfig,
             user,
@@ -309,6 +369,7 @@ async function sendRequestToUpstream(
                 onComplete?.();
                 onStreamComplete?.();
             },
+            reportStreamFailure,
         );
     }
     return responseHandlerService.handleNonStreamResponse(c, upstreamRes, record, modelConfig, user, upstreamFormat, converter, onComplete);
@@ -328,15 +389,16 @@ async function sendRequest(
         c.set("inspectUpstream", true);
     }
     if (options.skipBilling) {
-        // Internal management diagnostics may exercise the real routing pool
-        // without charging the administrator's account.  The marker is set
-        // only by the protected route-test controller, never from an HTTP
-        // header or request body.
+        // 受保护的管理诊断接口可以复用真实路由池，但不扣管理员余额。
+        // 该标记只由 route-test controller 设置，不能通过请求头或请求体注入。
         c.set("skipBilling", true);
     }
 
     const authContext = c.get("authContext") as AuthContext | null | undefined;
-    const key = authContext?.key ?? null;
+    if (!authContext) {
+        throw new customError.AppError("Invalid API key", 401, "authentication_error");
+    }
+    const key = authContext.key;
     const keyLease = key
         ? concurrencyService.acquire("key", Number(key.id), Number(key.concurrency_limit ?? 0))
         : null;
@@ -489,9 +551,9 @@ async function sendRequest(
                     throw new UpstreamResponseError(response);
                 }
 
-                const isStream = response.headers.get("content-type")?.startsWith("text/event-stream") === true;
+                const isStream = isEventStreamResponse(response);
                 if (isStream) {
-                    // The stream finalizer owns both leases from this point on.
+                    // 返回 SSE 后由后台收尾器持有并释放两个并发租约。
                     streamLeasePending = true;
                 } else {
                     releaseVendor();
@@ -500,24 +562,34 @@ async function sendRequest(
                 return response;
             } catch (e: any) {
                 releaseVendor();
-                if (c.req.raw.signal.aborted || e instanceof customError.AppError) {
-                    await recordService.update(recordId, {
-                        status: SgRecordStatus.FAILED,
-                        settlement_status: "skipped",
-                        cost: 0,
-                        end_at: new Date(),
-                    }).catch(() => undefined);
+                const retryableUpstreamError = isRetryableUpstreamError(e);
+                if (c.req.raw.signal.aborted || !retryableUpstreamError) {
+                    const hasSuccessfulSettlement = record.status === SgRecordStatus.SUCCESS
+                        && (record.settlement_status === "settled"
+                            || record.settlement_status === "skipped");
+                    // 结算错误由 responseHandler 管理终态；重读失败时提交结果仍未知，
+                    // 此处不得用 skipped/零费用覆盖可能已提交的扣款。
+                    if (!hasSuccessfulSettlement && e?.code !== "billing_error") {
+                        await recordService.update(recordId, {
+                            status: SgRecordStatus.FAILED,
+                            settlement_status: "skipped",
+                            cost: 0,
+                            end_at: new Date(),
+                        }).catch(() => undefined);
+                    }
                     throw e;
                 }
 
                 const httpFailure = e instanceof UpstreamResponseError;
-                const failureStatus = httpFailure ? e.response.status : null;
+                const failureStatus = httpFailure
+                    ? e.response.status
+                    : (e instanceof RetryableUpstreamResponseError ? e.statusCode : null);
                 if (upstreamHealthService.shouldMarkFailure(failureStatus)) {
                     upstreamHealthService.markFailure(vendor.id, vendorModelName, upstreamFormat);
                 }
+                routingContext.markTried(vendor.id, vendorModelName, upstreamFormat);
 
-                // Canonical model routing always permits failover; the old
-                // model-level failover flag is intentionally gone.
+                // 规范化模型路由始终允许故障转移，不再读取旧模型级开关。
                 lastFailure = httpFailure
                     ? e.response
                     : buildUpstreamFailureResponse(c, e);
@@ -525,12 +597,12 @@ async function sendRequest(
             }
         }
     } finally {
-        // A stream finalizer releases the key after it has consumed the body;
-        // every other path releases it here or in the non-stream handler.
+        // 流式收尾器会在消费完响应体后释放 Key；其余路径在此处或非流式处理器中释放。
         if (!streamLeasePending) releaseKey();
     }
 }
 
+export { UpstreamResponseError, UpstreamTransportError, isRetryableUpstreamError, isEventStreamResponse };
 export default {
     sendRequest,
 };

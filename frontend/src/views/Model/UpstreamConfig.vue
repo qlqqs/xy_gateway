@@ -38,9 +38,16 @@
                             placeholder="自动（使用模型名称）"
                             :loading="isVendorModelsLoading(upstream.vendor_id)"
                             allow-clear
+                            @dropdown-visible-change="handleVendorModelDropdown(upstream.vendor_id, $event)"
                             :disabled="mode === 'view' || !upstream.vendor_id"
                             @change="updateVendorModel(index, $event)"
                         >
+                            <a-select-option
+                                v-if="upstream.vendor_model_id && !isVendorModelsLoading(upstream.vendor_id) && !hasVendorModel(upstream.vendor_id, upstream.vendor_model_id)"
+                                :value="upstream.vendor_model_id"
+                            >
+                                已选模型 ID {{ upstream.vendor_model_id }}（当前列表不可用）
+                            </a-select-option>
                             <a-select-option
                                 v-for="vendorModel in getVendorModels(upstream.vendor_id)"
                                 :key="vendorModel.id"
@@ -114,6 +121,7 @@ import vendorsStore from '@/stores/vendors';
 import type { ModelUpstreamFormValue } from '@/types/model';
 import type { VendorModel } from '@/types/vendor';
 import DialogTest from '@/views/Vendor/DialogTest.vue';
+import { notifyRequestError } from '@/utils/requestFeedback';
 
 const props = defineProps<{
     mode: 'edit' | 'view';
@@ -158,10 +166,8 @@ async function loadVendorModels(vendorId: number) {
         const next = new Map(vendorModelsByVendor.value);
         next.set(vendorId, models);
         vendorModelsByVendor.value = next;
-    } catch {
-        const next = new Map(vendorModelsByVendor.value);
-        next.set(vendorId, []);
-        vendorModelsByVendor.value = next;
+    } catch (error) {
+        notifyRequestError(error, '供应商模型加载失败');
     } finally {
         const next = new Set(loadingVendorIds.value);
         next.delete(vendorId);
@@ -177,6 +183,18 @@ function getVendorModels(vendorId?: number): VendorModel[] {
 
 function isVendorModelsLoading(vendorId?: number): boolean {
     return vendorId ? loadingVendorIds.value.has(vendorId) : false;
+}
+
+
+function hasVendorModel(vendorId: number | undefined, vendorModelId: number): boolean {
+    return getVendorModels(vendorId).some(vendorModel => vendorModel.id === vendorModelId);
+}
+
+
+function handleVendorModelDropdown(vendorId: number | undefined, open: boolean) {
+    if (open && vendorId) {
+        void loadVendorModels(vendorId);
+    }
 }
 
 

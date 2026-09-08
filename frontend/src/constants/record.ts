@@ -5,4 +5,7 @@ export const FAILED_CODE_LABELS: Record<string, string> = {
     stream_incomplete: '流式响应不完整',
     upstream_error: '上游返回错误',
     no_available_upstream: '无可用上游',
+    insufficient_balance: '余额不足',
+    billing_error: '请求结算失败',
+    model_not_found: '模型不存在',
 };
