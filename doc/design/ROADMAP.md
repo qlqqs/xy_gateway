@@ -1,8 +1,8 @@
-# Serverless AI Gateway - 实施路线图
+# XY Gateway（星野网关）- 实施路线图
 
 ## 项目概述
 
-一个 Serverless 的 AI API 网关，对外提供 OpenAI / Anthropic / Responses 三种协议的统一入口，负责鉴权、计费、路由、协议转换、请求记录与流式转发。可在本地 Node 模式、Cloudflare Workers（D1 + R2）以及 Tauri 桌面应用三种形态下运行。
+XY Gateway（星野网关）是一个 Serverless AI API 网关，对外提供 OpenAI / Anthropic / Responses 三种协议的统一入口，负责鉴权、计费、路由、协议转换、请求记录与流式转发。可在本地 Node 模式、Cloudflare Workers（D1 + R2）以及 Tauri 桌面应用三种形态下运行。
 
 > 说明：本文档按发布版本的前两位（如 v1.8）整理，忽略补丁版本号（第三位）。内容由各版本 git 提交记录汇总而来，按里程碑概述主要能力。
 
@@ -68,7 +68,7 @@
 - **用户管理**：用户启用 / 禁用状态、登录校验
 - **流式健壮性**：客户端断开连接处理、工具调用结果顺序保持、socket 泄漏修复
 - **高级设置**：CCH 改写选项、host_key 生成、升级检测、configService 内存缓存
-- **开源准备**：仓库更名 gt_ai_gateway、Tauri 发布自动化、CI 完善
+- **开源准备**：统一使用 XY Gateway 品牌、Tauri 发布自动化、CI 完善
 
 ### V1.6: Windows 跨平台支持 (已完成)
 

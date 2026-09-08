@@ -55,6 +55,10 @@ export enum ModelBillingMode {
 
 export const UPSTREAM_FAILURE_COOLDOWN_MS = 30_000;
 
+export const APP_NAME = "XY Gateway";
+export const APP_NAME_ZH = "星野网关";
+export const APP_DISPLAY_NAME = `${APP_NAME}（${APP_NAME_ZH}）`;
+
 export const PRICE_UNIT_TOKENS = 1_000_000;
 export const MIN_MODEL_PRICE = 0.0001;
 // 计费/存储粒度：余额按 0.000001 元（微元）的整数倍取整与扣减

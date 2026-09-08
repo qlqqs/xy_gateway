@@ -58,7 +58,7 @@ npm install
 ```bash
 # frontend/.env.development
 VITE_API_BASE_URL=http://localhost:8720
-VITE_APP_TITLE=Serverless AI Gateway (Dev)
+VITE_APP_TITLE=XY Gateway (Dev)
 ```
 
 ---
@@ -105,11 +105,11 @@ npm run frontend:dev
 ```bash
 # frontend/.env.development - 开发环境
 VITE_API_BASE_URL=http://localhost:8720
-VITE_APP_TITLE=Serverless AI Gateway (Dev)
+VITE_APP_TITLE=XY Gateway (Dev)
 
 # frontend/.env.production - 生产环境
 VITE_API_BASE_URL=/api
-VITE_APP_TITLE=Serverless AI Gateway
+VITE_APP_TITLE=XY Gateway
 ```
 
 #### 配置工作原理

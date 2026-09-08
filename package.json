@@ -1,5 +1,5 @@
 {
-  "name": "gt-ai-gateway",
+  "name": "xy-gateway",
   "version": "1.8.7-beta3",
   "scripts": {
     "frontend:build": "cd frontend && npm run build",

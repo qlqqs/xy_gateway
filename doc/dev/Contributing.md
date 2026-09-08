@@ -1,13 +1,13 @@
 # 参与贡献 (Contributing)
 
-欢迎来到 GT AI Gateway！非常感谢你对本项目的关注与支持。我们非常欢迎各种形式的 Pull Request (PR)，无论是修复 Bug、完善文档、增加新特性，还是添加更多常用的大模型供应商预设。
+欢迎来到 XY Gateway（星野网关）！非常感谢你对本项目的关注与支持。我们非常欢迎各种形式的 Pull Request (PR)，无论是修复 Bug、完善文档、增加新特性，还是添加更多常用的大模型供应商预设。
 
 ## 提交 PR 的一般流程
 
 1. **Fork 本仓库**：点击页面右上角的 Fork 按钮，将代码仓库 Fork 到你的个人账户下。
 2. **克隆代码**：将你 Fork 的仓库克隆到本地。
    ```bash
-   git clone https://github.com/你的用户名/gt_ai_gateway.git
+   git clone https://github.com/你的用户名/xy_gateway.git
    ```
 3. **创建分支**：基于 `master` 分支创建一个新的特性分支。
    ```bash

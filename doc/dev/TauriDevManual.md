@@ -39,6 +39,7 @@ npm run tauri dev
 
 | 项目 | 值 |
 |------|------|
+| 应用名称 | XY Gateway（星野网关） |
 | 前端来源 | Vite dev server（`http://localhost:8721`） |
 | Rust 可执行文件 | `tauri/build/target/debug/ai-gateway` |
 | Sidecar 路径 | `tauri/build/target/debug/ai-gateway-backend` |

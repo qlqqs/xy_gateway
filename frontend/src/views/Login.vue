@@ -4,7 +4,7 @@
             <template #title>
                 <div class="card-title">
                     <img src="/favicon.svg" alt="Logo" class="logo">
-                    <span>GT AI Gateway</span>
+                    <span>{{ branding.displayName }}</span>
                 </div>
             </template>
             <a-alert
@@ -51,6 +51,7 @@ import { useAuthStore } from '@/stores/auth';
 import { notifyError, notifySuccess } from '@/utils/requestFeedback';
 import { isTauri } from '@/utils/platform';
 import config from '@/config';
+import branding from '@/config/branding';
 
 const router = useRouter();
 const authStore = useAuthStore();

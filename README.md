@@ -1,7 +1,7 @@
-# GT AI Gateway
+# XY Gateway（星野网关）
 
 <p align="center">
-  <img src="./tauri/src-tauri/icons/icon.png" width="128" alt="GT AI Gateway Logo">
+  <img src="./tauri/src-tauri/icons/icon.png" width="128" alt="XY Gateway Logo">
 </p>
 
 在极轻量的资源占用下，提供全面的网关功能，和友好的使用体验。
@@ -18,7 +18,7 @@
 
 ## 强大的协议转换能力
 
-GT AI Gateway 内置了强大的协议转换引擎，旨在打破不同 AI 供应商之间的生态壁垒。通过网关，您可以直接用标准的 OpenAI 请求格式去调用 Anthropic (Claude) 等其他协议的大模型，而无需修改任何现有的客户端代码。详见：[自动协议转换说明](doc/usage/ProtocolConversion.md)。
+XY Gateway（星野网关）内置了强大的协议转换引擎，旨在打破不同 AI 供应商之间的生态壁垒。通过网关，您可以直接用标准的 OpenAI 请求格式去调用 Anthropic (Claude) 等其他协议的大模型，而无需修改任何现有的客户端代码。详见：[自动协议转换说明](doc/usage/ProtocolConversion.md)。
 
 | 客户端请求协议 | ➡️ 实时转换 ➡️ | 上游目标模型协议 | 支持状态 | 完整度说明 |
 | :--- | :---: | :--- | :---: | :--- |
@@ -31,7 +31,7 @@ GT AI Gateway 内置了强大的协议转换引擎，旨在打破不同 AI 供�
 
 ## 深度请求分析与流量可视化
 
-除了核心的路由和协议转换外，GT AI Gateway 还是一个强大的 AI 流量抓取与排查工具：
+除了核心的路由和协议转换外，XY Gateway 还是一个强大的 AI 流量抓取与排查工具：
 
 - **全量流量抓取**：像抓包工具一样，透明地抓取并记录所有经过网关的请求与响应。无论是普通的文本对话，还是复杂的 SSE 流式响应，都能被完整记录下来。
 - **可视化分析与排查**：内置 Web 管理界面，可对任意单条请求进行深度排查（包括耗时、输入输出 token、缓存命中率及原始 JSON 数据等）。
@@ -89,17 +89,17 @@ GT AI Gateway 内置了强大的协议转换引擎，旨在打破不同 AI 供�
 
 ```bash
 docker run -d \
-    --name gt_ai_gateway \
+    --name xy_gateway \
     -p 8787:8787 \
     -v $(pwd)/data:/app/data \
     -e ROOT_TOKEN=your-secret-root-token \
-    ghcr.io/alexazhou/gt_ai_gateway:latest
+    ghcr.io/qlqqs/xy_gateway:latest
 ```
 启动后访问 `http://localhost:8787` 即可进入管理界面。详见：[Docker 部署文档](doc/deploy/DockerDeployment.md)。
 
 ### 3. 桌面客户端 (App) 运行
 最适合个人用户的即开即用模式。无需配置复杂的环境，直接下载安装包即可运行本地客户端。
-- 前往项目的 [Releases 页面](https://github.com/alexazhou/gt_ai_gateway/releases) 下载对应操作系统的安装包即可直接使用。
+- 前往项目的 [Releases 页面](https://github.com/qlqqs/xy_gateway/releases) 下载对应操作系统的安装包即可直接使用。
 
 ### 4. Node 方式直接运行代码
 适合二次开发、代码贡献者或希望在本地物理机环境原生运行服务的用户。
@@ -142,7 +142,7 @@ docker run -d \
 
 ## 🤝 参与贡献 (Contributing)
 
-欢迎来到 GT AI Gateway！非常感谢你对本项目的关注与支持。我们非常欢迎各种形式的 Pull Request (PR)，无论是修复 Bug、完善文档、增加新特性，还是添加更多常用的大模型供应商预设。
+欢迎来到 XY Gateway（星野网关）！非常感谢你对本项目的关注与支持。我们非常欢迎各种形式的 Pull Request (PR)，无论是修复 Bug、完善文档、增加新特性，还是添加更多常用的大模型供应商预设。
 
 如果你发现内置的大模型供应商里没有你常用的平台，你只需要修改后端两个配置文件即可轻松加上！非常欢迎大家提交 PR 来丰富内置的预设列表。
 

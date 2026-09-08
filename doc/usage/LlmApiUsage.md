@@ -1,6 +1,6 @@
 # LLM API 使用指南
 
-本文档介绍如何调用 Serverless AI Gateway 提供的 LLM API。网关支持两种主流协议：OpenAI 兼容协议和 Anthropic 兼容协议。
+本文档介绍如何调用 XY Gateway（星野网关）提供的 LLM API。网关支持两种主流协议：OpenAI 兼容协议和 Anthropic 兼容协议。
 
 ---
 

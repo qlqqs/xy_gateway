@@ -17,8 +17,8 @@
 
 1. 克隆项目到本地：
 ```bash
-git clone https://github.com/alexazhou/gt_ai_gateway.git
-cd gt_ai_gateway
+git clone https://github.com/qlqqs/xy_gateway.git
+cd xy_gateway
 ```
 
 2. 安装后端与前端依赖：
@@ -105,12 +105,12 @@ npm run backend:start:node
 # 全局安装 pm2
 npm install pm2 -g
 
-# 使用 pm2 启动并命名服务为 gt_ai_gateway
-pm2 start script/run-node.ts --interpreter ./node_modules/.bin/tsx --name gt_ai_gateway
+# 使用 pm2 启动并命名服务为 xy_gateway
+pm2 start script/run-node.ts --interpreter ./node_modules/.bin/tsx --name xy_gateway
 
 # 查看服务状态与日志
 pm2 status
-pm2 logs gt_ai_gateway
+pm2 logs xy_gateway
 ```
 
 ---

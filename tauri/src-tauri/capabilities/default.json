@@ -1,7 +1,7 @@
 {
     "$schema": "../gen/schemas/desktop-schema.json",
     "identifier": "default",
-    "description": "Default capabilities for AI Gateway",
+    "description": "Default capabilities for XY Gateway",
     "windows": ["main", "splashscreen"],
     "permissions": [
         "core:default",

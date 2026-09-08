@@ -85,7 +85,7 @@ auth.OPENAI_API_KEY > config.toml experimental_bearer_token
 - `model_provider = "gt_ai_gateway"`
 - `model`：使用的模型
 - `[model_providers.gt_ai_gateway]` 表：
-  - `name = "GT AI Gateway"`
+  - `name = "XY Gateway"`
   - `base_url`：endpoint URL
   - `wire_api = "responses"`
   - `experimental_bearer_token`：API key
@@ -140,7 +140,7 @@ experimental_bearer_token = "old-token"
 
 # 新版配置
 [model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 base_url = "http://127.0.0.1:8720/llm/v1"
 wire_api = "responses"
 experimental_bearer_token = "new-token"

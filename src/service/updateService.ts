@@ -1,6 +1,7 @@
 import packageJson from "../../package.json";
 import { getLogger } from "../util/loggerUtil";
 import versionUtil from "../util/versionUtil";
+import { APP_NAME } from "../constants";
 
 interface GitHubRelease {
     tag_name: string;
@@ -41,9 +42,9 @@ async function checkUpdate(_ctx: any, force: boolean = false): Promise<UpdateSta
     };
 
     try {
-        const response = await fetch("https://api.github.com/repos/alexazhou/gt_ai_gateway/releases/latest", {
+        const response = await fetch("https://api.github.com/repos/qlqqs/xy_gateway/releases/latest", {
             headers: {
-                "User-Agent": `Serverless-AI-Gateway/${currentVersion}`,
+                "User-Agent": `${APP_NAME.replace(/\s+/g, "-")}/${currentVersion}`,
                 "Accept": "application/vnd.github.v3+json"
             }
         });

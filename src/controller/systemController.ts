@@ -7,7 +7,7 @@ import modelManager from "../manager/modelManager";
 import recordManager from "../manager/recordManager";
 import hostService from "../service/hostService";
 import versionUtil from "../util/versionUtil";
-import { RunMode, ConfigKey } from "../constants";
+import { APP_DISPLAY_NAME, RunMode, ConfigKey } from "../constants";
 
 // 当前实例的启动时间（延迟初始化，避免 Workers 模块加载时日期异常）
 let INSTANCE_START_TIME: Date | null = null;
@@ -112,8 +112,8 @@ function getDataCenter(c: Context): string | null {
 function welcome(c: Context) {
     const message =
         ormService.mode === RunMode.WORKER
-            ? "Hello, welcome to serverless ai gateway!"
-            : "Hello, welcome to serverless ai gateway (node mode)!";
+            ? `Hello, welcome to ${APP_DISPLAY_NAME}!`
+            : `Hello, welcome to ${APP_DISPLAY_NAME} (node mode)!`;
     return c.text(message);
 }
 

@@ -23,7 +23,8 @@ describe("System API", () => {
 
             expect(response.status).toBe(200);
             expect(response.body).toContain("Hello");
-            expect(response.body).toContain("serverless ai gateway");
+            expect(response.body).toContain("XY Gateway");
+            expect(response.body).toContain("星野网关");
         });
 
         it("should return a text response", async () => {
@@ -38,9 +39,9 @@ describe("System API", () => {
         it("should indicate node mode", async () => {
             const response = await requestHelper.get("/welcome");
 
-            // In node mode: contains "node mode", in worker mode: contains "serverless ai gateway"
+            // In node mode: contains "node mode"; both modes expose the product name.
             const isNodeMode = response.body.includes("node mode");
-            const isWorkerMode = response.body.includes("serverless ai gateway") && !response.body.includes("node mode");
+            const isWorkerMode = response.body.includes("XY Gateway") && !response.body.includes("node mode");
             expect(isNodeMode || isWorkerMode).toBe(true);
         });
     });

@@ -1,6 +1,6 @@
 # Docker 部署文档
 
-本文档描述如何使用 Docker 部署 serverless-ai-gateway。
+本文档描述如何使用 Docker 部署 XY Gateway（星野网关）。
 
 ---
 
@@ -9,7 +9,7 @@
 本项目推荐使用 GitHub Container Registry (ghcr.io) 提供的官方镜像：
 
 ```bash
-docker pull ghcr.io/alexazhou/gt_ai_gateway:latest
+docker pull ghcr.io/qlqqs/xy_gateway:latest
 ```
 
 ## 2. 启动容器
@@ -18,12 +18,12 @@ docker pull ghcr.io/alexazhou/gt_ai_gateway:latest
 
 ```bash
 docker run -d \
-    --name gt_ai_gateway \
+    --name xy_gateway \
     -p 8787:8787 \
     -v $(pwd)/data:/app/data \
     -e ROOT_TOKEN=your-secret-root-token \
     -e KEY_ENCRYPTION_SECRET=your-long-random-encryption-secret \
-    ghcr.io/alexazhou/gt_ai_gateway:latest
+    ghcr.io/qlqqs/xy_gateway:latest
 ```
 
 > **注意**：`ROOT_TOKEN` 是系统最高权限 Token，`KEY_ENCRYPTION_SECRET` 用于 API Key
@@ -48,16 +48,16 @@ docker run -d \
 
 ```bash
 # 实时查看系统运行日志
-docker logs -f gt_ai_gateway
+docker logs -f xy_gateway
 
 # 停止服务容器
-docker stop gt_ai_gateway
+docker stop xy_gateway
 
 # 重新启动服务容器
-docker start gt_ai_gateway
+docker start xy_gateway
 
 # 删除容器（不会删除 ./data 挂载目录下的数据）
-docker rm -f gt_ai_gateway
+docker rm -f xy_gateway
 ```
 
 ### 数据库维护工具 (进阶)
@@ -66,10 +66,10 @@ docker rm -f gt_ai_gateway
 
 ```bash
 # 检查数据库状态
-docker exec -it gt_ai_gateway npx tsx script/db.ts status --env node
+docker exec -it xy_gateway npx tsx script/db.ts status --env node
 
 # 强制执行数据库表结构升级（通常容器启动时会自动执行，无需手动调用）
-docker exec -it gt_ai_gateway npm run db:migrate:node
+docker exec -it xy_gateway npm run db:migrate:node
 ```
 
 ---

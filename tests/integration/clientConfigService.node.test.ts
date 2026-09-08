@@ -393,7 +393,7 @@ describe("clientConfigService", () => {
         const configPath = join(tempDir, ".codex", "config.toml");
         const authPath = join(tempDir, ".codex", "auth.json");
         await writeFile(configPath, `[model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 base_url = "http://127.0.0.1:8720/llm/v1"
 wire_api = "responses"
 experimental_bearer_token = "gateway-token"
@@ -561,7 +561,7 @@ model_provider = "openai"
 model_provider = "gt_ai_gateway"
 
 [model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 base_url = "http://127.0.0.1:8720/llm/v1"
 wire_api = "responses"
 experimental_bearer_token = "valid-token"
@@ -606,7 +606,7 @@ experimental_bearer_token = "new-token"
 model_provider = "gt_ai_gateway"
 
 [model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 base_url = "http://127.0.0.1:8720/llm/v1"
 wire_api = "responses"
 experimental_bearer_token = "token-v1"
@@ -630,7 +630,7 @@ experimental_bearer_token = "token-v1"
 model_provider = "gt_ai_gateway"
 
 [model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 base_url = "http://127.0.0.1:8720/llm/v1"
 wire_api = "responses"
 experimental_bearer_token = "token-v2"
@@ -837,7 +837,7 @@ wire_api = "responses"
 experimental_bearer_token = "old-token-2"
 
 [model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 base_url = "http://old-server:8080"
 wire_api = "responses"
 experimental_bearer_token = "old-token-1"
@@ -895,7 +895,7 @@ wire_api = "responses"
 experimental_bearer_token = "83ce4a09-a951-4fb7-bb8d-064fb583358a"
 
 [model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 base_url = "http://127.0.0.1:8720/llm/v1"
 wire_api = "responses"
 experimental_bearer_token = "83ce4a09-a951-4fb7-bb8d-064fb583358a"
@@ -954,7 +954,7 @@ experimental_bearer_token = "83ce4a09-a951-4fb7-bb8d-064fb583358a"
 model = "gpt-5"
 
 [model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 base_url = "http://127.0.0.1:8720/llm/v1"
 wire_api = "responses"
 experimental_bearer_token = "valid-token"
@@ -984,7 +984,7 @@ wire_api = "responses"
 experimental_bearer_token = "token-2"
 
 [model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 base_url = "http://127.0.0.1:8720/llm/v1"
 wire_api = "responses"
 experimental_bearer_token = "new-token"
@@ -1162,7 +1162,7 @@ wire_api = "responses"
 experimental_bearer_token = "token-1"
 
 [model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 base_url = "http://127.0.0.1:8720/llm/v1"
 wire_api = "responses"
 experimental_bearer_token = "token-2"

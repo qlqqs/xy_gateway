@@ -577,7 +577,7 @@ fn show_main_window(app: &tauri::AppHandle) {
         "main",
         tauri::WebviewUrl::App("index.html".into()),
     )
-    .title("GT AI Gateway")
+    .title("XY Gateway")
     .inner_size(1280.0, 800.0)
     .resizable(true)
     .build();
@@ -684,7 +684,7 @@ pub fn run() {
             TrayIconBuilder::new()
                 .icon(tray_icon)
                 .icon_as_template(true)
-                .tooltip("GT AI Gateway")
+                .tooltip("XY Gateway（星野网关）")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {

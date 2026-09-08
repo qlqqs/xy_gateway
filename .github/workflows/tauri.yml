@@ -160,7 +160,7 @@ jobs:
           $setupExe = Get-ChildItem "tauri" -Recurse -Include "*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*setup*" } | Select-Object -First 1
 
           if ($setupExe) {
-            # Insert _Windows before version: GT.AI.Gateway_1.6.0_x64-setup.exe -> GT.AI.Gateway_Windows_1.6.0_x64-setup
+            # Insert _Windows before version: XY.Gateway_1.6.0_x64-setup.exe -> XY.Gateway_Windows_1.6.0_x64-setup
             $baseName = $setupExe.Name -replace '_(\d+\.\d+\.\d+)_', '_Windows_$1_' -replace '\.exe$', ''
             $zipPath = Join-Path $artifactsDir "$baseName.zip"
             Compress-Archive -Path $setupExe.FullName -DestinationPath $zipPath -Force

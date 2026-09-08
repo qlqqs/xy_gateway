@@ -148,12 +148,12 @@ describe("Frontend Static File Serving", () => {
 
                 if (asset.endsWith(".js")) {
                     expect(response.contentType).toMatch(/javascript|octet-stream/);
-                    expect(response.body).not.toContain("GT AI Gateway");
+                    expect(response.body).not.toContain("XY Gateway");
                 }
 
                 if (asset.endsWith(".css")) {
                     expect(response.contentType).toMatch(/css|octet-stream/);
-                    expect(response.body).not.toContain("GT AI Gateway");
+                    expect(response.body).not.toContain("XY Gateway");
                 }
             }
         });

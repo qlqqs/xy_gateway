@@ -1,7 +1,7 @@
 import type { ClientConfigFileContent, ClientConfigContent } from "./types";
 import BaseConfigAdapter from "./baseConfigAdapter";
 import tomlUtil from "../../util/tomlUtil";
-import { ClientName, ConnectionMode, ApiFormat } from "../../constants";
+import { APP_NAME, ClientName, ConnectionMode, ApiFormat } from "../../constants";
 import path from "path";
 
 
@@ -204,7 +204,7 @@ class CodexConfigAdapter extends BaseConfigAdapter {
         }
 
         content = tomlUtil.upsertTomlTable(content, `model_providers.${providerId}`, {
-            name: tomlUtil.buildTomlString("GT AI Gateway"),
+            name: tomlUtil.buildTomlString(APP_NAME),
             base_url: tomlUtil.buildTomlString(this.buildBaseUrl(fields)),
             wire_api: tomlUtil.buildTomlString("responses"),
             experimental_bearer_token: tomlUtil.buildTomlString(fields.apiKey),

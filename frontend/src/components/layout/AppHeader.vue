@@ -37,6 +37,7 @@ import {
 import { useAuthStore } from '@/stores/auth';
 import { useThemeStore } from '@/stores/theme';
 import { useAppStore } from '@/stores/app';
+import config from '@/config';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -92,7 +93,7 @@ const MoonIcon = {
     },
 };
 
-const title = computed(() => 'GT AI Gateway');
+const title = computed(() => config.appTitle);
 
 function handleLogout() {
     authStore.logout();

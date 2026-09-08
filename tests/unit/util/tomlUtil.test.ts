@@ -10,7 +10,7 @@ base_url = "http://old-server:8080"
 wire_api = "responses"
 
 [model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 `;
 
             const result = tomlUtil.deleteRootTomlValue(content, "base_url");
@@ -30,7 +30,7 @@ wire_api = "responses"
 experimental_bearer_token = "old-token-2"
 
 [model_providers.gt_ai_gateway]
-name = "GT AI Gateway"
+name = "XY Gateway"
 base_url = "http://127.0.0.1:8720/llm/v1"
 wire_api = "responses"
 experimental_bearer_token = "new-token"

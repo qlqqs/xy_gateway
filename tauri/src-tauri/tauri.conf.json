@@ -1,5 +1,5 @@
 {
-    "productName": "GT AI Gateway",
+    "productName": "XY Gateway",
     "version": "1.8.7-beta3",
     "identifier": "com.gtcoder.aigateway",
     "build": {
@@ -11,7 +11,7 @@
     "app": {
         "windows": [
             {
-                "title": "GT AI Gateway",
+                "title": "XY Gateway",
                 "label": "splashscreen",
                 "url": "splash.html",
                 "width": 500,

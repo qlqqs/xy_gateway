@@ -21,7 +21,7 @@ describe("Frontend-Backend API Coexistence", () => {
 
         expect(response.status).toBe(200);
         expect(typeof response.body).toBe("string");
-        expect(response.body).toContain("serverless ai gateway");
+        expect(response.body).toContain("XY Gateway");
     });
 
     it("should return JSON 404 for unknown API routes", async () => {
