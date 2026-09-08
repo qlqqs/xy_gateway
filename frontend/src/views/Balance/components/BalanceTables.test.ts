@@ -176,7 +176,7 @@ describe('balance table user interactions', () => {
     });
 
     it('clears rows and loading state when the user request fails', async () => {
-        mocks.listUsers.mockRejectedValue(new Error('network')); 
+        mocks.listUsers.mockRejectedValue(new Error('network'));
         const wrapper = mount(UserBalanceTable, { global });
         await flushPromises();
 

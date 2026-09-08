@@ -41,4 +41,3 @@ class SgUserGroup extends Model {
 }
 
 export { SgUserGroup };
-

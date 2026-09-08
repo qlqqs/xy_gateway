@@ -28,4 +28,3 @@ class SgModelUpstream extends Model {
 }
 
 export { SgModelUpstream };
-

@@ -54,4 +54,3 @@ function clear(): void {
 }
 
 export default { acquire, current, clear };
-

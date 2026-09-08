@@ -20,4 +20,3 @@
 
 - Vendor、Balance 选择器替身最初没有渲染原生 `<option>`，导致 `setValue` 无法发出有效协议/类型值；已在测试中补齐选项事件语义。
 - Record 列表测试最初未 stub 本地导入的 `RecordTable`，已通过 `global.stubs` 替换；未修改生产组件行为。
-
