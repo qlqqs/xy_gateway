@@ -80,3 +80,6 @@ Test.md 文档描述了测试环境的完整生命周期和操作流程，包括
 ## sub2api路径
 - 后端相关实现逻辑参考sun2api
 - ~/workspace/sub2api
+
+## 忽略部分
+- 忽略所有D1/Worker代码
