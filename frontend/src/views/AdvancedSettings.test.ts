@@ -106,7 +106,6 @@ const config = {
     stream_log_enabled: 'false',
     record_payload_enabled: 'true',
     auto_update_enabled: 'true',
-    telemetry_disabled: 'false',
     module_billing_enabled: 'false',
 };
 

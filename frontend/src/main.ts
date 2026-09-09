@@ -6,7 +6,6 @@ import router from './router';
 import './style.css';
 import { setBaseURL } from './utils/request';
 import { setAuthToken } from './utils/authSession';
-import posthog from 'posthog-js';
 
 function loadBrowserStoredConfig(): void {
     const storedUrl = localStorage.getItem('backendBaseURL');
@@ -56,18 +55,6 @@ async function bootstrap() {
 
     const app = createApp(App);
     const pinia = createPinia();
-    
-    posthog.init('phc_ugm7dcRiZDbQhggrmJZFMuzmRaGUbnE2t4KgqM62FEyA', {
-        api_host: 'https://us.i.posthog.com',
-        person_profiles: 'identified_only',
-        autocapture: false,
-        capture_pageview: false,
-        disable_session_recording: true,
-        opt_out_capturing_by_default: true,
-    });
-    
-    // 默认关闭自动采集，设置页根据服务端配置决定是否启用。
-    window.posthog = posthog;
 
     app.use(pinia);
     app.use(router);

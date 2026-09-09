@@ -17,10 +17,6 @@ const mocks = vi.hoisted(() => ({
         fetchStatus: vi.fn(),
         toggleSidebar: vi.fn(),
     },
-    posthog: {
-        opt_in_capturing: vi.fn(),
-        opt_out_capturing: vi.fn(),
-    },
 }));
 
 vi.mock('vue-router', () => ({
@@ -102,14 +98,12 @@ describe('AppSidebar user interactions', () => {
         mocks.appStore.isDeveloperMode = false;
         mocks.appStore.fetchStatus.mockResolvedValue(undefined);
         mocks.getConfig.mockResolvedValue({
-            telemetry_disabled: 'false',
             auto_update_enabled: 'true',
         });
         mocks.checkUpdate.mockResolvedValue({
             has_update: false,
             release_url: '',
         });
-        window.posthog = mocks.posthog;
     });
 
     it('maps nested routes to a selected menu key and navigates on selection', async () => {
@@ -151,9 +145,8 @@ describe('AppSidebar user interactions', () => {
         expect(enabledWrapper.text()).toContain('开发者');
     });
 
-    it('shows an update link and opts telemetry out when configured', async () => {
+    it('shows an update link when available', async () => {
         mocks.getConfig.mockResolvedValue({
-            telemetry_disabled: 'true',
             auto_update_enabled: 'true',
         });
         mocks.checkUpdate.mockResolvedValue({
@@ -164,7 +157,6 @@ describe('AppSidebar user interactions', () => {
         const wrapper = mount(AppSidebar, { global });
         await flushPromises();
 
-        expect(mocks.posthog.opt_out_capturing).toHaveBeenCalledOnce();
         const link = wrapper.get('.version-text');
         expect(link.attributes('href')).toBe('https://example.com/release');
         expect(link.text()).toContain('发现新版本');
@@ -172,7 +164,6 @@ describe('AppSidebar user interactions', () => {
 
     it('does not check updates when auto-update is disabled', async () => {
         mocks.getConfig.mockResolvedValue({
-            telemetry_disabled: 'false',
             auto_update_enabled: 'false',
         });
 

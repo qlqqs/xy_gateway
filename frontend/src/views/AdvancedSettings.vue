@@ -153,19 +153,6 @@
                                 />
                             </div>
                         </div>
-                        <div class="setting-item">
-                            <div class="setting-info">
-                                <div class="setting-title">退出用户体验改进计划</div>
-                                <div class="setting-desc">开启后，将彻底关闭和开发者共享数据来帮助改进产品。</div>
-                            </div>
-                            <div class="setting-action">
-                                <a-switch
-                                    :checked="form.telemetry_disabled"
-                                    @change="form.telemetry_disabled = $event as boolean"
-                                    :disabled="saving"
-                                />
-                            </div>
-                        </div>
                     </div>
                 </a-tab-pane>
                 <!-- 管理 API -->
@@ -303,7 +290,6 @@ const originalConfig = reactive({
     stream_log_enabled: false,
     record_payload_enabled: true,
     auto_update_enabled: true,
-    telemetry_disabled: false,
     module_billing_enabled: false,
 });
 
@@ -314,7 +300,6 @@ const form = reactive({
     stream_log_enabled: false,
     record_payload_enabled: true,
     auto_update_enabled: true,
-    telemetry_disabled: false,
     module_billing_enabled: false,
 });
 
@@ -325,7 +310,6 @@ const isDirty = computed(() => {
            form.stream_log_enabled !== originalConfig.stream_log_enabled ||
            form.record_payload_enabled !== originalConfig.record_payload_enabled ||
            form.auto_update_enabled !== originalConfig.auto_update_enabled ||
-           form.telemetry_disabled !== originalConfig.telemetry_disabled ||
            form.module_billing_enabled !== originalConfig.module_billing_enabled;
 });
 
@@ -359,9 +343,6 @@ async function loadConfig(): Promise<void> {
         form.auto_update_enabled = config.auto_update_enabled !== "false";
         originalConfig.auto_update_enabled = config.auto_update_enabled !== "false";
 
-        form.telemetry_disabled = config.telemetry_disabled === "true";
-        originalConfig.telemetry_disabled = config.telemetry_disabled === "true";
-
         form.module_billing_enabled = config.module_billing_enabled === "true";
         originalConfig.module_billing_enabled = config.module_billing_enabled === "true";
 
@@ -377,7 +358,6 @@ function cancelChanges() {
     form.stream_log_enabled = originalConfig.stream_log_enabled;
     form.record_payload_enabled = originalConfig.record_payload_enabled;
     form.auto_update_enabled = originalConfig.auto_update_enabled;
-    form.telemetry_disabled = originalConfig.telemetry_disabled;
     form.module_billing_enabled = originalConfig.module_billing_enabled;
 }
 
@@ -514,7 +494,6 @@ async function saveConfig() {
             stream_log_enabled: form.stream_log_enabled ? "true" : "false",
             record_payload_enabled: form.record_payload_enabled ? "true" : "false",
             auto_update_enabled: form.auto_update_enabled ? "true" : "false",
-            telemetry_disabled: form.telemetry_disabled ? "true" : "false",
             module_billing_enabled: form.module_billing_enabled ? "true" : "false",
         });
         message.success('配置已保存');
@@ -524,19 +503,10 @@ async function saveConfig() {
         originalConfig.stream_log_enabled = form.stream_log_enabled;
         originalConfig.record_payload_enabled = form.record_payload_enabled;
         originalConfig.auto_update_enabled = form.auto_update_enabled;
-        originalConfig.telemetry_disabled = form.telemetry_disabled;
         originalConfig.module_billing_enabled = form.module_billing_enabled;
 
         // 同步全局状态
         appStore.moduleBillingEnabled = form.module_billing_enabled;
-
-        if (window.posthog) {
-            if (form.telemetry_disabled) {
-                window.posthog.opt_out_capturing();
-            } else {
-                window.posthog.opt_in_capturing();
-            }
-        }
     } catch {
         // error handling is typically done by the request interceptor
     } finally {

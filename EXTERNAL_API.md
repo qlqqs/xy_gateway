@@ -838,7 +838,6 @@ GitHub 查询失败时 `success=false`，并带 `error_message`；该接口通�
 | `host_key` | `""` | 主机标识 |
 | `stream_log_enabled` | `"false"` | Node 流式日志 |
 | `auto_update_enabled` | `"true"` | 自动更新 |
-| `telemetry_disabled` | `"false"` | 遥测开关 |
 | `record_payload_enabled` | `"true"` | 是否保存请求/响应正文 |
 | `module_billing_enabled` | `"true"` | 全局计费开关 |
 | `module_api_playground_enabled` | `"true"` | API Playground 模块 |

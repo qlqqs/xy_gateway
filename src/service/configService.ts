@@ -19,7 +19,6 @@ const CONFIG_DEFAULTS: Record<string, string> = {
     [ConfigKey.HOST_KEY]: "",
     [ConfigKey.STREAM_LOG_ENABLED]: "false",
     [ConfigKey.AUTO_UPDATE_ENABLED]: "true",
-    [ConfigKey.TELEMETRY_DISABLED]: "false",
     [ConfigKey.RECORD_PAYLOAD_ENABLED]: "true",
     [ConfigKey.MODULE_BILLING_ENABLED]: "true",
     [ConfigKey.MODULE_API_PLAYGROUND_ENABLED]: "true",

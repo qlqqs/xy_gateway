@@ -16,6 +16,7 @@ describe("Config API", () => {
         expect(response.body.cch_rewrite_enabled).toBe("true");
         expect(response.body.responses_prompt_cache_key_enabled).toBe("true");
         expect(response.body.auto_update_enabled).toBe("true");
+        expect(response.body).not.toHaveProperty("telemetry_disabled");
     });
 
     it("should update config values and return updated config", async () => {
