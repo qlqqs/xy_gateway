@@ -50,6 +50,9 @@ PORT=8720
 
 # SQLite 数据库的存放路径（默认为根目录的 local.db）
 DB_PATH=local.db
+
+# 可选安全登录入口；配置后仅该路径返回管理前端
+SECURE_LOGIN_ENTRY=fdsafhdvd
 ```
 
 升级已有数据库时，请先备份 `DB_PATH` 指向的 SQLite 文件。启动时会自动执行一次性
@@ -78,7 +81,7 @@ npm run backend:dev:local
 npm run frontend:dev
 ```
 
-在浏览器中访问 `http://localhost:8721` 即可打开带热更新的系统后台。
+在浏览器中访问 `http://localhost:8721/fdsafhdvd` 即可打开带热更新的系统后台。配置 `SECURE_LOGIN_ENTRY` 后，根路径和 `/login` 不会返回登录页。
 
 ---
 
@@ -98,7 +101,7 @@ npm run frontend:build
 npm run backend:start
 ```
 
-在浏览器中访问 `http://localhost:8720` 即可打开系统管理后台。
+在浏览器中访问 `http://localhost:8720/fdsafhdvd` 即可打开系统管理后台。未配置 `SECURE_LOGIN_ENTRY` 时访问根路径。
 
 为了保证服务在后台常驻运行且在崩溃后自动重启，推荐配合 [PM2](https://pm2.keymetrics.io/) 来管理生产模式进程：
 ```bash
@@ -117,6 +120,6 @@ pm2 logs xy_gateway
 
 ## 5. 后续操作
 
-服务启动完毕后，输入您在 `.env` 中配置的 `ROOT_TOKEN` 即可登录进入管理后台。
+服务启动完毕后，输入您在 `.dev.vars` 中配置的 `ROOT_TOKEN` 即可登录进入管理后台。
 
 后续的具体使用和渠道配置，请参考 [系统配置指南](../ConfigurationGuide.md)。

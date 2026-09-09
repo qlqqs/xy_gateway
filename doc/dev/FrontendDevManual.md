@@ -52,8 +52,10 @@ npm install
 前端环境变量位于 `frontend/` 目录下：
 
 - `.env.development` - 开发环境配置
-- `.env.production` - 生产环境配置
 - `.env.example` - 配置示例
+
+安全登录入口不属于前端构建变量。开发服务器会读取项目根目录 `.dev.vars` 中的
+`SECURE_LOGIN_ENTRY`，生产环境则由 Node/Docker 的运行时环境变量读取；不要把安全入口写成任何 `VITE_*` 变量，也不要把它写进前端构建产物。
 
 ```bash
 # frontend/.env.development
@@ -98,7 +100,7 @@ npm run frontend:dev
 前端环境变量位于 `frontend/` 目录下：
 
 - `.env.development` - 开发环境配置
-- `.env.production` - 生产环境配置
+- `.env.example` - 配置示例
 
 #### 配置说明
 
@@ -107,14 +109,14 @@ npm run frontend:dev
 VITE_API_BASE_URL=http://localhost:8720
 VITE_APP_TITLE=XY Gateway (Dev)
 
-# frontend/.env.production - 生产环境
-VITE_API_BASE_URL=/api
-VITE_APP_TITLE=XY Gateway
+# 安全登录入口（运行时配置，不属于 Vite 构建变量）
+# 项目根目录 .dev.vars / Docker 环境变量：
+SECURE_LOGIN_ENTRY=/your-private-entry
 ```
 
 #### 配置工作原理
 
-1. **环境变量读取**：Vite 在构建时读取 `.env.*` 文件，以 `VITE_` 开头的变量会暴露给客户端代码
+1. **环境变量读取**：Vite 在构建时读取 `.env.*` 文件，以 `VITE_` 开头的变量会暴露给客户端代码；安全入口由服务端运行时读取
 2. **Axios 配置**：前端通过 `import.meta.env.VITE_API_BASE_URL` 读取环境变量，配置到 axios 的 baseURL
 
 ```typescript

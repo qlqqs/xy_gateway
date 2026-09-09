@@ -24,8 +24,10 @@ WORKDIR /app
 # 复制后端依赖文件
 COPY package*.json ./
 
-# 安装后端依赖 (better-sqlite3 等 native 模块会在此根据目标架构进行编译/下载)
-RUN npm config set fetch-retries 10 && \
+# better-sqlite3/sqlite3 在没有可用 musl 预编译包时需要本地编译工具兜底。
+# 依赖安装完成后，生产镜像只复制编译产物，不携带这些工具。
+RUN apk add --no-cache python3 make g++ && \
+    npm config set fetch-retries 10 && \
     npm config set fetch-retry-mintimeout 3000 && \
     npm config set fetch-retry-maxtimeout 10000 && \
     npm config set fetch-timeout 30000 && \

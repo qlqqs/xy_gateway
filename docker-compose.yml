@@ -11,6 +11,8 @@ services:
             - PORT=8787
             - DB_PATH=/app/data/local.db
             - ROOT_TOKEN=${ROOT_TOKEN:-your-secret-root-token-change-this}
+            - KEY_ENCRYPTION_SECRET=${KEY_ENCRYPTION_SECRET:-}
+            - SECURE_LOGIN_ENTRY=${SECURE_LOGIN_ENTRY:-}
         volumes:
             - ./data:/app/data
         restart: unless-stopped

@@ -82,9 +82,10 @@ docker run -d \
     -p 8787:8787 \
     -v $(pwd)/data:/app/data \
     -e ROOT_TOKEN=your-secret-root-token \
+    -e SECURE_LOGIN_ENTRY=fdsafhdvd \
     ghcr.io/qlqqs/xy_gateway:latest
 ```
-启动后访问 `http://localhost:8787` 即可进入管理界面。详见：[Docker 部署文档](doc/deploy/DockerDeployment.md)。
+启动后访问 `http://localhost:8787/fdsafhdvd` 即可打开登录页。`SECURE_LOGIN_ENTRY` 为可选安全入口，未配置时访问根路径。详见：[Docker 部署文档](doc/deploy/DockerDeployment.md)。
 
 ### 2. 桌面客户端 (App) 运行
 最适合个人用户的即开即用模式。无需配置复杂的环境，直接下载安装包即可运行本地客户端。

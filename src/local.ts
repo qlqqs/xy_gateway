@@ -9,6 +9,7 @@ import hostService from "./service/hostService";
 import app, { Env } from "./routes";
 import initLogger, { Logger } from "./util/loggerUtil";
 import maskUtil from "./util/maskUtil";
+import securityEntranceUtil from "./util/securityEntranceUtil";
 
 // --api-only: 跳过前端静态文件服务，仅提供 API（桌面 sidecar 模式使用）
 export const apiOnly = process.argv.includes("--api-only");
@@ -19,6 +20,7 @@ export const desktopMode = process.argv.includes("--desktop-mode");
 config({ path: join(process.cwd(), ".dev.vars"), override: false });
 
 const DB_PATH = process.env.DB_PATH || join(process.cwd(), "local.db");
+const SECURITY_ENTRANCE = securityEntranceUtil.getConfiguredSecurityEntrance();
 
 // 在桌面版下，Tauri 进程会将自己的 stdin 管道连到这里。
 // 一旦 Tauri 父进程异常退出，管道断开，我们通过监听 stdin 可以及时自动清理，避免产生孤儿进程。
@@ -149,6 +151,12 @@ async function startServer() {
                 } catch (e) {
                     return c.notFound();
                 }
+            }
+
+            // 配置安全入口后，仅允许入口路径返回前端登录页面。
+            // 静态资源和 API 已在上方单独处理，不受此检查影响。
+            if (!securityEntranceUtil.isSecurityEntrancePath(pathname, SECURITY_ENTRANCE)) {
+                return c.notFound();
             }
 
             // Return index.html for SPA routing

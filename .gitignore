@@ -35,6 +35,8 @@ lerna-debug.log*
 .DS_Store
 .idea
 .claude/
+package.json.orig
+tsconfig.json.orig
 
 # build
 .fingerprint

@@ -1,10 +1,90 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type ViteDevServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import { cpSync, existsSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import Components from 'unplugin-vue-components/vite'
 import { AntDesignVueResolver } from 'unplugin-vue-components/resolvers'
+
+function normalizeSecurityEntrance(value: string | undefined): string {
+    const raw = value?.trim() ?? ''
+    if (!raw) return ''
+
+    const withoutSlashes = raw.replace(/^\/+|\/+$/g, '')
+    if (!withoutSlashes || withoutSlashes.includes('?') || withoutSlashes.includes('#')) {
+        return ''
+    }
+
+    return `/${withoutSlashes}`
+}
+
+function readRootDevVars(frontendRoot: string): Record<string, string> {
+    const varsPath = resolve(frontendRoot, '../.dev.vars')
+    try {
+        return Object.fromEntries(
+            readFileSync(varsPath, 'utf-8')
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter((line) => line && !line.startsWith('#') && line.includes('='))
+                .map((line) => {
+                    const separator = line.indexOf('=')
+                    return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()]
+                }),
+        )
+    } catch {
+        return {}
+    }
+}
+
+function secureLoginEntryPlugin() {
+    return {
+        name: 'secure-login-entry',
+        // 安全入口是开发服务器的访问门禁，不参与生产构建，也不会被打包进前端代码。
+        apply: 'serve' as const,
+        configureServer(server: ViteDevServer) {
+            const frontendRoot = fileURLToPath(new URL('.', import.meta.url))
+            const rootEnv = readRootDevVars(frontendRoot)
+            const configuredEntrance = Object.prototype.hasOwnProperty.call(
+                process.env,
+                'SECURE_LOGIN_ENTRY',
+            )
+                ? process.env.SECURE_LOGIN_ENTRY
+                : rootEnv.SECURE_LOGIN_ENTRY
+            const entrance = normalizeSecurityEntrance(configuredEntrance)
+            if (!entrance) return
+
+            server.middlewares.use((req, res, next) => {
+                const pathname = new URL(req.url || '/', 'http://localhost').pathname
+                // Vite 的 HMR 使用根路径 WebSocket，不应被 HTTP 路径门禁拦截。
+                if (req.headers.upgrade?.toLowerCase() === 'websocket') {
+                    next()
+                    return
+                }
+
+                const isAllowedPath = pathname === entrance || pathname === `${entrance}/`
+                    || pathname.startsWith('/@')
+                    || pathname.startsWith('/src/')
+                    || pathname.startsWith('/node_modules/')
+                    || pathname.startsWith('/assets/')
+                    || pathname.startsWith('/data_viewer/')
+                    || pathname.startsWith('/__vite')
+                    || pathname === '/favicon.svg'
+                    || pathname === '/splash.html'
+                    || pathname.startsWith('/api')
+                    || pathname.startsWith('/v1')
+
+                if (isAllowedPath) {
+                    next()
+                    return
+                }
+
+                res.statusCode = 404
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+                res.end('404 Not Found')
+            })
+        },
+    }
+}
 
 function dataViewerDistOnlyPlugin() {
     return {
@@ -25,7 +105,7 @@ function dataViewerDistOnlyPlugin() {
 }
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
     plugins: [
         // 去掉 HTML 中的 crossorigin 属性（Tauri v2 自定义协议兼容）
         {
@@ -52,6 +132,7 @@ export default defineConfig({
             ],
         }),
         dataViewerDistOnlyPlugin(),
+        ...(command === 'serve' ? [secureLoginEntryPlugin()] : []),
     ],
     resolve: {
         alias: {
@@ -89,4 +170,4 @@ export default defineConfig({
         // Tauri v2 自定义协议下需要去掉 crossorigin
         modulePreload: false,
     },
-})
+}))

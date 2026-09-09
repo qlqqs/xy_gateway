@@ -23,6 +23,7 @@ docker run -d \
     -v $(pwd)/data:/app/data \
     -e ROOT_TOKEN=your-secret-root-token \
     -e KEY_ENCRYPTION_SECRET=your-long-random-encryption-secret \
+    -e SECURE_LOGIN_ENTRY=fdsafhdvd \
     ghcr.io/qlqqs/xy_gateway:latest
 ```
 
@@ -30,7 +31,9 @@ docker run -d \
 > 加密。请使用两个不同的高熵随机值，并持久化保存 `KEY_ENCRYPTION_SECRET`；丢失后无法
 > 回显已有 Key。
 
-服务启动后，访问 `http://localhost:8787` 即可登录进入管理后台。
+服务启动后，访问 `http://localhost:8787/fdsafhdvd` 即可打开登录页。
+
+> `SECURE_LOGIN_ENTRY` 为可选的安全入口。配置后，只有该路径会返回管理前端；忘记入口时请检查启动命令或容器环境变量。未配置时访问根路径即可打开登录页。
 
 ### 数据持久化说明
 

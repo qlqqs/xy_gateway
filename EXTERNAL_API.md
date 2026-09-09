@@ -6,7 +6,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 当前版本 | `1.8.7-beta3`（以 `package.json` 为准） |
+| 当前版本 | `1.0.0`（以 `package.json` 为准） |
 | 默认 Node 地址 | `http://127.0.0.1:8720` |
 | Docker 示例地址 | `http://127.0.0.1:8787` |
 | LLM 标准入口 | `/v1/*` |
@@ -788,7 +788,7 @@ curl "$BASE_URL/v1/messages" \
   },
   "system": {
     "environment": "Node",
-    "version": "1.8.7-beta3",
+    "version": "1.0.0",
     "apiAddress": "http://127.0.0.1:8720",
     "startTime": "2026-09-09T10:00:00.000Z",
     "uptime": "2小时 13分钟 4秒",
@@ -815,8 +815,8 @@ curl "$BASE_URL/v1/messages" \
 {
   "success": true,
   "has_update": false,
-  "current_version": "1.8.7-beta3",
-  "latest_version": "1.8.7-beta3",
+  "current_version": "1.0.0",
+  "latest_version": "1.0.0",
   "release_url": "https://github.com/qlqqs/xy_gateway/releases/latest",
   "release_notes": "..."
 }

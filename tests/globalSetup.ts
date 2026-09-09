@@ -202,6 +202,8 @@ function startTestServer(): Promise<void> {
             ROOT_TOKEN: "root-token-123",
             KEY_ENCRYPTION_SECRET: "test-key-encryption-secret",
             NODE_ENV: "test",
+            // Static frontend tests cover the unrestricted default; do not inherit local .dev.vars.
+            SECURE_LOGIN_ENTRY: "",
         };
         const startupTimeout = 3000;
 
