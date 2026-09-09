@@ -1,6 +1,14 @@
 import { SgConfig } from "../model/sgConfig";
 import { ConfigKey } from "../constants";
 import configManager from "../manager/configManager";
+import customError from "../util/customErrorUtil";
+
+const RESERVED_CONFIG_KEYS = new Set<string>([ConfigKey.ADMIN_API_KEY]);
+
+
+function isReservedConfigKey(name: string): boolean {
+    return RESERVED_CONFIG_KEYS.has(name);
+}
 
 // 各配置项的默认值集中在此维护，调用方无需再传默认值。
 // 未在表中登记的 key 默认值为空字符串。
@@ -52,6 +60,12 @@ async function getConfig(name: ConfigKey | string): Promise<ConfigItem> {
     const key = name as string;
     const defaultValue = getDefault(key);
 
+    // Admin API Key 由独立且不缓存的生命周期 Service 管理；这里返回空项，
+    // 防止普通配置代码意外读取该保留字段。
+    if (isReservedConfigKey(key)) {
+        return new ConfigItem(undefined, "");
+    }
+
     if (cache.has(key)) {
         return new ConfigItem(cache.get(key), defaultValue);
     }
@@ -73,6 +87,13 @@ async function isModuleBillingEnabled(): Promise<boolean> {
 
 async function setValue(name: ConfigKey | string, value: string): Promise<SgConfig> {
     const key = name as string;
+    if (isReservedConfigKey(key)) {
+        throw new customError.AppError(
+            "admin_api_key must be managed through the Admin API",
+            400,
+            "reserved_config",
+        );
+    }
     const strValue = String(value);
 
     const result = await configManager.set(key, strValue);
@@ -85,6 +106,9 @@ async function getAll(): Promise<Record<string, string>> {
     if (!isAllLoaded) {
         const configs = await configManager.getAll();
         for (const config of configs) {
+            if (isReservedConfigKey(config.name)) {
+                continue;
+            }
             cache.set(config.name, config.value);
         }
         isAllLoaded = true;
@@ -92,7 +116,7 @@ async function getAll(): Promise<Record<string, string>> {
 
     const result: Record<string, string> = { ...CONFIG_DEFAULTS };
     for (const [key, value] of cache.entries()) {
-        if (value !== null) {
+        if (!isReservedConfigKey(key) && value !== null) {
             result[key] = value;
         }
     }
@@ -100,7 +124,23 @@ async function getAll(): Promise<Record<string, string>> {
 }
 
 async function updateAll(data: Record<string, string>): Promise<Record<string, string>> {
-    for (const [name, value] of Object.entries(data)) {
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new customError.AppError("Invalid config payload");
+    }
+
+    // 在首次写入前校验完整批次，避免混合请求在拒绝保留字段前已经
+    // 部分修改普通配置。
+    const entries = Object.entries(data);
+    const reserved = entries.find(([name]) => isReservedConfigKey(name));
+    if (reserved) {
+        throw new customError.AppError(
+            "admin_api_key must be managed through the Admin API",
+            400,
+            "reserved_config",
+        );
+    }
+
+    for (const [name, value] of entries) {
         await setValue(name, value);
     }
 

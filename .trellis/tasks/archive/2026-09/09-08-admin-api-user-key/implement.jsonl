@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端路由到 Service/Manager 的请求链路"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"用户 Controller、Key Service 与 Manager 的职责边界和默认导出"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Sutando 查询、显式 404、SQLite/MySQL 和无 migration 约束"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"跨用户 404、重复值 409 和参数 400 的 JSON 契约"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用现有单项 Service，避免用整组替换重复实现"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/api-operation-matrix.md","reason":"单 Key 新路由与旧整组入口的最终映射"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/sub2api-decisions.md","reason":"用户确认的单 Key API、旧前端不改和覆盖限制"}

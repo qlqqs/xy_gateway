@@ -28,13 +28,25 @@ x-api-key: YOUR_USER_TOKEN
 
 ## API 端点
 
-### 1. OpenAI 兼容端点
-- **路径**: `/llm/v1/chat/completions`
+新接入统一使用标准 `/v1/*` 路径。历史 `/llm/v1/*` 路径继续保留，仅用于兼容已有客户端。
+
+### 1. 模型列表端点
+- **路径**: `/v1/models`
+- **方法**: `GET`
+- **说明**: 返回当前 Key 可见且存在可用上游的模型列表。
+
+### 2. OpenAI Chat Completions 端点
+- **路径**: `/v1/chat/completions`
 - **方法**: `POST`
 - **说明**: 遵循 OpenAI Chat Completions 规范，适用于大多数第三方客户端。
 
-### 2. Anthropic 兼容端点
-- **路径**: `/llm/v1/messages`
+### 3. OpenAI Responses 端点
+- **路径**: `/v1/responses`
+- **方法**: `POST`
+- **说明**: 遵循 OpenAI Responses API 规范。
+
+### 4. Anthropic Messages 端点
+- **路径**: `/v1/messages`
 - **方法**: `POST`
 - **说明**: 遵循 Anthropic Messages API 规范。
 
@@ -63,7 +75,7 @@ x-api-key: YOUR_USER_TOKEN
 ### 1. 调用 OpenAI 兼容接口 (cURL)
 
 ```bash
-curl http://localhost:8787/llm/v1/chat/completions \
+curl http://localhost:8787/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-token-here" \
   -d '{
@@ -78,7 +90,7 @@ curl http://localhost:8787/llm/v1/chat/completions \
 ### 2. 调用 Anthropic 兼容接口 (cURL)
 
 ```bash
-curl http://localhost:8787/llm/v1/messages \
+curl http://localhost:8787/v1/messages \
   -H "Content-Type: application/json" \
   -H "x-api-key: your-token-here" \
   -H "anthropic-version: 2023-06-01" \

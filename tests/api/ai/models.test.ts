@@ -87,6 +87,15 @@ describe("GET /llm/v1/models", () => {
         ))).toBe(true);
     });
 
+    it("supports the standard /v1/models path", async () => {
+        const response = await requestHelper.get("/v1/models", normalToken);
+
+        expect(response.status).toBe(200);
+        expect(response.body.object).toBe("list");
+        expect(response.body.data.map((model: { id: string }) => model.id))
+            .toEqual(["gpt-4o", "claude-sonnet-4-5"]);
+    });
+
     it("accepts x-api-key authentication", async () => {
         const response = await requestHelper.request("/llm/v1/models", {
             method: "GET",

@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"API、集成测试分层和聚焦验证规则"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"复核归属查询、物理删除和运行字段持久化"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"复核 400、404、409 与敏感错误信息"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查 URL、Controller、Service、Manager 和 DTO 数据流完整"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/api-operation-matrix.md","reason":"核对新增路由、原 PUT 和管理鉴权无遗漏"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/sub2api-decisions.md","reason":"检查未擅自修改旧前端或增加复杂并发协议"}

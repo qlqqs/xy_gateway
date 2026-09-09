@@ -1,0 +1,11 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Node 单元、集成、API 测试边界和提交门槛"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"核对 SQLite/MySQL 查询、唯一约束和无 migration 范围"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"核对 400、401、403、404、409、503 的 JSON 行为"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"核对凭证、Header、响应和错误不泄密"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查路由、认证上下文、Service、数据库和 LLM 隔离完整"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"复核设置页组件、控件、图标按钮和可访问性实现"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"复核明文只存在页面内存且不进入持久化状态"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"复核设置页错误反馈、loading、刷新状态和聚焦测试"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"复核 Admin Key API 的严格响应类型和构建检查"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/api-operation-matrix.md","reason":"双向核对实际管理路由、测试和文档覆盖"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/sub2api-decisions.md","reason":"检查实现未偏离用户确认的简单方案"}

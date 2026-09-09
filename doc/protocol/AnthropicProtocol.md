@@ -9,7 +9,7 @@
 ### 请求
 
 ```http
-POST /llm/v1/messages
+POST /v1/messages
 Content-Type: application/json
 x-api-key: YOUR_API_KEY
 anthropic-version: 2023-06-01

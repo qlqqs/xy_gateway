@@ -102,6 +102,8 @@ export enum UserStatus {
 export const ROOT_USER_ID = -1;
 
 export enum ConfigKey {
+    // 机器管理入口专用配置。该值不属于普通配置 API 的读写范围。
+    ADMIN_API_KEY = "admin_api_key",
     CCH_REWRITE_ENABLED = "cch_rewrite_enabled",
     RESPONSES_PROMPT_CACHE_KEY_ENABLED = "responses_prompt_cache_key_enabled",
     CLAUDE_CODE_TRACKING_REWRITE_ENABLED = "claudecode_tracking_rewrite_enabled",
@@ -115,3 +117,9 @@ export enum ConfigKey {
     MODULE_API_PLAYGROUND_ENABLED = "module_api_playground_enabled",
     MODULE_CLIENT_CONFIG_ENABLED = "module_client_config_enabled",
 }
+
+// Admin API Key 只存储在 config 表中；随机部分提供 256 bit 熵。
+export const ADMIN_API_KEY_PREFIX = "xg_admin_";
+export const ADMIN_API_KEY_RANDOM_BYTES = 32;
+export const ADMIN_API_KEY_MIN_LENGTH = 32;
+export const ADMIN_API_KEY_MAX_LENGTH = 512;

@@ -128,6 +128,15 @@ async function startServer() {
             const url = new URL(c.req.url);
             const pathname = url.pathname;
 
+            // API 路径必须在静态资源和 SVG 分支之前终止，避免未知的
+            // `/api/v1/admin/*.svg` 之类请求绕过 JSON 404 返回文本响应。
+            if (pathname.startsWith("/v1/")
+                || pathname.startsWith("/llm/")
+                || pathname.startsWith("/api/v1/admin")
+                || pathname.includes(".json")) {
+                return c.json({ error: "Not found" }, 404);
+            }
+
             // Let asset files pass through to serveStatic middleware
             if (pathname.startsWith("/assets/") || pathname.startsWith("/data_viewer/")) {
                 return next();
@@ -143,11 +152,6 @@ async function startServer() {
                 } catch (e) {
                     return c.notFound();
                 }
-            }
-
-            // Skip API routes
-            if (pathname.startsWith("/v1/") || pathname.startsWith("/llm/") || pathname.includes(".json")) {
-                return c.json({ error: "Not found" }, 404);
             }
 
             // Return index.html for SPA routing

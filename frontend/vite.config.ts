@@ -64,10 +64,18 @@ export default defineConfig({
         host: '0.0.0.0',
         allowedHosts: true,
         proxy: {
+            '/api/v1/admin': {
+                target: 'http://127.0.0.1:8720',
+                changeOrigin: true,
+            },
             '/api': {
                 target: 'http://127.0.0.1:8720',
                 changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/api/, ''),
+            },
+            '/v1': {
+                target: 'http://127.0.0.1:8720',
+                changeOrigin: true,
             },
         },
     },

@@ -235,6 +235,62 @@ async function updateKeys(c: Context) {
     return c.json(await toDto(c, (await userManager.findById(userId))!));
 }
 
+async function listKeys(c: Context) {
+    const userId = parseId(c.req.param("id"));
+    const user = await userManager.findById(userId);
+    if (!user) throw new customError.NotFoundError("User not found");
+
+    const keys = await userKeyManager.listByUser(userId);
+    const secret = keys.length > 0 ? encryptionSecret(c) : "";
+    return c.json(await userKeyService.listForUser(userId, secret));
+}
+
+async function createKey(c: Context) {
+    const userId = parseId(c.req.param("id"));
+    if (!await userManager.findById(userId)) throw new customError.NotFoundError("User not found");
+
+    const body = await parseBody(c);
+    const secret = encryptionSecret(c);
+    return c.json(await userKeyService.createForUser(userId, body as UserKeyInput, secret));
+}
+
+async function getKey(c: Context) {
+    const userId = parseId(c.req.param("id"));
+    const keyId = parseId(c.req.param("keyId"));
+    if (!await userManager.findById(userId)) throw new customError.NotFoundError("User not found");
+
+    const secret = encryptionSecret(c);
+    const key = await userKeyService.getForUser(userId, keyId, secret);
+    if (!key) throw new customError.NotFoundError("API key not found");
+    return c.json(key);
+}
+
+async function updateKey(c: Context) {
+    const userId = parseId(c.req.param("id"));
+    const keyId = parseId(c.req.param("keyId"));
+    if (!await userManager.findById(userId)) throw new customError.NotFoundError("User not found");
+
+    const body = await parseBody(c);
+    const key = await userKeyService.updateForUser(
+        userId,
+        keyId,
+        body as UserKeyInput,
+        encryptionSecret(c),
+    );
+    if (!key) throw new customError.NotFoundError("API key not found");
+    return c.json(key);
+}
+
+async function deleteKey(c: Context) {
+    const userId = parseId(c.req.param("id"));
+    const keyId = parseId(c.req.param("keyId"));
+    if (!await userManager.findById(userId)) throw new customError.NotFoundError("User not found");
+
+    const deleted = await userKeyService.deleteForUser(userId, keyId);
+    if (!deleted) throw new customError.NotFoundError("API key not found");
+    return c.json({ success: true });
+}
+
 async function adjustBalance(c: Context) {
     const userId = parseId(c.req.param("id"));
     const body = await parseBody(c);
@@ -260,5 +316,10 @@ export default {
     createUser,
     updateUser,
     updateKeys,
+    listKeys,
+    createKey,
+    getKey,
+    updateKey,
+    deleteKey,
     adjustBalance,
 };

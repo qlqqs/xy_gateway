@@ -277,7 +277,7 @@ Authorization: Bearer YOUR_API_KEY
 通过本网关调用 Responses API，将端点替换为网关地址即可：
 
 ```http
-POST /llm/v1/responses
+POST /v1/responses
 Authorization: Bearer YOUR_GATEWAY_TOKEN
 Content-Type: application/json
 ```

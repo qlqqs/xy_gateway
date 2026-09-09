@@ -164,6 +164,22 @@ describe("AI Chat API", () => {
             expect(latestRecord).toHaveProperty("updated_at");
         }, 30000);
 
+        it("supports the standard /v1/chat/completions path", async () => {
+            const chatRequest = mockHelper.generateOpenAIChatRequest({
+                model: openaiModelName,
+                stream: false,
+            });
+
+            const response = await requestHelper.post(
+                "/v1/chat/completions",
+                chatRequest,
+                testUserToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body.object).toBe("chat.completion");
+        }, 30000);
+
         it("should accept x-api-key authentication", async () => {
             const chatRequest = mockHelper.generateOpenAIChatRequest({
                 model: openaiModelName,

@@ -140,6 +140,24 @@ describe("AI Responses API", () => {
             expect(upstreamRequests[0].json?.prompt_cache_key).toMatch(/^[0-9a-f]{8}:.+/);
         }, 30000);
 
+        it("supports the standard /v1/responses path", async () => {
+            const req = mockHelper.generateResponsesRequest({
+                model: responsesModelName,
+                input: createUniqueInput("standard-responses-path"),
+                stream: false,
+            });
+
+            const response = await requestHelper.post(
+                "/v1/responses",
+                req,
+                testUserToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body.object).toBe("response");
+            expect(response.body.status).toBe("completed");
+        }, 30000);
+
         it("should persist cache, image and cost breakdown using usage v3", async () => {
             const modelName = `responses-billing-${randomUUID()}`;
             const modelResponse = await requestHelper.post(

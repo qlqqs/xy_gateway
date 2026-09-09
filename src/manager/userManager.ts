@@ -1,5 +1,5 @@
 import { SgUser } from "../model/sgUser";
-import { UserStatus } from "../constants";
+import { UserStatus, UserType } from "../constants";
 
 interface UserListOptions {
     type?: string;
@@ -15,6 +15,21 @@ async function findById(userId: number): Promise<SgUser | null> {
 async function findByName(name: string): Promise<SgUser | null> {
     if (!name) return null;
     return await SgUser.query().whereRaw("LOWER(name) = LOWER(?)", [name]).first();
+}
+
+
+/**
+ * 返回可承载 Admin API 请求上下文的第一个真实管理员。
+ *
+ * 机器凭证不能构造虚拟用户，且管理员选择必须稳定：先过滤 active
+ * 状态，再按数据库 ID 升序取第一条。
+ */
+async function findFirstActiveAdmin(): Promise<SgUser | null> {
+    return await SgUser.query()
+        .where("type", UserType.ADMIN)
+        .where("status", UserStatus.ACTIVE)
+        .orderBy("id", "asc")
+        .first();
 }
 
 async function getByIds(ids: number[]): Promise<SgUser[]> {
@@ -75,6 +90,7 @@ async function deleteById(userId: number): Promise<boolean> {
 export default {
     findById,
     findByName,
+    findFirstActiveAdmin,
     getByIds,
     list,
     create,

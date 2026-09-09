@@ -10,9 +10,9 @@
 
 | 格式 | 枚举值 | 端点 | 说明 |
 |------|--------|------|------|
-| OpenAI Chat Completions | `openai` | `/llm/v1/chat/completions` | 标准 OpenAI 对话格式 |
-| Anthropic Messages | `anthropic` | `/llm/v1/messages` | Anthropic 消息格式 |
-| OpenAI Responses | `responses` | `/llm/v1/responses` | OpenAI 新一代 Responses API |
+| OpenAI Chat Completions | `openai` | `/v1/chat/completions` | 标准 OpenAI 对话格式 |
+| Anthropic Messages | `anthropic` | `/v1/messages` | Anthropic 消息格式 |
+| OpenAI Responses | `responses` | `/v1/responses` | OpenAI 新一代 Responses API |
 
 **重要说明**：网关目前是**透传转发**模式，不做请求体的协议转换。客户端用什么格式请求，网关就以相同格式转发到对应的上游。转换逻辑体现在**SSE 流式响应的累积（Accumulator）**上——将不同格式的流式事件统一累积为内部存储格式，用于请求记录和计费。
 

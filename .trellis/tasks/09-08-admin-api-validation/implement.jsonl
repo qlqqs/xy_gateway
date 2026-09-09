@@ -1,0 +1,10 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端管理、LLM 与测试路由的请求链路入口"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"API/集成测试分类、Node 验证和提交门槛"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"鉴权矩阵和所有路由保持 JSON 错误响应"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"测试与文档示例不得泄露真实凭证"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"设置页组件、Ant Design Vue 控件和一次性展示交互规范"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"限制 Admin Key 明文为设置页临时状态，不进入持久化 store"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"设置页 loading、错误反馈、无障碍和 Vitest 验证要求"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Admin Key API 的严格请求/响应类型和 vue-tsc 门槛"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/api-operation-matrix.md","reason":"完整管理路由、非管理路由和覆盖要求的权威清单"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/sub2api-decisions.md","reason":"核对认证、生命周期、权限和并发限制符合用户选择"}

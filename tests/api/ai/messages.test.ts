@@ -155,6 +155,22 @@ describe("AI Messages API (Anthropic)", () => {
             );
         }, 30000);
 
+        it("supports the standard /v1/messages path", async () => {
+            const messageRequest = mockHelper.generateAnthropicMessageRequest({
+                model: anthropicModelName,
+                stream: false,
+            });
+
+            const response = await requestHelper.postWithAnthropicStyleApiKey(
+                "/v1/messages",
+                messageRequest,
+                testUserToken,
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body.type).toBe("message");
+        }, 30000);
+
         it("should handle successful Anthropic message request with Authorization header", async () => {
             const messageRequest = mockHelper.generateAnthropicMessageRequest({
                 model: anthropicModelName,

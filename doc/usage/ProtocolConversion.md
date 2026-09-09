@@ -24,10 +24,10 @@ XY Gateway（星野网关）的核心特性之一是**透明且自动的协议�
 
 | 客户端请求的端点 | 后台模型实际支持的协议 | 网关的行为 | 结果 |
 | :--- | :--- | :--- | :--- |
-| `/llm/v1/chat/completions` (OpenAI 格式) | **OpenAI** 协议 | 透传 (Pass-through) | 不做转换，直接代理请求。 |
-| `/llm/v1/chat/completions` (OpenAI 格式) | **Anthropic** 协议 | **触发转换** | 将请求转为 Anthropic 格式，响应转为 OpenAI 格式。 |
-| `/llm/v1/messages` (Anthropic 格式) | **Anthropic** 协议 | 透传 (Pass-through) | 不做转换，直接代理请求。 |
-| `/llm/v1/messages` (Anthropic 格式) | **OpenAI** 协议 | **触发转换** | 将请求转为 OpenAI 格式，响应转为 Anthropic 格式。 |
+| `/v1/chat/completions` (OpenAI 格式) | **OpenAI** 协议 | 透传 (Pass-through) | 不做转换，直接代理请求。 |
+| `/v1/chat/completions` (OpenAI 格式) | **Anthropic** 协议 | **触发转换** | 将请求转为 Anthropic 格式，响应转为 OpenAI 格式。 |
+| `/v1/messages` (Anthropic 格式) | **Anthropic** 协议 | 透传 (Pass-through) | 不做转换，直接代理请求。 |
+| `/v1/messages` (Anthropic 格式) | **OpenAI** 协议 | **触发转换** | 将请求转为 OpenAI 格式，响应转为 Anthropic 格式。 |
 
 简单来说：**只要客户端使用的协议，与实际提供模型的供应商协议不一致，就会自动触发双向转换。**
 
@@ -65,7 +65,7 @@ XY Gateway（星野网关）的核心特性之一是**透明且自动的协议�
 import openai
 
 client = openai.Client(
-    base_url="https://<your-gateway-url>/llm/v1",
+    base_url="https://<your-gateway-url>/v1",
     api_key="<gateway-user-token>" # 在网关生成的普通用户 Token
 )
 

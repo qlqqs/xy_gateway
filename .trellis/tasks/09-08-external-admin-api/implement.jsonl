@@ -1,0 +1,12 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端管理与 LLM 请求链路入口"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"现有路由、中间件、Controller、Service、Manager 的 MVC 边界"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Node SQLite/MySQL 配置与用户 Key 持久化约束，无 schema 变更"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"鉴权、归属、冲突和未知路由的 JSON 错误契约"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Admin Key 与用户 Key 的日志和错误脱敏"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用现有 requireAdmin、Controller 和 userKeyService，避免第二套业务实现"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"设置页使用现有 Vue 3、Ant Design Vue、表单反馈和无障碍组件规范"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Admin Key 状态限定在设置页内存范围，不混入普通配置或持久化 store"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"设置页 loading、错误反馈、一次性明文展示和 Vitest 验证要求"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Admin Key API 请求/响应使用严格 TypeScript 契约"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/sub2api-decisions.md","reason":"参考 sub2api 后由用户确认的最终简单取舍"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/api-operation-matrix.md","reason":"现有管理能力、新生命周期接口和单 Key 路由清单"}

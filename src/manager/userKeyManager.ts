@@ -35,6 +35,9 @@ async function update(id: number, data: Record<string, unknown>): Promise<SgUser
     if (typeof updateData.ip_restriction_enabled === "boolean") {
         updateData.ip_restriction_enabled = updateData.ip_restriction_enabled ? 1 : 0;
     }
+    if (updateData.expires_at instanceof Date) {
+        updateData.expires_at = dateUtil.toDatabaseTimestamp(updateData.expires_at);
+    }
     await SgUserKey.query().where("id", id).update(updateData);
     return await findById(id);
 }

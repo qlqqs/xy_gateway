@@ -387,6 +387,21 @@ async function createForUser(userId: number, input: UserKeyInput = {}, secret: s
     return toDto(key, secret);
 }
 
+
+async function getForUser(userId: number, keyId: number, secret: string): Promise<UserKeyDto | null> {
+    const key = await userKeyManager.findById(keyId);
+    if (!key || Number(key.user_id) !== userId) return null;
+    return toDto(key, secret);
+}
+
+
+async function deleteForUser(userId: number, keyId: number): Promise<boolean> {
+    const key = await userKeyManager.findById(keyId);
+    if (!key || Number(key.user_id) !== userId) return false;
+    return userKeyManager.remove(keyId);
+}
+
+
 async function updateForUser(userId: number, keyId: number, input: UserKeyInput, secret: string): Promise<UserKeyDto | null> {
     const key = await userKeyManager.findById(keyId);
     if (!key || Number(key.user_id) !== userId) return null;
@@ -608,6 +623,8 @@ async function replaceForUser(
 export default {
     toDto,
     createForUser,
+    getForUser,
+    deleteForUser,
     updateForUser,
     listForUser,
     replaceForUser,

@@ -2,7 +2,7 @@
   "id": "external-admin-api",
   "name": "external-admin-api",
   "title": "网关外部管理 API 与全局 Admin Key",
-  "description": "参考 sub2api，为 xy_gateway 规划单个全局明文 Admin Key 驱动的完整外部管理与信息查询链路，仅面向 Node 运行环境。",
+  "description": "参考 sub2api，规划 Node 下以单个全局明文 Admin Key 驱动的 /api/v1/admin 外部管理与信息查询链路，外部路径不带 .json。",
   "status": "planning",
   "dev_type": null,
   "scope": null,
@@ -18,7 +18,11 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "09-08-admin-api-foundation",
+    "09-08-admin-api-user-key",
+    "09-08-admin-api-validation"
+  ],
   "parent": null,
   "relatedFiles": [],
   "notes": "",

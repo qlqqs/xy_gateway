@@ -1,0 +1,10 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"复核测试分层、隔离、最小集和最终门槛"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"复核认证和未知路由均为稳定 JSON 契约"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"复核测试日志、文档和错误没有完整敏感值"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"复核设置页交互、控件和无障碍细节"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"复核一次性明文状态没有持久化或跨页泄露"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"复核设置页测试、反馈、loading 和构建要求"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"复核 API 类型和 vue-tsc 构建契约"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查路由、中间件、Context、Controller 和 LLM 边界闭环"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/api-operation-matrix.md","reason":"双向核对实际路由、测试清单和中文文档"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/sub2api-decisions.md","reason":"检查未增加新页面、第二套路由或未承诺能力"}

@@ -213,6 +213,68 @@
                         </div>
                     </div>
                 </a-tab-pane>
+                <!-- 管理 API -->
+                <a-tab-pane key="admin-api" tab="管理 API">
+                    <div class="settings-section">
+                        <h3 class="section-title">全局 Admin Key</h3>
+                        <div class="settings-list">
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-title">外部管理 API 凭证</div>
+                                    <div class="setting-desc">
+                                        Admin Key 仅在 Node 模式下生效。生成或重新生成后，完整明文只显示一次；请立即复制并安全保存。
+                                    </div>
+                                </div>
+                                <div class="setting-action admin-key-actions">
+                                    <span
+                                        class="admin-key-status"
+                                        :class="{ configured: adminKeyExists }"
+                                    >
+                                        {{ adminKeyExists ? '已配置' : '未配置' }}
+                                    </span>
+                                    <a-button
+                                        type="primary"
+                                        data-testid="admin-key-generate"
+                                        :loading="adminKeyBusy"
+                                        :disabled="adminKeyBusy || !isNodeMode"
+                                        @click="generateAdminKey"
+                                    >
+                                        {{ adminKeyExists ? '重新生成' : '生成 Admin Key' }}
+                                    </a-button>
+                                    <a-button
+                                        v-if="adminKeyExists"
+                                        danger
+                                        data-testid="admin-key-revoke"
+                                        :loading="adminKeyBusy"
+                                        :disabled="adminKeyBusy || !isNodeMode"
+                                        @click="revokeAdminKey"
+                                    >
+                                        撤销
+                                    </a-button>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-if="revealedAdminKey" class="admin-key-reveal" data-testid="admin-key-reveal">
+                            <div class="admin-key-warning">
+                                此密钥只在本页面显示。关闭此区域或离开页面后无法再次查看，请立即复制并安全保存。
+                            </div>
+                            <a-input
+                                :value="revealedAdminKey"
+                                readonly
+                                data-testid="admin-key-value"
+                                aria-label="Admin Key"
+                            />
+                            <div class="admin-key-reveal-actions">
+                                <a-button data-testid="admin-key-copy" @click="copyAdminKey">
+                                    复制
+                                </a-button>
+                                <a-button data-testid="admin-key-close" @click="closeAdminKeyReveal">
+                                    关闭
+                                </a-button>
+                            </div>
+                        </div>
+                    </div>
+                </a-tab-pane>
             </a-tabs>
 
             <div class="page-actions">
@@ -256,12 +318,15 @@ import { message } from 'ant-design-vue/es';
 import { getConfig, updateConfig } from '@/api/config';
 import { checkUpdate } from '@/api/system';
 import { clearPayload, clearAllRecords } from '@/api/record';
+import adminKeyApi from '@/api/adminKey';
 import { useAppStore } from '@/stores/app';
 import { RunMode } from '@/types/system';
+import { notifyError, notifySuccess } from '@/utils/requestFeedback';
 
 const appStore = useAppStore();
 const currentVersion = computed(() => appStore.version);
 const isWorkerMode = computed(() => appStore.mode === RunMode.WORKER);
+const isNodeMode = computed(() => appStore.mode === RunMode.NODE);
 const isR2StorageAvailable = computed(() => appStore.r2StorageAvailable);
 const r2StorageUnavailableReason = computed(() => (
     !isR2StorageAvailable.value ? appStore.r2StorageUnavailableReason : ''
@@ -279,6 +344,9 @@ const activeTab = ref('modules');
 const deleteModalVisible = ref(false);
 const deleteMode = ref<'payload' | 'all'>('payload');
 const deleting = ref(false);
+const adminKeyExists = ref(false);
+const revealedAdminKey = ref('');
+const adminKeyBusy = ref(false);
 type RecordPayloadStorage = 'auto' | 'database' | 'r2';
 
 const originalConfig = reactive({
@@ -334,6 +402,9 @@ async function loadConfig(): Promise<void> {
     try {
         const config = await getConfig();
         await appStore.fetchStatus();
+        if (appStore.mode === RunMode.NODE) {
+            await loadAdminKeyStatus();
+        }
 
         form.cch_rewrite_enabled = config.cch_rewrite_enabled !== "false";
         originalConfig.cch_rewrite_enabled = config.cch_rewrite_enabled !== "false";
@@ -378,6 +449,74 @@ function cancelChanges() {
     form.telemetry_disabled = originalConfig.telemetry_disabled;
     form.module_billing_enabled = originalConfig.module_billing_enabled;
 }
+
+async function loadAdminKeyStatus(): Promise<void> {
+    try {
+        const status = await adminKeyApi.getStatus();
+        adminKeyExists.value = status.exists === true;
+    } catch {
+        // request.ts 已负责展示错误；配置页仍可继续使用其他设置。
+    }
+}
+
+async function generateAdminKey(): Promise<void> {
+    if (adminKeyBusy.value) return;
+
+    adminKeyBusy.value = true;
+    try {
+        const result = await adminKeyApi.regenerate();
+        if (typeof result.key !== 'string' || result.key.length === 0) {
+            notifyError('服务器未返回有效的 Admin Key');
+            return;
+        }
+
+        adminKeyExists.value = true;
+        revealedAdminKey.value = result.key;
+        notifySuccess('Admin Key 已生成，请立即复制并安全保存');
+    } catch {
+        // request.ts 已负责展示 API 错误。
+    } finally {
+        adminKeyBusy.value = false;
+    }
+}
+
+async function copyAdminKey(): Promise<void> {
+    const key = revealedAdminKey.value;
+    if (!key) return;
+
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+        notifyError('当前环境不支持自动复制，请手动复制密钥');
+        return;
+    }
+
+    try {
+        await navigator.clipboard.writeText(key);
+        notifySuccess('Admin Key 已复制');
+    } catch {
+        notifyError('复制失败，请手动复制密钥');
+    }
+}
+
+function closeAdminKeyReveal(): void {
+    revealedAdminKey.value = '';
+}
+
+async function revokeAdminKey(): Promise<void> {
+    if (adminKeyBusy.value) return;
+
+    adminKeyBusy.value = true;
+    try {
+        await adminKeyApi.remove();
+        adminKeyExists.value = false;
+        revealedAdminKey.value = '';
+        notifySuccess('Admin Key 已撤销');
+    } catch {
+        // request.ts 已负责展示 API 错误。
+    } finally {
+        adminKeyBusy.value = false;
+    }
+}
+
 
 async function doCheckUpdate() {
     checkingUpdate.value = true;
@@ -577,5 +716,45 @@ async function saveConfig() {
 :deep(.ant-tabs-tab) {
     font-size: 15px;
     font-weight: 500;
+}
+.admin-key-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.admin-key-status {
+    color: var(--text-secondary, #8c8c8c);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.admin-key-status.configured {
+    color: var(--success-color, #52c41a);
+}
+
+.admin-key-reveal {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 16px;
+    border: 1px solid var(--warning-color, #faad14);
+    border-radius: 8px;
+    background: var(--warning-bg, #fffbe6);
+}
+
+.admin-key-warning {
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.admin-key-reveal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
 }
 </style>

@@ -25,8 +25,10 @@ import llmApiMiddleware from "./middleware/llmApiMiddleware";
 import corsMiddleware from "./middleware/corsMiddleware";
 import customError from "./util/customErrorUtil";
 import type { AuthContext } from "./service/authContextService";
+import adminKeyController from "./controller/adminKeyController";
+import adminApiRoutes from "./routes/adminApiRoutes";
 
-interface Env {
+export interface Env {
     DB: D1Database;
     ROOT_TOKEN: string;
     KEY_ENCRYPTION_SECRET?: string;
@@ -41,7 +43,7 @@ interface Env {
     };
 }
 
-type Variables = {
+export type Variables = {
     user_type: UserType;
     api_format?: ApiFormat;
     user?: SgUser;
@@ -117,6 +119,9 @@ app.get("/status.json", authMiddleware.requireAdmin, systemController.status);
 app.get("/update.json", authMiddleware.requireAdmin, systemController.checkUpdate);
 app.get("/config.json", authMiddleware.requireAdmin, configController.getConfig);
 app.put("/config.json", authMiddleware.requireAdmin, configController.updateConfig);
+app.get("/admin-api-key/status.json", authMiddleware.requireAdmin, adminKeyController.status);
+app.post("/admin-api-key/regenerate.json", authMiddleware.requireAdmin, adminKeyController.regenerate);
+app.delete("/admin-api-key.json", authMiddleware.requireAdmin, adminKeyController.remove);
 app.get("/client-config/status.json", authMiddleware.requireAdmin, clientConfigController.status);
 app.get("/client-config/local.json", authMiddleware.requireAdmin, clientConfigController.readLocal);
 app.post("/client-config/create.json", authMiddleware.requireAdmin, clientConfigController.create);
@@ -168,6 +173,11 @@ app.get("/user/:id", authMiddleware.requireAdmin, userController.getUser);
 app.post("/user/create.json", authMiddleware.requireAdmin, userController.createUser);
 app.put("/user/:id", authMiddleware.requireAdmin, userController.updateUser);
 app.put("/user/:id/keys.json", authMiddleware.requireAdmin, userController.updateKeys);
+app.get("/user/:id/keys.json", authMiddleware.requireAdmin, userController.listKeys);
+app.post("/user/:id/keys.json", authMiddleware.requireAdmin, userController.createKey);
+app.get("/user/:id/keys/:keyId/detail.json", authMiddleware.requireAdmin, userController.getKey);
+app.put("/user/:id/keys/:keyId/detail.json", authMiddleware.requireAdmin, userController.updateKey);
+app.delete("/user/:id/keys/:keyId/detail.json", authMiddleware.requireAdmin, userController.deleteKey);
 app.post("/user/:id/balance/adjust.json", authMiddleware.requireAdmin, userController.adjustBalance);
 
 // Balance (需要管理员权限)
@@ -189,7 +199,16 @@ app.get("/record/:id/activity.json", authMiddleware.requireAdmin, recordActivity
 app.get("/stats/dashboard.json", authMiddleware.requireAdmin, statsController.dashboardStats);
 app.get("/stats/recent.json", authMiddleware.requireAdmin, statsController.recentRecords);
 
-// AI endpoints (no auth middleware, using custom llmApiAuth)
+// 外部 Node-only Admin API 别名。子应用负责 JSON 404，映射项直接调用现有 Controller。
+app.route("/api/v1/admin", adminApiRoutes.app);
+
+// Standard AI endpoints (no auth middleware, using custom llmApiAuth)
+app.get("/v1/models", llmApiMiddleware.requireLlmModelsAuth, modelController.listLlmModels);
+app.post("/v1/chat/completions", llmApiMiddleware.requireLlmRequestContext(ApiFormat.OPENAI), gatewayController.chatCompletions);
+app.post("/v1/messages", llmApiMiddleware.requireLlmRequestContext(ApiFormat.ANTHROPIC), gatewayController.anthropicMessages);
+app.post("/v1/responses", llmApiMiddleware.requireLlmRequestContext(ApiFormat.RESPONSES), gatewayController.responsesApi);
+
+// Legacy gateway-prefixed aliases
 app.get("/llm/v1/models", llmApiMiddleware.requireLlmModelsAuth, modelController.listLlmModels);
 app.post("/llm/v1/chat/completions", llmApiMiddleware.requireLlmRequestContext(ApiFormat.OPENAI), gatewayController.chatCompletions);
 app.post("/llm/v1/messages", llmApiMiddleware.requireLlmRequestContext(ApiFormat.ANTHROPIC), gatewayController.anthropicMessages);
@@ -210,12 +229,14 @@ app.delete("/test/cache/clear", async (c) => {
 // Custom 404 handler for API routes
 app.notFound((c) => {
     // Return JSON error for API routes
-    if (c.req.path.startsWith("/v1/") || c.req.path.includes(".json")) {
+    if (c.req.path.startsWith("/v1/")
+        || c.req.path.startsWith("/api/v1/admin")
+        || c.req.path.includes(".json")) {
         return c.json({ error: "Not found" }, 404);
     }
     // Default 404 for non-API routes
     return c.text("404 Not Found", 404);
 });
 
-export { app, Env };
+export { app };
 export default app;

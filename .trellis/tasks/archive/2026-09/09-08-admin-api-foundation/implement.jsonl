@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端请求链路与规范入口"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"中间件、Controller、Service、Manager 的 MVC 职责和默认导出规范"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Node SQLite/MySQL 配置查询与无 migration 边界"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"401、503 和普通配置拒绝的 JSON 错误契约"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Admin Key、Header 和生成响应的敏感信息保护"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/sub2api-decisions.md","reason":"真实管理员绑定、Header 优先级、生成即替换等已确认取舍"}
+{"file":".trellis/tasks/09-08-external-admin-api/research/api-operation-matrix.md","reason":"生命周期接口及现有管理路由边界"}
