@@ -10,8 +10,7 @@ const STREAM_LOG_DIR = join(process.cwd(), "log", "stream");
  * dbHelper.truncate() wipes the config table and clears the server cache, so
  * this must be called after truncate in test setup when the test class needs
  * stream logs to be written. The server-side configService cache is updated by
- * the API handler, so no extra cache-clear is needed. Only effective in node
- * mode (the config value is ignored in worker mode).
+ * the API handler, so no extra cache-clear is needed.
  */
 async function enableStreamLog(adminToken: string): Promise<void> {
     await requestHelper.put(

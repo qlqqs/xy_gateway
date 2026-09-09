@@ -184,19 +184,7 @@ async function createVendor(vendor: SgVendor): Promise<SgVendor> {
         await vendorModelManager.syncByVendorWithConnection(db, Number(vendor.id), modelIds);
     };
 
-    if (ormService.isWorker) {
-        try {
-            await persist(knex);
-        } catch (error) {
-            if (Number.isSafeInteger(Number(vendor.id)) && Number(vendor.id) > 0) {
-                await knex("vendor_model").where("vendor_id", Number(vendor.id)).delete().catch(() => undefined);
-                await knex("vendor").where("id", Number(vendor.id)).delete().catch(() => undefined);
-            }
-            throw error;
-        }
-    } else {
-        await knex.transaction(persist);
-    }
+    await knex.transaction(persist);
 
     const created = await vendorManager.findById(Number(vendor.id));
     if (!created) throw new customError.NotFoundError("Vendor not found");
@@ -271,34 +259,14 @@ async function updateVendor(
 
     const knex = ormService.getKnex();
     const persist = async (db: any): Promise<void> => {
-        await findVendorRow(db, vendorId, !ormService.isWorker);
+        await findVendorRow(db, vendorId, true);
         await db("vendor").where("id", vendorId).update(updateData);
         if (shouldSyncModels) {
             await vendorModelManager.syncByVendorWithConnection(db, vendorId, modelIds);
         }
     };
 
-    if (ormService.isWorker) {
-        const previousModels = shouldSyncModels
-            ? (await vendorModelManager.listByVendor(vendorId)).map(model => String(model.model_id))
-            : [];
-        const attributes = vendor.getAttributes() as Record<string, unknown>;
-        const restoreData = Object.fromEntries(
-            Object.keys(updateData).map(key => [key, attributes[key] ?? null]),
-        );
-        try {
-            await persist(knex);
-        } catch (error) {
-            await knex("vendor").where("id", vendorId).update(restoreData).catch(() => undefined);
-            if (shouldSyncModels) {
-                await vendorModelManager.syncByVendorWithConnection(knex, vendorId, previousModels)
-                    .catch(() => undefined);
-            }
-            throw error;
-        }
-    } else {
-        await knex.transaction(persist);
-    }
+    await knex.transaction(persist);
 
     return await vendorManager.findById(vendorId);
 }
@@ -344,28 +312,10 @@ async function syncVendorModels(
     const normalized = normalizeAvailableModels(modelIds, "model_ids");
     const knex = ormService.getKnex();
 
-    if (ormService.isWorker) {
-        const row = await knex("vendor").where("id", vendorId).first();
-        if (!row) throw new customError.NotFoundError("Vendor not found");
-        const previousModels = (await vendorModelManager.listByVendor(vendorId))
-            .map(model => String(model.model_id));
-        try {
-            await syncVendorModelsWithConnection(knex, vendorId, normalized, row);
-        } catch (error) {
-            await knex("vendor").where("id", vendorId).update({
-                config: row.config,
-                available_models: row.available_models,
-            }).catch(() => undefined);
-            await vendorModelManager.syncByVendorWithConnection(knex, vendorId, previousModels)
-                .catch(() => undefined);
-            throw error;
-        }
-    } else {
-        await knex.transaction(async (transaction: any) => {
-            const row = await findVendorRow(transaction, vendorId, true);
-            await syncVendorModelsWithConnection(transaction, vendorId, normalized, row);
-        });
-    }
+    await knex.transaction(async (transaction: any) => {
+        const row = await findVendorRow(transaction, vendorId, true);
+        await syncVendorModelsWithConnection(transaction, vendorId, normalized, row);
+    });
     return await vendorModelManager.listByVendor(vendorId);
 }
 
@@ -377,33 +327,22 @@ async function addVendorModel(vendorId: number, modelId: string) {
     const normalizedModelId = modelId.trim();
     const knex = ormService.getKnex();
 
-    if (ormService.isWorker) {
-        const existing = await vendorModelManager.listByVendor(vendorId);
-        if (existing.some(model => String(model.model_id) === normalizedModelId)) {
+    await knex.transaction(async (transaction: any) => {
+        const row = await findVendorRow(transaction, vendorId, true);
+        const existing = await transaction("vendor_model")
+            .where("vendor_id", vendorId)
+            .orderBy("model_id", "asc")
+            .select("model_id");
+        if (existing.some((model: any) => String(model.model_id) === normalizedModelId)) {
             throw new customError.AppError("Model already exists", 409);
         }
-        await syncVendorModels(vendorId, [
-            ...existing.map(model => String(model.model_id)),
-            normalizedModelId,
-        ]);
-    } else {
-        await knex.transaction(async (transaction: any) => {
-            const row = await findVendorRow(transaction, vendorId, true);
-            const existing = await transaction("vendor_model")
-                .where("vendor_id", vendorId)
-                .orderBy("model_id", "asc")
-                .select("model_id");
-            if (existing.some((model: any) => String(model.model_id) === normalizedModelId)) {
-                throw new customError.AppError("Model already exists", 409);
-            }
-            await syncVendorModelsWithConnection(
-                transaction,
-                vendorId,
-                [...existing.map((model: any) => String(model.model_id)), normalizedModelId],
-                row,
-            );
-        });
-    }
+        await syncVendorModelsWithConnection(
+            transaction,
+            vendorId,
+            [...existing.map((model: any) => String(model.model_id)), normalizedModelId],
+            row,
+        );
+    });
 
     return await vendorModelManager.findByVendorAndModel(vendorId, normalizedModelId);
 }
@@ -411,19 +350,6 @@ async function addVendorModel(vendorId: number, modelId: string) {
 
 async function removeVendorModel(vendorId: number, recordId: number): Promise<boolean> {
     const knex = ormService.getKnex();
-
-    if (ormService.isWorker) {
-        const target = await vendorModelManager.findVendorModel(recordId, vendorId);
-        if (!target) return false;
-        const existing = await vendorModelManager.listByVendor(vendorId);
-        await syncVendorModels(
-            vendorId,
-            existing
-                .filter(model => Number(model.id) !== recordId)
-                .map(model => String(model.model_id)),
-        );
-        return true;
-    }
 
     return await knex.transaction(async (transaction: any) => {
         const row = await findVendorRow(transaction, vendorId, true);

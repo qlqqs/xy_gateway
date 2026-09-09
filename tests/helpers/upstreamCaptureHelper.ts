@@ -1,4 +1,3 @@
-import { fetch } from "undici";
 import config from "../config";
 
 interface CapturedRequest {

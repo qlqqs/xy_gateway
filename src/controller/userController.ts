@@ -130,11 +130,7 @@ async function createUser(c: Context) {
         : [];
     const knex = ormService.getKnex();
 
-    // User creation and the initial key set form one aggregate.  Node/MySQL
-    // use one transaction so a malformed/duplicate key cannot leave an
-    // orphaned user; Worker/D1 executes the same order and performs a
-    // compensating delete because the current adapter has no transaction API.
-    let insertedUserId: number | null = null;
+    // User creation and the initial key set form one aggregate.
     const persist = async (trx: any): Promise<number> => {
         const result = await trx("user").insert({
             name,
@@ -147,24 +143,13 @@ async function createUser(c: Context) {
         if (!Number.isSafeInteger(userId) || userId <= 0) {
             throw new customError.AppError("Failed to create user", 500);
         }
-        insertedUserId = userId;
         if (body.keys !== undefined) {
             await userKeyService.insertPreparedKeys(userId, preparedKeys, trx);
         }
         return userId;
     };
 
-    let userId: number;
-    try {
-        userId = ormService.isWorker ? await persist(knex) : await knex.transaction(persist);
-    } catch (error) {
-        // On D1 the insert may have committed before key validation failed.
-        // Foreign-key cascade removes any keys written before the failure.
-        if (ormService.isWorker && insertedUserId !== null) {
-            await userManager.deleteById(insertedUserId).catch(() => undefined);
-        }
-        throw error;
-    }
+    const userId = await knex.transaction(persist);
 
     const created = await userManager.findById(userId);
     if (!created) throw new customError.NotFoundError("User not found");
@@ -200,11 +185,10 @@ async function updateUser(c: Context) {
         replacementSecret = replacementKeys.length > 0 ? encryptionSecret(c) : "";
     }
 
-    // Profile and key changes share one transaction on Node/MySQL.  The key
-    // service validates the replacement before opening its transaction, then
-    // invokes beforeCommit on the same handle so a failed profile update
-    // cannot leave a half-replaced key set.  D1 keeps the documented
-    // best-effort sequence because its current adapter has no transaction API.
+    // Profile and key changes share one transaction.  The key service validates
+    // the replacement before opening its transaction, then invokes beforeCommit
+    // on the same handle so a failed profile update cannot leave a half-replaced
+    // key set.
     if (replacementKeys !== null) {
         await userKeyService.replaceForUser(userId, replacementKeys, replacementSecret, {
             beforeCommit: async (trx) => {
@@ -218,8 +202,7 @@ async function updateUser(c: Context) {
         const persistProfile = async (trx: any): Promise<void> => {
             await trx("user").where("id", userId).update(updateData);
         };
-        if (ormService.isWorker) await persistProfile(knex);
-        else await knex.transaction(persistProfile);
+        await knex.transaction(persistProfile);
     }
     const updated = await userManager.findById(userId);
     return c.json(await toDto(c, updated!));

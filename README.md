@@ -13,8 +13,8 @@
 - ⚖️ **多上游与高可用**: 支持为单一模型配置多个上游通道，提供灵活的负载均衡策略（按用户/按请求随机），并具备自动故障切换（Failover）能力，极大提升服务可用性。
 - 🔐 **用户管理与鉴权**: 支持把单个上游 API 分发给多用户使用，精准控制各自用量，有效防止上游 Key 泄漏。
 - 📝 **完整请求记录**: 全量记录所有 AI 请求、响应日志以及耗时数据，方便进行排查、对账和二次分析。
-- 🚀 **多运行模式**：支持 Serverless 部署、Docker 部署、本地源码运行以及跨平台桌面端应用 (App) 运行。
-- ⚡ **极轻量与高性能**: 低资源占用，无额外的独立数据库依赖。Serverless 模式下使用 Cloudflare 原生的 D1 数据库，其他环境下默认使用轻量级内嵌的 SQLite。
+- 🚀 **多种部署方式**：支持 Docker 部署、本地源码运行以及跨平台桌面端应用 (App) 运行。
+- ⚡ **极轻量与高性能**: 基于 Node.js 运行，默认使用轻量级内嵌 SQLite，也可切换到 MySQL。
 
 ## 强大的协议转换能力
 
@@ -69,22 +69,11 @@ XY Gateway（星野网关）内置了强大的协议转换引擎，旨在打破�
 
 详见：[客户端接入配置指南](doc/usage/ClientConfiguration.md)。
 
-## 四种运行模式 (部署方案)
+## 三种运行方式 (部署方案)
 
 本项目具有极高的灵活性，你可以根据不同的使用场景选择最适合的运行和部署模式：
 
-### 1. Serverless 部署 (Cloudflare Workers)
-最适合追求零维护成本、想要**免费拥有自己的大模型网关**的用户。只需将项目部署至 Cloudflare Workers，即可享受全球边缘计算网络带来的低延迟、自动扩缩容以及慷慨的免费额度。
-
-> ⭐️ **如果这个项目帮到了你，请顺手点个 Star ⭐️ 支持一下吧！**
-
-### 部署准备：必须先 Fork 本仓库
-为了保证您未来能够顺畅地获取更新，并保留您的个性化配置，**您必须首先点击页面右上角的 Fork 按钮**，将本项目复制到您自己的 GitHub 账号下。
-
-- **全自动部署支持**：支持通过 GitHub Actions 自动配置 Cloudflare D1 数据库并完成发布，真正做到零本地环境配置！
-- 详见：[Cloudflare 自动部署文档](doc/deploy/CloudflareAutoDeploy.md)。
-
-### 2. Docker 部署 (推荐服务器使用)
+### 1. Docker 部署 (推荐服务器使用)
 最适合自建服务器部署的方式。开箱即用，容器化隔离，数据方便挂载与备份。
 
 ```bash
@@ -97,11 +86,11 @@ docker run -d \
 ```
 启动后访问 `http://localhost:8787` 即可进入管理界面。详见：[Docker 部署文档](doc/deploy/DockerDeployment.md)。
 
-### 3. 桌面客户端 (App) 运行
+### 2. 桌面客户端 (App) 运行
 最适合个人用户的即开即用模式。无需配置复杂的环境，直接下载安装包即可运行本地客户端。
 - 前往项目的 [Releases 页面](https://github.com/qlqqs/xy_gateway/releases) 下载对应操作系统的安装包即可直接使用。
 
-### 4. Node 方式直接运行代码
+### 3. Node 方式直接运行代码
 适合二次开发、代码贡献者或希望在本地物理机环境原生运行服务的用户。
 - 详见：[Node 方式部署文档](doc/deploy/SourceCodeDeployment.md)。
 
@@ -116,8 +105,6 @@ docker run -d \
 如果您希望参与到项目中，或者深入了解系统的运作原理，请参考以下详细文档：
 
 - **基础部署与使用**
-  - [Cloudflare 自动部署文档](doc/deploy/CloudflareAutoDeploy.md)
-  - [Cloudflare 手动部署文档](doc/deploy/CloudflareManualDeploy.md)
   - [Docker 部署文档](doc/deploy/DockerDeployment.md)
   - [源码部署文档](doc/deploy/SourceCodeDeployment.md)
   - [系统配置与使用指南](doc/usage/ConfigurationGuide.md)

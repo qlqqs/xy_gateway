@@ -24,6 +24,9 @@
                             <a-radio-button value="anthropic">Anthropic</a-radio-button>
                             <a-radio-button value="responses">Responses</a-radio-button>
                         </a-radio-group>
+                        <div v-if="mode === 'vendor'" class="hint-text">
+                            未配置所选出口协议时，将自动转换为供应商已配置的协议进行测试
+                        </div>
                     </a-form-item>
 
                     <!-- Vendor mode: editable model select -->

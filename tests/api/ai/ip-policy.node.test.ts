@@ -32,7 +32,6 @@ describe("LLM IP policy in Node mode", () => {
             method: "GET",
             headers: {
                 Authorization: `Bearer ${restrictedToken}`,
-                "CF-Connecting-IP": "203.0.113.42",
                 "X-Real-IP": "203.0.113.42",
                 "X-Forwarded-For": "203.0.113.42",
             },

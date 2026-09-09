@@ -531,7 +531,7 @@ function finalizeStreamResult(
 ): void {
     const { accumulator, usageAccumulator, firstTokenTime, failedCode, streamErrorData } = state;
 
-    runInBackground(c, async () => {
+    runInBackground(async () => {
         try {
             // 已收到协议完成事件时优先视为成功，随后发生的客户端断开不影响该终态。
             if (
@@ -578,7 +578,6 @@ function finalizeStreamResult(
                             user,
                             groupId: record.group_id,
                             baseCost: cost,
-                            d1Database: (c.env as { DB?: D1Database } | undefined)?.DB,
                         });
                     } catch (error) {
                         // 数据库提交成功后，驱动仍可能在 Promise 收尾阶段抛错；先重读终态，
@@ -760,7 +759,7 @@ export async function prepareStreamResponse(
 
         let firstClientEventValidated = false;
         while (!firstClientEventValidated) {
-            let result: ReadableStreamReadResult<Uint8Array>;
+            let result: Awaited<ReturnType<typeof probeReader.read>>;
             try {
                 result = await probeReader.read();
             } catch (error) {
@@ -1033,7 +1032,6 @@ export async function handleNonStreamResponse(
                         user,
                         groupId: record.group_id,
                         baseCost: cost,
-                        d1Database: (c.env as { DB?: D1Database } | undefined)?.DB,
                     });
                     settledCost = settlement.cost;
                     // sender 的异常收尾会读取这份请求内快照，必须先同步终态，

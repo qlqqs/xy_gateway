@@ -13,7 +13,7 @@ interface ModelListOptions {
 
 function filterByVendor(query: Builder<SgModel>, vendorId: number): void {
     // Mapping rows are the canonical routing source.  Keeping the filter in a
-    // relational subquery works on SQLite/D1 and MySQL without JSON-specific
+    // relational subquery works on SQLite and MySQL without JSON-specific
     // functions or driver branches.
     query.whereRaw("EXISTS (SELECT 1 FROM model_upstream mu WHERE mu.model_id = model.id AND mu.vendor_id = ?)", [vendorId]);
 }

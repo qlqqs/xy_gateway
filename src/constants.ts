@@ -77,17 +77,6 @@ export enum ConnectionMode {
     OFFICIAL = "official",
 }
 
-export enum RunMode {
-    WORKER = "worker",
-    NODE = "node",
-}
-
-export enum RecordPayloadStorage {
-    AUTO = "auto",
-    DATABASE = "database",
-    R2 = "r2",
-}
-
 export enum UserType {
     NORMAL = "normal",
     ADMIN = "admin",
@@ -112,7 +101,6 @@ export enum ConfigKey {
     AUTO_UPDATE_ENABLED = "auto_update_enabled",
     TELEMETRY_DISABLED = "telemetry_disabled",
     RECORD_PAYLOAD_ENABLED = "record_payload_enabled",
-    RECORD_PAYLOAD_STORAGE = "record_payload_storage",
     MODULE_BILLING_ENABLED = "module_billing_enabled",
     MODULE_API_PLAYGROUND_ENABLED = "module_api_playground_enabled",
     MODULE_CLIENT_CONFIG_ENABLED = "module_client_config_enabled",

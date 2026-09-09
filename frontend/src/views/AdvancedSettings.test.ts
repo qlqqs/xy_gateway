@@ -23,9 +23,6 @@ const mocks = vi.hoisted(() => ({
     },
     appStore: {
         version: '1.8.7-test',
-        mode: 'node',
-        r2StorageAvailable: false,
-        r2StorageUnavailableReason: '',
         moduleBillingEnabled: false,
         fetchStatus: vi.fn(),
     },
@@ -108,7 +105,6 @@ const config = {
     claude_code_tracking_rewrite_enabled: 'true',
     stream_log_enabled: 'false',
     record_payload_enabled: 'true',
-    record_payload_storage: 'auto',
     auto_update_enabled: 'true',
     telemetry_disabled: 'false',
     module_billing_enabled: 'false',

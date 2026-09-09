@@ -5,8 +5,8 @@ import mockHelper from "../../helpers/mockHelper";
 import modelFixtures from "../../fixtures/modelFixtures";
 import dbHelper from "../../helpers/dbHelper";
 import { setupAdminUser } from "../../globalSetup";
-import config from "../../config";
 import streamLogHelper from "../../helpers/streamLogHelper";
+import config from "../../config";
 
 interface ResponsesFixture {
     adminToken: string;
@@ -14,8 +14,7 @@ interface ResponsesFixture {
     responsesModelName: string;
 }
 
-// Stream logs are only written in node mode (ormService.isNode), so skip in worker mode.
-const describeWithStreamLog = config.TEST_MODE === "node" ? describe : describe.skip;
+const describeWithStreamLog = describe;
 
 
 function createUniqueInput(prefix: string): string {

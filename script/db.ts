@@ -5,19 +5,11 @@ const args = process.argv.slice(2);
 
 // 解析命令行参数
 let command = "";
-let env = "node"; // default
-let dbConfigPath = ""; // optional custom wrangler config
-let dbName = "DB"; // default D1 binding name
+let env = "node";
 
 for (let i = 0; i < args.length; i++) {
     if (args[i] === "--env" || args[i] === "-e") {
-        env = args[i + 1];
-        i++;
-    } else if (args[i] === "--config" || args[i] === "-c") {
-        dbConfigPath = args[i + 1];
-        i++;
-    } else if (args[i] === "--db-name") {
-        dbName = args[i + 1];
+        env = args[i + 1] || "";
         i++;
     } else if (!command) {
         command = args[i];
@@ -28,18 +20,20 @@ for (let i = 0; i < args.length; i++) {
 async function main() {
     if (!command) {
         console.error(
-            "Usage: npx tsx script/db.ts <command> [--env node|worker-local|worker-cloud]",
+            "Usage: npx tsx script/db.ts <command> [--env node|test]",
         );
         console.error("Commands: migrate, status, clear, init");
         process.exit(1);
     }
 
-    if (!["node", "worker-local", "worker-cloud"].includes(env)) {
+    if (env !== "node" && env !== "test") {
         console.error(
-            `Invalid environment: ${env}. Must be node, worker-local, or worker-cloud.`,
+            `Invalid environment: ${env || "(missing)"}. Must be node or test.`,
         );
         process.exit(1);
     }
+
+    const environment: "node" | "test" = env;
 
     console.log(`=== DB Automation Script ===`);
     console.log(`Command: ${command}`);
@@ -48,10 +42,7 @@ async function main() {
 
     let adapter: DBAdapter;
     try {
-        adapter = dbMigrationService.createDBAdapter(env, {
-            configPath: dbConfigPath,
-            dbName,
-        });
+        adapter = dbMigrationService.createDBAdapter(environment);
     } catch (e: any) {
         console.error("Failed to initialize database adapter:", e.message);
         process.exit(1);
@@ -60,16 +51,16 @@ async function main() {
     try {
         switch (command) {
             case "migrate":
-                await dbMigrationService.migrate(adapter, env, { dbName, configPath: dbConfigPath });
+                await dbMigrationService.migrate(adapter, environment);
                 break;
             case "status":
-                await dbMigrationService.status(adapter, env);
+                await dbMigrationService.status(adapter, environment);
                 break;
             case "clear":
-                await dbMigrationService.clear(adapter, env);
+                await dbMigrationService.clear(adapter, environment);
                 break;
             case "init":
-                await dbMigrationService.init(adapter, env);
+                await dbMigrationService.init(adapter, environment);
                 break;
             default:
                 console.error(`Unknown command: ${command}`);
@@ -82,7 +73,6 @@ async function main() {
         process.exit(1);
     } finally {
         await adapter.close();
-        await dbMigrationService.clearTempDir?.();
     }
 }
 

@@ -1,6 +1,6 @@
 # 后端规范
 
-后端是基于 Hono 和 TypeScript 的应用，可运行在 Node.js 或 Cloudflare Workers。新增接口或修改持久化逻辑时，应一起参考以下主题：
+后端是基于 Hono 和 TypeScript 的 Node.js 应用。新增接口或修改持久化逻辑时，应一起参考以下主题：
 
 - [目录结构](directory-structure.md)
 - [数据库与 ORM](database-guidelines.md)

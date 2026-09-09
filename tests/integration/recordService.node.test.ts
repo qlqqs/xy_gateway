@@ -115,8 +115,8 @@ describe("recordService (node, real db)", () => {
 
     it("latest (non-summary) attaches payloads to each record", async () => {
         const r1 = await recordService.create(1, 1, '{"q":1}');
-        const r2 = await recordService.create(1, 1, '{"q":2}');
-        await recordService.update(Number(r2.id), {
+        const secondRecord = await recordService.create(1, 1, '{"q":2}');
+        await recordService.update(Number(secondRecord.id), {
             response_data: '{"a":2}',
             status: SgRecordStatus.SUCCESS,
         });
@@ -128,7 +128,7 @@ describe("recordService (node, real db)", () => {
         expect(first.request_data).toBe('{"q":1}');
         expect(first.response_data).toBeNull();
 
-        const second = byId.get(Number(r2.id));
+        const second = byId.get(Number(secondRecord.id));
         expect(second.request_data).toBe('{"q":2}');
         expect(second.response_data).toBe('{"a":2}');
     });

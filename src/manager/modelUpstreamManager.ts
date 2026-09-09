@@ -60,11 +60,9 @@ async function removeByVendor(vendorId: number): Promise<void> {
 }
 
 /**
- * A vendor-model row can disappear independently of its vendor.  Clear the
- * optional relation explicitly so databases running without FK enforcement
- * (SQLite/D1) cannot leave a dangling vendor_model_id in the canonical model
- * mapping.  The routing layer then intentionally falls back to the gateway
- * model name.
+ * A vendor-model row can disappear independently of its vendor. Clear the
+ * optional relation explicitly so the canonical model mapping never keeps a
+ * dangling vendor_model_id.
  */
 async function clearVendorModelReference(vendorModelId: number): Promise<void> {
     await SgModelUpstream.query()

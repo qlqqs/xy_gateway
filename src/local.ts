@@ -9,7 +9,6 @@ import hostService from "./service/hostService";
 import app, { Env } from "./routes";
 import initLogger, { Logger } from "./util/loggerUtil";
 import maskUtil from "./util/maskUtil";
-import { RunMode } from "./constants";
 
 // --api-only: 跳过前端静态文件服务，仅提供 API（桌面 sidecar 模式使用）
 export const apiOnly = process.argv.includes("--api-only");
@@ -92,7 +91,6 @@ async function startServer() {
 
     // 初始化本地配置
     await ormService.init({
-        mode: RunMode.NODE,
         dbPath: DB_PATH,
     });
     
@@ -104,7 +102,6 @@ async function startServer() {
 
     // 构建环境变量
     const bindings: Env = {
-        DB: (ormService.dbAdapter as any).db,
         ROOT_TOKEN: process.env.ROOT_TOKEN || "",
         KEY_ENCRYPTION_SECRET: process.env.KEY_ENCRYPTION_SECRET || "",
     };

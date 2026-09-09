@@ -21,6 +21,6 @@ npm run backend:test:type
 npm run frontend:build
 ```
 
-仓库提交清单要求 Node 模式套件、后端类型检查和一次前端构建；Worker 模式较慢，通常交给 CI。如果修改影响 Worker binding、migration 或协议转换，还要补充对应 Worker/集成测试，或执行 `package.json` 中的聚焦命令。
+仓库提交清单要求 Node.js 后端套件、后端类型检查和一次前端构建。如果修改影响 migration、数据库 adapter 或协议转换，还要补充对应的 SQLite/MySQL 集成测试，或执行 `package.json` 中的聚焦命令。
 
 检查资源为空/不存在时的处理、JSON 错误响应、敏感信息泄露、SQLite/MySQL 兼容性、并发行为以及 stream/timer 清理。不要提交本地数据库、日志、`.claude`/`.gemini`/IDE 文件、临时脚本或其他被忽略的产物。没有用户明确指示时不要创建 commit 或 push。

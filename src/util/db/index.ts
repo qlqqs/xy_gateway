@@ -12,4 +12,3 @@ export type { Dialect } from "./dbAdapter";
 export { SQLiteDBAdapter } from "./sqliteDBAdapter";
 export { MySQLDBAdapter } from "./mysqlDBAdapter";
 export type { MySQLConnOptions } from "./mysqlDBAdapter";
-export { WranglerDBAdapter } from "./wranglerDBAdapter";

@@ -10,7 +10,6 @@ import ormService from "./ormService";
 import usageUtils from "../util/protocol/usageUtil";
 import billingUtil from "../util/protocol/billingUtil";
 import customError from "../util/customErrorUtil";
-import type { D1BatchExecutor } from "../util/dbAdapterUtil";
 
 export interface BillingUsage {
     promptTokens?: number | null;
@@ -41,7 +40,6 @@ export interface SettlementInput {
     key?: SgUserKey | null;
     groupId?: number | null;
     baseCost: number;
-    d1Database?: D1Database;
 }
 
 interface SettlementRecordSnapshot {
@@ -53,20 +51,6 @@ interface SettlementRecordSnapshot {
     rateMultiplier: number;
     cost: number;
     settlementStatus: string;
-}
-
-interface D1SettlementRecordRow {
-    id: number;
-    key_id: number | null;
-    group_id: number | null;
-    billing_mode: string | null;
-    base_cost: number | null;
-    rate_multiplier: number | null;
-    cost: number | null;
-    settlement_status: string | null;
-    user_exists?: number;
-    key_exists?: number;
-    key_has_quota?: number;
 }
 
 // record 是幂等键。Promise 链保护 Node/Tauri 不受重复收尾影响（例如流完成事件
@@ -96,19 +80,6 @@ function snapshotFromRecord(record: SgRecord): SettlementRecordSnapshot {
     };
 }
 
-function snapshotFromD1Row(row: D1SettlementRecordRow): SettlementRecordSnapshot {
-    return {
-        id: Number(row.id),
-        keyId: row.key_id == null ? null : Number(row.key_id),
-        groupId: row.group_id == null ? null : Number(row.group_id),
-        billingMode: row.billing_mode ?? null,
-        baseCost: billingUtil.toYuan(Number(row.base_cost ?? 0)),
-        rateMultiplier: Number(row.rate_multiplier ?? 1),
-        cost: billingUtil.toYuan(Number(row.cost ?? 0)),
-        settlementStatus: String(row.settlement_status ?? "pending"),
-    };
-}
-
 function settledResult(
     record: SettlementRecordSnapshot,
     alreadySettled: boolean,
@@ -127,139 +98,9 @@ function isTerminalSettlement(status: string): status is "settled" | "skipped" {
     return status === "settled" || status === "skipped";
 }
 
-async function findSettlementRecord(
-    recordId: number,
-    d1Batch: D1BatchExecutor | null,
-): Promise<SettlementRecordSnapshot | null> {
-    if (!d1Batch) {
-        const record = await recordManager.findById(recordId);
-        return record ? snapshotFromRecord(record) : null;
-    }
-
-    const [result] = await d1Batch<D1SettlementRecordRow>([{
-        sql: `SELECT id, key_id, group_id, billing_mode, base_cost,
-                     rate_multiplier, cost, settlement_status
-              FROM record WHERE id = ?`,
-        bindings: [recordId],
-    }]);
-    const row = result?.results?.[0];
-    return row ? snapshotFromD1Row(row) : null;
-}
-
-async function settleWithD1Batch(
-    d1Batch: D1BatchExecutor,
-    recordId: number,
-    userId: number,
-    keyId: number | null,
-    quoteResult: BillingQuote,
-    status: "settled" | "skipped",
-    persistedCost: number,
-    shouldCharge: boolean,
-): Promise<SettlementResult> {
-    const costUnits = billingUtil.toUnits(persistedCost);
-    const claimStatus = `settling:${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
-    const chargeFlag = shouldCharge ? 1 : 0;
-
-    // D1 batch 具备事务语义。唯一 claim 同时约束两次余额更新，因此额度不足、
-    // 重复收尾或任一语句失败都不会留下部分扣费。
-    const results = await d1Batch<D1SettlementRecordRow>([
-        {
-            sql: `UPDATE record
-                  SET settlement_status = ?, base_cost = ?, rate_multiplier = ?,
-                      billing_mode = ?, cost = ?
-                  WHERE id = ?
-                    AND COALESCE(settlement_status, 'pending') NOT IN ('settled', 'skipped')
-                    AND (
-                        ? = 0
-                        OR (
-                            EXISTS (SELECT 1 FROM user WHERE id = ?)
-                            AND (
-                                ? IS NULL
-                                OR EXISTS (
-                                    SELECT 1 FROM user_key
-                                    WHERE id = ?
-                                      AND (quota <= 0 OR quota_used + ? <= quota)
-                                )
-                            )
-                        )
-                    )`,
-            bindings: [
-                claimStatus,
-                billingUtil.toUnits(quoteResult.baseCost),
-                quoteResult.rateMultiplier,
-                quoteResult.billingMode,
-                costUnits,
-                recordId,
-                chargeFlag,
-                userId,
-                keyId,
-                keyId,
-                costUnits,
-            ],
-        },
-        {
-            sql: `UPDATE user SET balance = balance - ?
-                  WHERE id = ? AND ? = 1
-                    AND EXISTS (
-                        SELECT 1 FROM record
-                        WHERE id = ? AND settlement_status = ?
-                    )`,
-            bindings: [costUnits, userId, chargeFlag, recordId, claimStatus],
-        },
-        {
-            sql: `UPDATE user_key SET quota_used = quota_used + ?
-                  WHERE id = ? AND ? = 1
-                    AND EXISTS (
-                        SELECT 1 FROM record
-                        WHERE id = ? AND settlement_status = ?
-                    )`,
-            bindings: [costUnits, keyId, chargeFlag, recordId, claimStatus],
-        },
-        {
-            sql: `SELECT CASE WHEN EXISTS (
-                      SELECT 1 FROM record WHERE id = ? AND settlement_status = ?
-                  ) THEN 1 ELSE 0 END AS claimed`,
-            bindings: [recordId, claimStatus],
-        },
-        {
-            sql: `UPDATE record SET settlement_status = ?
-                  WHERE id = ? AND settlement_status = ?`,
-            bindings: [status, recordId, claimStatus],
-        },
-        {
-            sql: `SELECT r.id, r.key_id, r.group_id, r.billing_mode, r.base_cost,
-                         r.rate_multiplier, r.cost, r.settlement_status,
-                         EXISTS (SELECT 1 FROM user WHERE id = ?) AS user_exists,
-                         CASE WHEN ? IS NULL THEN 1 ELSE EXISTS (
-                             SELECT 1 FROM user_key WHERE id = ?
-                         ) END AS key_exists,
-                         CASE WHEN ? IS NULL THEN 1 ELSE EXISTS (
-                             SELECT 1 FROM user_key
-                             WHERE id = ?
-                               AND (quota <= 0 OR quota_used + ? <= quota)
-                         ) END AS key_has_quota
-                  FROM record r WHERE r.id = ?`,
-            bindings: [userId, keyId, keyId, keyId, keyId, costUnits, recordId],
-        },
-    ]);
-
-    const claimed = Number((results[3]?.results?.[0] as { claimed?: number } | undefined)?.claimed ?? 0) === 1;
-    const finalRow = results[5]?.results?.[0];
-    if (!finalRow) throw new customError.NotFoundError("Record not found");
-
-    const finalRecord = snapshotFromD1Row(finalRow);
-    if (isTerminalSettlement(finalRecord.settlementStatus)) {
-        return settledResult(finalRecord, !claimed);
-    }
-
-    if (shouldCharge && Number(finalRow.user_exists ?? 0) === 0) {
-        throw new customError.NotFoundError("User not found");
-    }
-    if (shouldCharge && keyId != null
-        && (Number(finalRow.key_exists ?? 0) === 0 || Number(finalRow.key_has_quota ?? 0) === 0)) {
-        throw new customError.AppError("API key quota exhausted", 429, "rate_limit_error");
-    }
-    throw new customError.AppError("Record settlement conflict", 409, "settlement_conflict");
+async function findSettlementRecord(recordId: number): Promise<SettlementRecordSnapshot | null> {
+    const record = await recordManager.findById(recordId);
+    return record ? snapshotFromRecord(record) : null;
 }
 
 async function getRateMultiplier(groupId: number | null | undefined): Promise<number> {
@@ -308,20 +149,11 @@ async function quoteUsage(
 }
 
 async function settle(recordId: number, input: SettlementInput): Promise<SettlementResult> {
-    // 在等待 isolate 内相同 record 的结算前捕获请求级 D1 binding。
-    let d1Batch: D1BatchExecutor | null = null;
-    if (ormService.isWorker) {
-        const requestDb = input.d1Database;
-        if (!requestDb) {
-            throw new customError.AppError("D1 request binding is unavailable", 500);
-        }
-        d1Batch = ormService.captureD1Batch(requestDb);
-    }
     const previous = settlementLocks.get(recordId) ?? Promise.resolve<SettlementResult | undefined>(undefined);
     const current = previous
         .catch(() => undefined)
         .then(async () => {
-            const record = await findSettlementRecord(recordId, d1Batch);
+            const record = await findSettlementRecord(recordId);
             if (!record) throw new customError.NotFoundError("Record not found");
 
             if (isTerminalSettlement(record.settlementStatus)) {
@@ -344,19 +176,6 @@ async function settle(recordId: number, input: SettlementInput): Promise<Settlem
             const persistedCost = billingEnabled ? quoteResult.cost : 0;
             const costUnits = billingUtil.toUnits(persistedCost);
 
-            if (d1Batch) {
-                return await settleWithD1Batch(
-                    d1Batch,
-                    recordId,
-                    Number(input.user.id),
-                    keyId,
-                    quoteResult,
-                    status,
-                    persistedCost,
-                    shouldCharge,
-                );
-            }
-
             /**
              * 将扣费与 record 标记作为一个数据库单元持久化。Sutando 模型 helper 会打开自己的连接，
              * 因此热路径有意直接使用事务句柄。token 请求的最终费用只能在响应结束后确定；即使本次
@@ -364,7 +183,7 @@ async function settle(recordId: number, input: SettlementInput): Promise<Settlem
              */
             const persist = async (db: any): Promise<SettlementResult> => {
                 let currentQuery = db("record").where("id", recordId);
-                if (!ormService.isWorker && process.env.DB_DRIVER === "mysql") {
+                if (process.env.DB_DRIVER === "mysql") {
                     currentQuery = currentQuery.forUpdate();
                 }
                 const current = await currentQuery.first();

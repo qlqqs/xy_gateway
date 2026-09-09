@@ -28,7 +28,6 @@ data/
 .dev.vars
 
 # 构建缓存
-.wrangler
 dist
 coverage
 

@@ -3,7 +3,6 @@ import { UserType, UserStatus } from "../constants";
 import authContextService from "../service/authContextService";
 import adminKeyService from "../service/adminKeyService";
 import userManager from "../manager/userManager";
-import ormService from "../service/ormService";
 
 const requireAdmin: MiddlewareHandler = async (c, next) => {
     // x-api-key 仅供 Node Admin API 使用。按 Header 是否存在而不是值的
@@ -11,10 +10,6 @@ const requireAdmin: MiddlewareHandler = async (c, next) => {
     const headerValue = c.req.header("x-api-key");
     const hasAdminKeyHeader = c.req.raw?.headers?.has("x-api-key") ?? headerValue !== undefined;
     if (hasAdminKeyHeader) {
-        if (!ormService.isNode) {
-            return c.json({ error: "Not found" }, 404);
-        }
-
         const presentedKey = headerValue ?? "";
         let valid = false;
         try {

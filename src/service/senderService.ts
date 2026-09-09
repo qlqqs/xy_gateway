@@ -130,8 +130,8 @@ async function sendRequestToUpstream(
         settlement_status: "pending",
     });
 
-    // 2. 构建上游请求 headers，过滤掉 Cloudflare 注入的 cf- 前缀 header
-    // 并且必须排除客户端自带的鉴权 header，避免泄露或导致合并错误
+    // 2. 构建上游请求 headers，必须排除客户端自带的鉴权 header，
+    // 避免泄露或导致合并错误
     // 同时排除浏览器相关的元数据 header，避免上游校验失败
     const finalHeaders = new Headers();
     const EXCLUDED_HEADERS = [
@@ -162,7 +162,6 @@ async function sendRequestToUpstream(
     for (const [key, value] of c.req.raw.headers.entries()) {
         const lowerKey = key.toLowerCase();
         if (
-            !lowerKey.startsWith("cf-") &&
             !lowerKey.startsWith("sec-") &&
             !EXCLUDED_HEADERS.includes(lowerKey)
         ) {
@@ -303,7 +302,7 @@ async function sendRequestToUpstream(
             headers: finalHeaders,
             body: upstreamBody,
             signal: c.req.raw.signal,
-            // dispatcher 是 undici (Node.js) 特有选项，不在 Cloudflare Workers 的 RequestInit 类型定义中
+            // dispatcher 是 undici 对 RequestInit 的 Node.js 扩展，标准类型未声明该字段。
             ...(dispatcher ? { dispatcher: dispatcher } as any : {}),
         });
     } catch (e: any) {

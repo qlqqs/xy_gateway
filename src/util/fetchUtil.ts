@@ -6,7 +6,7 @@
  * 通过 undici Agent 的 connect.rejectUnauthorized = false 可跳过验证。
  *
  * 同时支持 HTTP/HTTPS 代理和 SOCKS5 代理。
- * Cloudflare Workers 环境不使用 dispatcher 选项，传入 undefined 即走默认行为。
+ * 未配置特殊选项时返回 undefined，由调用方使用 Node.js 默认 fetch 行为。
  */
 
 
@@ -40,8 +40,8 @@ function buildConfigKey(config?: DispatcherConfig): string {
 /**
  * 根据 vendor config 返回对应的 undici dispatcher。
  *
- * 注意：undici 通过运行时动态 import 加载，避免 Worker 打包时引入
- * undici（其内部使用 MessagePort，Cloudflare Worker 运行时不支持）。
+ * 仅在需要特殊 TLS 或代理配置时动态加载相关模块，避免普通请求初始化
+ * 不需要的连接器。
  *
  * @param config - vendor config 对象（含 skip_tls_verify 和 proxy）
  * @returns 对应的 dispatcher；无特殊配置时返回 undefined（走默认行为）

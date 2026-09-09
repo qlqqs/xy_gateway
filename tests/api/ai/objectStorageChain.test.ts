@@ -17,7 +17,7 @@ import config from "../../config";
  * inspects storage_record directly to make that linkage explicit.
  */
 
-describe.skipIf(config.TEST_MODE === "worker")("record object storage chain", () => {
+describe("record object storage chain", () => {
     let adminToken: string;
     let testUserToken: string;
     let openaiModelName: string;

@@ -95,7 +95,7 @@ npm run frontend:build
 **2. 启动服务端**
 ```bash
 # 启动 Node.js 原生后端服务，并同时接管前端静态资源的路由
-npm run backend:start:node
+npm run backend:start
 ```
 
 在浏览器中访问 `http://localhost:8720` 即可打开系统管理后台。

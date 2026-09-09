@@ -1,6 +1,6 @@
 import { join } from "path";
 import { spawn, ChildProcess } from "child_process";
-import { existsSync, unlinkSync, mkdirSync, createWriteStream } from "fs";
+import { existsSync, mkdirSync, createWriteStream } from "fs";
 import config from "./config";
 import dbHelper from "./helpers/dbHelper";
 import mockServer from "./helpers/mockServer";
@@ -9,15 +9,11 @@ import mockSocks from "./helpers/mockSocksServer";
 import requestHelper from "./helpers/requestHelper";
 import userFixtures from "./fixtures/userFixtures";
 
-// Worker mode configuration
-const TEST_WRANGLER_CONFIG = "wrangler.test.toml";
-
 let testServerProcess: ChildProcess | null = null;
 let mockServerProcess: any | null = null;
 let mockProxyProcess: any | null = null;
 let mockSocksProcess: any | null = null;
 let appLogStream: ReturnType<typeof createWriteStream> | null = null;
-let mockLogStream: ReturnType<typeof createWriteStream> | null = null;
 
 /**
  * Global cleanup for when tests are interrupted
@@ -96,7 +92,7 @@ async function setupAdminUser(): Promise<string> {
         }
         
         if (attempt < maxRetries) {
-            // Wait before retry - D1 database may be locked by wrangler d1 execute or server starting up
+            // Wait before retry while the database/server finishes starting up.
             await new Promise(resolve => setTimeout(resolve, 2000));
         } else {
             console.log("Admin user creation failed after all retries");
@@ -118,7 +114,7 @@ export async function setup(): Promise<void> {
     const appLogPath = join(config.LOG_CONFIG.dir, config.LOG_CONFIG.appLogFile);
     appLogStream = createWriteStream(appLogPath, { flags: 'w' });
 
-    // Setup database (handles both node and worker modes)
+    // Set up the Node test database.
     await dbHelper.initDatabase();
 
     if (config.useMockServer) {
@@ -146,7 +142,7 @@ export async function setup(): Promise<void> {
     await startTestServer();
     console.log("[GLOBAL_SETUP] Test server started");
 
-    // Create initial admin user for tests (via API in both modes)
+    // Create initial admin user for tests via the API.
     await setupAdminUser();
     console.log("[GLOBAL_SETUP] Initial admin user created");
 
@@ -186,12 +182,7 @@ export async function teardown(): Promise<void> {
         appLogStream.end();
         appLogStream = null;
     }
-    if (mockLogStream) {
-        mockLogStream.end();
-        mockLogStream = null;
-    }
-
-    // Teardown database (handles both node and worker modes)
+    // Tear down the test database.
     await dbHelper.clearDatabase(config.TEST_OPTIONS.cleanup);
 
     console.log("Test environment teardown complete!");
@@ -201,43 +192,21 @@ export { setupAdminUser };
 
 function startTestServer(): Promise<void> {
     return new Promise((resolve, reject) => {
-        const isWorkerMode = config.TEST_MODE === "worker";
         const port = config.SERVER_CONFIG.port;
+        const serverPath = join(process.cwd(), "src", "local.ts");
+        const command = ["tsx", serverPath];
+        const env: NodeJS.ProcessEnv = {
+            ...process.env,
+            PORT: port.toString(),
+            DB_PATH: config.DB_CONFIG.path,
+            ROOT_TOKEN: "root-token-123",
+            KEY_ENCRYPTION_SECRET: "test-key-encryption-secret",
+            NODE_ENV: "test",
+        };
+        const startupTimeout = 3000;
 
-        let command: string[];
-        let env: NodeJS.ProcessEnv = { ...process.env };
-        const startupTimeout = isWorkerMode ? 30000 : 3000;
-
-        if (isWorkerMode) {
-            // Worker mode: use wrangler dev with test config
-            // Use --var to explicitly set ROOT_TOKEN and avoid interference from .dev.vars
-            command = [
-                "wrangler",
-                "dev",
-                "--local",
-                "--config",
-                TEST_WRANGLER_CONFIG,
-                "--port",
-                port.toString(),
-            ];
-            env.PORT = port.toString();
-        } else {
-            // Node mode: use tsx src/local.ts
-            const serverPath = join(process.cwd(), "src", "local.ts");
-            command = ["tsx", serverPath];
-            env.PORT = port.toString();
-            env.DB_PATH = config.DB_CONFIG.path;
-            env.ROOT_TOKEN = "root-token-123";
-            env.KEY_ENCRYPTION_SECRET = "test-key-encryption-secret";
-            env.TEST_MODE = "node";
-        }
-
-        console.log(
-            `Starting test server in ${config.TEST_MODE} mode on port ${port}`,
-        );
-        if (!isWorkerMode) {
-            console.log("Database path:", config.DB_CONFIG.path);
-        }
+        console.log(`Starting Node test server on port ${port}`);
+        console.log("Database path:", config.DB_CONFIG.path);
 
         testServerProcess = spawn("npx", command, {
             env,
@@ -259,7 +228,6 @@ function startTestServer(): Promise<void> {
             if (config.TEST_OPTIONS.verbose) {
                 console.log("[SERVER]", output);
             }
-            // Write to app.log
             if (appLogStream) {
                 appLogStream.write(
                     `[${new Date().toISOString()}] [SERVER STDOUT] ${output}\n`,
@@ -277,71 +245,34 @@ function startTestServer(): Promise<void> {
                 return;
             }
 
-            // 监听服务器启动成功的消息
-            if (!serverStarted) {
-                if (isWorkerMode) {
-                    // Wrangler dev typically outputs something like:
-                    // "Ready on http://localhost:9720" or contains "Ready"
-                    if (
-                        output.includes("Ready") ||
-                        output.includes("localhost:" + port)
-                    ) {
-                        serverStarted = true;
-                        cleanup();
-                        resolve();
-                    }
-                } else {
-                    if (output.includes("Server listening")) {
-                        serverStarted = true;
-                        cleanup();
-                        resolve();
-                    }
-                }
+            if (!serverStarted && output.includes("Server listening")) {
+                serverStarted = true;
+                cleanup();
+                resolve();
             }
         });
 
-            testServerProcess.stderr?.on("data", (data) => {
-                const error = data.toString().trim();
-                // Write all stderr to app.log
-                if (appLogStream) {
-                    appLogStream.write(
-                        `[${new Date().toISOString()}] [SERVER STDERR] ${error}\n`,
-                    );
-                }
+        testServerProcess.stderr?.on("data", (data) => {
+            const error = data.toString().trim();
+            if (appLogStream) {
+                appLogStream.write(
+                    `[${new Date().toISOString()}] [SERVER STDERR] ${error}\n`,
+                );
+            }
 
-                if (
-                    error.toLowerCase().includes("eaddrinuse") ||
-                    error.toLowerCase().includes("address already in use")
-                ) {
-                    cleanup();
-                    reject(new Error(`Test server port ${port} is already in use.`));
-                    return;
-                }
+            if (
+                error.toLowerCase().includes("eaddrinuse") ||
+                error.toLowerCase().includes("address already in use")
+            ) {
+                cleanup();
+                reject(new Error(`Test server port ${port} is already in use.`));
+                return;
+            }
 
-                if (isWorkerMode) {
-                    // After server is started, don't treat stderr as fatal
-                    if (serverStarted) {
-                        if (config.TEST_OPTIONS.verbose) {
-                            console.log("[SERVER STDERR]", error);
-                        }
-                        return;
-                    }
-                    // Before server is started, check for startup signal in stderr
-                    if (config.TEST_OPTIONS.verbose) {
-                        console.log("[SERVER INFO]", error);
-                    }
-                    if (
-                        error.includes("Ready") ||
-                        error.includes("localhost:" + port)
-                    ) {
-                        serverStarted = true;
-                        cleanup();
-                        resolve();
-                    }
-                    return;
-                }
-                console.error("[SERVER ERROR]", error);
-            });
+            if (config.TEST_OPTIONS.verbose) {
+                console.log("[SERVER STDERR]", error);
+            }
+        });
 
         testServerProcess.on("error", (err) => {
             cleanup();
@@ -356,13 +287,10 @@ function startTestServer(): Promise<void> {
             }
         });
 
-        // 设置超时
         timeoutId = setTimeout(() => {
             cleanup();
             if (!serverStarted) {
-                reject(
-                    new Error(`Server startup timeout (${startupTimeout}ms)`),
-                );
+                reject(new Error(`Server startup timeout (${startupTimeout}ms)`));
             }
         }, startupTimeout);
     });

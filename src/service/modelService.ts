@@ -161,10 +161,7 @@ async function runAggregateTransaction<T>(knex: any, work: (transaction: any) =>
     throw new Error("Aggregate transaction failed");
 }
 
-/**
- * 将模型行及其规范化上游映射作为一个聚合持久化。Node/MySQL 使用真实 Knex 事务；
- * D1 按相同顺序执行写入，但不声称跨语句原子性（已记录的 Worker 限制）。
- */
+/** 将模型行及其规范化上游映射作为一个事务聚合持久化。 */
 async function persistAggregate(
     request: ModelRequest,
     modelId?: number,
@@ -190,18 +187,6 @@ async function persistAggregate(
         return id;
     };
 
-    if (ormService.isWorker) {
-        try {
-            return await persist(knex);
-        } catch (error) {
-            // D1 没有多语句事务。如果创建已插入模型行、映射写入随后失败，仅删除该确切行；
-            // 不得按名称查找，因为并发请求可能拥有同一临时名称的另一模型。
-            if (modelId === undefined && insertedId !== undefined) {
-                await modelManager.deleteModel(insertedId).catch(() => undefined);
-            }
-            throw error;
-        }
-    }
     return runAggregateTransaction(knex, persist);
 }
 
@@ -220,7 +205,6 @@ async function createModel(input: unknown): Promise<SgModel> {
         persisted.mapping = { upstreams: request.mapping.upstreams as any };
         return persisted;
     } catch (error) {
-        // Node/MySQL 事务会回滚整个聚合。Worker/D1 在 persistAggregate 内按确切插入 ID 清理。
         throw error;
     }
 }
@@ -236,13 +220,7 @@ async function updateModel(id: number, input: unknown): Promise<SgModel | null> 
     current.fill(persistenceData(request));
     current.validatePrices();
     await validateUpstreams(request.name, request.mapping.upstreams, request.enable !== false);
-    try {
-        await persistAggregate(request, id);
-    } catch (error) {
-        // Node/MySQL 上 Knex 会一并回滚模型与映射写入。Worker/D1 没有多语句事务；
-        // 只有第一次模型更新本身失败时，旧聚合才能保持不变。
-        throw error;
-    }
+    await persistAggregate(request, id);
     if (previousName && previousName !== request.name) {
         // 模型名称嵌入分组/Key 白名单快照中。将这些引用作为同一领域操作保持一致，
         // 否则重命名会静默导致原本允许的模型不可用。

@@ -296,10 +296,10 @@ describe("AI Responses API", () => {
             expect(record.user_id).toBe(testUserId);
             expect(record.model_id).toBe(responsesModelId);
             expect(record.status).toBe("success");
-            const usageR2 = record.usage;
-            expect(usageR2.prompt_tokens).toBeGreaterThan(0);
-            expect(usageR2.completion_tokens).toBeGreaterThan(0);
-            expect(usageR2.cache_read_tokens).toBe(4);
+            const recordedUsage = record.usage;
+            expect(recordedUsage.prompt_tokens).toBeGreaterThan(0);
+            expect(recordedUsage.completion_tokens).toBeGreaterThan(0);
+            expect(recordedUsage.cache_read_tokens).toBe(4);
 
             const upstreamRequests = await upstreamCaptureHelper.waitForRequestsByInput(input);
             expect(upstreamRequests).toHaveLength(1);

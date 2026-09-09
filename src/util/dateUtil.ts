@@ -1,6 +1,6 @@
 /**
  * Convert an application Date to the textual value accepted by each
- * persistence driver.  SQLite/D1 accept ISO-8601 strings, while MySQL's
+ * persistence driver. SQLite accepts ISO-8601 strings, while MySQL's
  * strict TIMESTAMP/DATETIME mode rejects the `T...Z` form and requires a
  * `YYYY-MM-DD HH:mm:ss` value.
  */

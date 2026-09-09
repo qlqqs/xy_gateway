@@ -21,11 +21,8 @@ export const MIGRATION_END_MARKER = "[GT_AI_GATEWAY_MIGRATION_END]";
 
 export type Dialect = "sqlite" | "mysql";
 
-// 当前方言：worker 走 D1（sqlite 方言）；node / test 由 DB_DRIVER 决定（默认 sqlite）
-export function getDialect(env: string): Dialect {
-    if (env === "worker-local" || env === "worker-cloud") {
-        return "sqlite";
-    }
+// 当前方言由 DB_DRIVER 决定，默认使用 SQLite。
+export function getDialect(): Dialect {
     return process.env.DB_DRIVER === "mysql" ? "mysql" : "sqlite";
 }
 

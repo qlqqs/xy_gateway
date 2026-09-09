@@ -12,15 +12,6 @@ export interface StatementAdapter {
     run(...args: any[]): Promise<any> | any;
 }
 
-export interface D1BatchStatement {
-    sql: string;
-    bindings?: unknown[];
-}
-
-export type D1BatchExecutor = <T = Record<string, unknown>>(
-    statements: D1BatchStatement[],
-) => Promise<D1Result<T>[]>;
-
 // SQLite 适配器
 export class SQLiteAdapter implements DatabaseAdapter {
     constructor(private db: any) {}
@@ -48,58 +39,6 @@ class SQLiteStatementAdapter implements StatementAdapter {
 
     run(...args: any[]): any {
         return this.stmt.run(...args);
-    }
-}
-
-// D1 适配器
-export class D1Adapter implements DatabaseAdapter {
-    constructor(private db?: D1Database) {}
-
-    async exec(sql: string): Promise<void> {
-        if (!this.db) {
-            throw new customError.AppError("D1Adapter: DB not initialized", 500);
-        }
-        await this.db.exec(sql);
-    }
-
-    prepare(sql: string): StatementAdapter {
-        if (!this.db) {
-            throw new customError.AppError("D1Adapter: DB not initialized", 500);
-        }
-        const stmt = this.db.prepare(sql);
-        return new D1StatementAdapter(stmt);
-    }
-
-    setDB(db: D1Database) {
-        this.db = db;
-    }
-
-    captureBatchExecutor(requestDb: D1Database): D1BatchExecutor {
-        // D1 binding 属于单个 Worker 请求；在进程内结算锁让出执行权前捕获当前 binding，
-        // 避免并发请求刷新 adapter 后串用其他请求的 I/O 上下文。
-        const db = requestDb;
-        return async <T = Record<string, unknown>>(statements: D1BatchStatement[]) => {
-            const prepared = statements.map(({ sql, bindings = [] }) =>
-                db.prepare(sql).bind(...bindings)
-            );
-            return await db.batch<T>(prepared);
-        };
-    }
-}
-
-class D1StatementAdapter implements StatementAdapter {
-    constructor(private stmt: any) {}
-
-    async all(): Promise<{ results: any }> {
-        return await this.stmt.all();
-    }
-
-    async first(): Promise<any> {
-        return await this.stmt.first();
-    }
-
-    async run(...args: any[]): Promise<any> {
-        return await this.stmt.bind(...args).run();
     }
 }
 

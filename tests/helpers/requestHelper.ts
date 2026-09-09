@@ -1,10 +1,7 @@
-import { fetch, Headers } from "undici";
-
 /**
- * Get server config dynamically to respect TEST_MODE at runtime
+ * Get test server configuration
  */
 async function getServerConfig() {
-    // Dynamic import to ensure TEST_MODE is evaluated at runtime
     const config = await import("../config");
     return config.default.SERVER_CONFIG;
 }

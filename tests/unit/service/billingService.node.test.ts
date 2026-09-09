@@ -10,8 +10,6 @@ const mocks = vi.hoisted(() => ({
     configService: { isModuleBillingEnabled: vi.fn() },
     recordService: { update: vi.fn() },
     ormService: {
-        isWorker: false as boolean,
-        captureD1Batch: vi.fn(),
         getKnex: vi.fn(),
     },
 }));
@@ -137,7 +135,6 @@ function makeSettlementInput(quota: number) {
 describe("billingService Node settlement", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.ormService.isWorker = false;
         mocks.userGroupManager.findById.mockResolvedValue(null);
         mocks.configService.isModuleBillingEnabled.mockResolvedValue(true);
     });
@@ -172,7 +169,6 @@ describe("billingService Node settlement", () => {
             cost: 20_000,
             settlement_status: "settled",
         });
-        expect(mocks.ormService.captureD1Batch).not.toHaveBeenCalled();
     });
 
     it("事务内 Key 更新为零行时返回 API key not found", async () => {
@@ -190,6 +186,5 @@ describe("billingService Node settlement", () => {
 
         expect(fake.updates.map(update => update.table)).toEqual(["user", "user_key"]);
         expect(fake.updates.some(update => update.table === "record")).toBe(false);
-        expect(mocks.ormService.captureD1Batch).not.toHaveBeenCalled();
     });
 });

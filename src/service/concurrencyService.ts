@@ -1,9 +1,8 @@
 /**
  * In-process concurrency leases.
  *
- * Node/Tauri deployments get an exact cap.  Worker isolates and horizontally
- * scaled Node processes cannot share this map; callers must therefore treat it
- * as best-effort there (the limitation is documented in the domain design).
+ * The lease is process-local and is used to enforce limits within one gateway
+ * instance.
  */
 
 export type LeaseScope = "key" | "vendor";

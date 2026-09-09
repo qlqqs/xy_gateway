@@ -3,11 +3,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import clientConfigService from "../../src/service/clientConfigService/core";
-import ormService from "../../src/service/ormService";
 import SgClientConfig from "../../src/model/sgClientConfig";
 import { SgUser } from "../../src/model/sgUser";
 import { SgVendor } from "../../src/model/sgVendor";
-import { ClientName, ConnectionMode, RunMode, UserType, UserStatus } from "../../src/constants";
+import { ClientName, ConnectionMode, UserType, UserStatus } from "../../src/constants";
 import userKeyService from "../../src/service/userKeyService";
 import dbHelper from "../helpers/dbHelper";
 import ormTestHelper from "../helpers/ormTestHelper";
@@ -19,7 +18,6 @@ describe("clientConfigService", () => {
     let originalHome: string | undefined;
     let originalCodexHome: string | undefined;
     let originalKeyEncryptionSecret: string | undefined;
-    let originalOrmMode: RunMode;
     let testUserId = 0;
     let testVendorId = 0;
 
@@ -33,13 +31,11 @@ describe("clientConfigService", () => {
         // resolved without falling back to the removed user.token column.
         process.env.KEY_ENCRYPTION_SECRET = "test-key-encryption-secret";
         await ormTestHelper.connectNodeOrm();
-        originalOrmMode = ormService.mode;
         tempRoot = await mkdtemp(join(tmpdir(), "gt-client-config-"));
     });
 
     beforeEach(async () => {
         await dbHelper.truncate();
-        ormService.mode = RunMode.NODE;
         tempDir = await mkdtemp(join(tempRoot, "home-"));
         process.env.HOME = tempDir;
         process.env.CODEX_HOME = join(tempDir, ".codex");
@@ -74,7 +70,6 @@ describe("clientConfigService", () => {
     afterEach(async () => {
         process.env.HOME = originalHome;
         process.env.CODEX_HOME = originalCodexHome;
-        ormService.mode = originalOrmMode;
         await rm(tempDir, { recursive: true, force: true });
     });
 
@@ -85,16 +80,6 @@ describe("clientConfigService", () => {
             process.env.KEY_ENCRYPTION_SECRET = originalKeyEncryptionSecret;
         }
         await rm(tempRoot, { recursive: true, force: true });
-    });
-
-    it("reports unavailable in worker mode", async () => {
-        ormService.mode = RunMode.WORKER;
-
-        const status = await clientConfigService.getStatus();
-
-        expect(status.available).toBe(false);
-        expect(status.clients).toEqual([]);
-        expect(status.reason).toContain("本地安装");
     });
 
     it("creates and switches Claude Code settings", async () => {

@@ -86,10 +86,10 @@
                                 />
                             </div>
                         </div>
-                        <div class="setting-item" v-if="!isWorkerMode">
+                        <div class="setting-item">
                             <div class="setting-info">
                                 <div class="setting-title">流式日志记录</div>
-                                <div class="setting-desc">启用后，会将上游返回的原始 SSE 流式响应写入 log/stream/&lt;record_id&gt;.log，仅本地 Node 模式下生效，用于抓取原始流式请求</div>
+                                <div class="setting-desc">启用后，会将上游返回的原始 SSE 流式响应写入 log/stream/&lt;record_id&gt;.log，用于抓取原始流式请求</div>
                             </div>
                             <div class="setting-action">
                                 <a-switch
@@ -97,51 +97,6 @@
                                     @change="form.stream_log_enabled = $event as boolean"
                                     :disabled="saving"
                                 />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="settings-section" style="margin-top: 24px;">
-                        <h3 class="section-title">数据存储</h3>
-                        <div class="settings-list">
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-title">数据存储位置</div>
-                                    <div class="setting-desc">存储记录的请求/响应内容的位置</div>
-                                </div>
-                                <div class="setting-action">
-                                    <a-select
-                                        v-model:value="form.record_payload_storage"
-                                        class="storage-select"
-                                        option-label-prop="label"
-                                        :dropdown-match-select-width="320"
-                                        :disabled="saving"
-                                    >
-                                        <a-select-option value="auto" label="自动">
-                                            <div class="storage-option">
-                                                <div class="storage-option-title">自动</div>
-                                                <div class="storage-option-desc">非 Cloudflare 环境优先数据库，Cloudflare 环境优先 R2</div>
-                                            </div>
-                                        </a-select-option>
-                                        <a-select-option value="database" label="数据库">
-                                            <div class="storage-option">
-                                                <div class="storage-option-title">数据库</div>
-                                                <div class="storage-option-desc">将请求和响应内容存储到数据库</div>
-                                            </div>
-                                        </a-select-option>
-                                        <a-select-option value="r2" label="R2" :disabled="!isR2StorageAvailable">
-                                            <div class="storage-option">
-                                                <div class="storage-option-title">R2</div>
-                                                <div class="storage-option-desc">
-                                                    <span>将请求和响应内容存储到 Cloudflare R2</span>
-                                                    <span v-if="r2StorageUnavailableReason" class="storage-option-reason">
-                                                        {{ r2StorageUnavailableReason }}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </a-select-option>
-                                    </a-select>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -222,7 +177,7 @@
                                 <div class="setting-info">
                                     <div class="setting-title">外部管理 API 凭证</div>
                                     <div class="setting-desc">
-                                        Admin Key 仅在 Node 模式下生效。生成或重新生成后，完整明文只显示一次；请立即复制并安全保存。
+                                        生成或重新生成后，完整明文只显示一次；请立即复制并安全保存。
                                     </div>
                                 </div>
                                 <div class="setting-action admin-key-actions">
@@ -236,7 +191,7 @@
                                         type="primary"
                                         data-testid="admin-key-generate"
                                         :loading="adminKeyBusy"
-                                        :disabled="adminKeyBusy || !isNodeMode"
+                                        :disabled="adminKeyBusy"
                                         @click="generateAdminKey"
                                     >
                                         {{ adminKeyExists ? '重新生成' : '生成 Admin Key' }}
@@ -246,7 +201,7 @@
                                         danger
                                         data-testid="admin-key-revoke"
                                         :loading="adminKeyBusy"
-                                        :disabled="adminKeyBusy || !isNodeMode"
+                                        :disabled="adminKeyBusy"
                                         @click="revokeAdminKey"
                                     >
                                         撤销
@@ -320,17 +275,10 @@ import { checkUpdate } from '@/api/system';
 import { clearPayload, clearAllRecords } from '@/api/record';
 import adminKeyApi from '@/api/adminKey';
 import { useAppStore } from '@/stores/app';
-import { RunMode } from '@/types/system';
 import { notifyError, notifySuccess } from '@/utils/requestFeedback';
 
 const appStore = useAppStore();
 const currentVersion = computed(() => appStore.version);
-const isWorkerMode = computed(() => appStore.mode === RunMode.WORKER);
-const isNodeMode = computed(() => appStore.mode === RunMode.NODE);
-const isR2StorageAvailable = computed(() => appStore.r2StorageAvailable);
-const r2StorageUnavailableReason = computed(() => (
-    !isR2StorageAvailable.value ? appStore.r2StorageUnavailableReason : ''
-));
 const checkingUpdate = ref(false);
 const checkedUpdate = ref(false);
 const hasUpdate = ref(false);
@@ -347,7 +295,6 @@ const deleting = ref(false);
 const adminKeyExists = ref(false);
 const revealedAdminKey = ref('');
 const adminKeyBusy = ref(false);
-type RecordPayloadStorage = 'auto' | 'database' | 'r2';
 
 const originalConfig = reactive({
     cch_rewrite_enabled: false,
@@ -355,7 +302,6 @@ const originalConfig = reactive({
     claude_code_tracking_rewrite_enabled: true,
     stream_log_enabled: false,
     record_payload_enabled: true,
-    record_payload_storage: 'auto' as RecordPayloadStorage,
     auto_update_enabled: true,
     telemetry_disabled: false,
     module_billing_enabled: false,
@@ -367,7 +313,6 @@ const form = reactive({
     claude_code_tracking_rewrite_enabled: true,
     stream_log_enabled: false,
     record_payload_enabled: true,
-    record_payload_storage: 'auto' as RecordPayloadStorage,
     auto_update_enabled: true,
     telemetry_disabled: false,
     module_billing_enabled: false,
@@ -379,7 +324,6 @@ const isDirty = computed(() => {
            form.claude_code_tracking_rewrite_enabled !== originalConfig.claude_code_tracking_rewrite_enabled ||
            form.stream_log_enabled !== originalConfig.stream_log_enabled ||
            form.record_payload_enabled !== originalConfig.record_payload_enabled ||
-           form.record_payload_storage !== originalConfig.record_payload_storage ||
            form.auto_update_enabled !== originalConfig.auto_update_enabled ||
            form.telemetry_disabled !== originalConfig.telemetry_disabled ||
            form.module_billing_enabled !== originalConfig.module_billing_enabled;
@@ -389,22 +333,12 @@ onMounted(() => {
     void loadConfig();
 });
 
-function normalizeRecordPayloadStorage(value: string | undefined): RecordPayloadStorage {
-    if (value === 'auto' || value === 'database' || value === 'r2') {
-        return value;
-    }
-
-    return 'auto';
-}
-
 async function loadConfig(): Promise<void> {
     loading.value = true;
     try {
         const config = await getConfig();
         await appStore.fetchStatus();
-        if (appStore.mode === RunMode.NODE) {
-            await loadAdminKeyStatus();
-        }
+        await loadAdminKeyStatus();
 
         form.cch_rewrite_enabled = config.cch_rewrite_enabled !== "false";
         originalConfig.cch_rewrite_enabled = config.cch_rewrite_enabled !== "false";
@@ -421,8 +355,6 @@ async function loadConfig(): Promise<void> {
         form.record_payload_enabled = config.record_payload_enabled !== "false";
         originalConfig.record_payload_enabled = config.record_payload_enabled !== "false";
 
-        form.record_payload_storage = normalizeRecordPayloadStorage(config.record_payload_storage);
-        originalConfig.record_payload_storage = form.record_payload_storage;
 
         form.auto_update_enabled = config.auto_update_enabled !== "false";
         originalConfig.auto_update_enabled = config.auto_update_enabled !== "false";
@@ -444,7 +376,6 @@ function cancelChanges() {
     form.claude_code_tracking_rewrite_enabled = originalConfig.claude_code_tracking_rewrite_enabled;
     form.stream_log_enabled = originalConfig.stream_log_enabled;
     form.record_payload_enabled = originalConfig.record_payload_enabled;
-    form.record_payload_storage = originalConfig.record_payload_storage;
     form.auto_update_enabled = originalConfig.auto_update_enabled;
     form.telemetry_disabled = originalConfig.telemetry_disabled;
     form.module_billing_enabled = originalConfig.module_billing_enabled;
@@ -582,7 +513,6 @@ async function saveConfig() {
             claude_code_tracking_rewrite_enabled: form.claude_code_tracking_rewrite_enabled ? "true" : "false",
             stream_log_enabled: form.stream_log_enabled ? "true" : "false",
             record_payload_enabled: form.record_payload_enabled ? "true" : "false",
-            record_payload_storage: form.record_payload_storage,
             auto_update_enabled: form.auto_update_enabled ? "true" : "false",
             telemetry_disabled: form.telemetry_disabled ? "true" : "false",
             module_billing_enabled: form.module_billing_enabled ? "true" : "false",
@@ -593,7 +523,6 @@ async function saveConfig() {
         originalConfig.claude_code_tracking_rewrite_enabled = form.claude_code_tracking_rewrite_enabled;
         originalConfig.stream_log_enabled = form.stream_log_enabled;
         originalConfig.record_payload_enabled = form.record_payload_enabled;
-        originalConfig.record_payload_storage = form.record_payload_storage;
         originalConfig.auto_update_enabled = form.auto_update_enabled;
         originalConfig.telemetry_disabled = form.telemetry_disabled;
         originalConfig.module_billing_enabled = form.module_billing_enabled;
@@ -679,39 +608,6 @@ async function saveConfig() {
     justify-content: flex-end;
 }
 
-.storage-select {
-    width: 120px;
-}
-
-:deep(.ant-select-item-option-content) {
-    white-space: normal;
-}
-
-.storage-option {
-    width: 280px;
-    padding: 2px 0;
-}
-
-.storage-option-title {
-    color: var(--text-primary);
-    font-size: 14px;
-    font-weight: 500;
-    line-height: 20px;
-}
-
-.storage-option-desc {
-    color: var(--text-secondary, #8c8c8c);
-    font-size: 12px;
-    line-height: 18px;
-    white-space: normal;
-    overflow-wrap: anywhere;
-}
-
-.storage-option-reason {
-    display: block;
-    margin-top: 2px;
-    color: var(--error-color, #ff4d4f);
-}
 
 :deep(.ant-tabs-tab) {
     font-size: 15px;

@@ -9,9 +9,9 @@
 | 部分 | 技术栈 | 说明 |
 |------|--------|------|
 | **后端框架** | Hono + TypeScript | 轻量级 Web 框架 |
-| **运行时** | Cloudflare Workers / Node.js | 无服务器 / 本地运行 |
-| **数据库** | D1 (Cloudflare) / SQLite | 生产 / 开发环境 |
-| **对象存储** | R2 (Cloudflare) / `storage_record` 表 | 请求/响应原始载荷；生产 / 开发环境 |
+| **运行时** | Node.js | 本地、服务器和桌面端统一运行时 |
+| **数据库** | SQLite / MySQL | 默认 SQLite，也可使用 MySQL |
+| **载荷存储** | `storage_record` 表 | 保存请求/响应原始载荷 |
 | **ORM** | Sutando | 统一数据库操作接口 |
 
 ## 后端项目结构
@@ -29,7 +29,6 @@
 ├── tests/                # 测试目录
 ├── resource/migrate/     # 数据库迁移文件
 ├── script/              # 工具脚本
-├── wrangler.toml        # Cloudflare Workers 配置
 └── package.json         # 项目依赖
 ```
 
@@ -51,7 +50,7 @@ npm install
 
 ### 环境变量配置
 
-在项目根目录创建 `.dev.vars` 文件（用于 Wrangler 本地开发）：
+在项目根目录创建 `.dev.vars` 文件（Node.js 本地开发时自动加载）：
 
 ```bash
 # .dev.vars
@@ -112,7 +111,7 @@ APP_VERSION=dev-20260821
 | **Root Token** | `root-token-123` | 系统最高权限。用于初次登录管理后台、创建其他管理员或普通用户。需配置在 `.dev.vars` 的 `ROOT_TOKEN` 中。 |
 | **Admin Token** | `admin-token-for-test` | 测试环境下预设的管理员 Token。在运行后端测试（`npm run backend:test`）时，系统会自动创建一个使用此 Token 的管理员用户。 |
 
-> **注意**：以上 Token 仅建议在**本地开发和测试环境**中使用。生产环境部署时，请务必通过 Cloudflare Workers 环境变量配置复杂的随机字符串作为 `ROOT_TOKEN`。
+> **注意**：以上 Token 仅建议在**本地开发和测试环境**中使用。生产环境部署时，请务必通过 Node.js 进程或容器环境变量配置复杂的随机字符串作为 `ROOT_TOKEN`。
 
 ### 日志相关环境变量
 
@@ -142,24 +141,13 @@ Node 模式使用本地 SQLite 数据库，运行在 `http://localhost:8720`，�
 1. **开发前端**：启动后端服务后，再启动前端开发服务器（`npm run frontend:dev`）。
 2. **测试集成产物**：如果后端需要提供前端静态资源服务，必须先运行前端构建：`npm run frontend:build`。构建后的产物将被放置在 `frontend/dist/` 目录，后端会从中读取并提供服务。
 
-#### Cloudflare Workers 模式
-
-```bash
-npm run backend:dev
-```
-
-Wrangler 会启动本地开发服务器，模拟 Cloudflare Workers 环境
-
 ### 开发命令
 
 | 命令 | 说明 |
 |------|------|
-| `npm run backend:dev` | Cloudflare Workers 开发模式 |
+| `npm run backend:dev` | Node.js 开发模式（watch 自动重启） |
 | `npm run backend:dev:local` | Node 本地开发模式（watch 自动重启） |
 | `npm run backend:start` | Node 生产模式 |
-| `npm run deploy` | 部署到 Cloudflare Workers，部署前自动执行 D1 migrations，并设置 ROOT_TOKEN 与 KEY_ENCRYPTION_SECRET |
-| `npm run deploy -- --auto-create-db --auto-create-r2` | 如果当前账号下没有可用 D1 / R2 桶，则自动创建后部署 |
-| `npm run deploy:cloudflare` | 底层 Cloudflare 部署脚本；不带参数时要求 `wrangler.toml` 已配置 `database_id` 和可用的 R2 桶 |
 | `npm run backend:test` | 运行后端测试 |
 
 ### 请求记录与流式日志
@@ -169,9 +157,9 @@ Wrangler 会启动本地开发服务器，模拟 Cloudflare Workers 环境
 1. **数据库请求记录**
    - 由 `src/service/recordService.ts` 负责创建和更新。
    - 每次请求开始时会创建一条 `record` 记录，保存 `user_id`、`model_id`、状态、耗时和 token 统计等元信息。
-   - 请求/响应的原始载荷（request body / response body）不存入 `record` 表，而是由 `src/service/objectStorageService.ts` 写入对象存储：Node 模式落库到 `storage_record` 表，Worker 模式写入 R2 桶（binding `OBJECT_BUCKET`）。对象 key 为 `record/{id}`，内容是 `{"request": <原始字符串>, "response": <原始字符串>}` 的组合 JSON。
-   - 流式请求结束后，聚合出的完整响应会通过 `recordService.update` 合并写回对象存储的 `.response` 字段。
-   - 读取记录详情时（`recordService.attachPayload`），再从对象存储把 `request`/`response` 挂回 record 实例的 `request_data`/`response_data` 虚拟字段返回给前端。
+   - 请求/响应的原始载荷（request body / response body）不存入 `record` 表，而是由 `src/service/objectStorageService.ts` 写入同一数据库的 `storage_record` 表。对象 key 为 `record/{id}`，内容是 `{"request": <原始字符串>, "response": <原始字符串>}` 的组合 JSON。
+   - 流式请求结束后，聚合出的完整响应会通过 `recordService.update` 合并写回 `storage_record` 的 `.response` 字段。
+   - 读取记录详情时（`recordService.attachPayload`），再从 `storage_record` 读取 `request`/`response`，挂回 record 实例的 `request_data`/`response_data` 虚拟字段返回给前端。
    - 若设置 `RECORD_LOG_ENABLED=true`，`recordService` 会额外打印创建和更新日志，方便本地调试。
 
 2. **流式原始日志文件**
@@ -182,8 +170,8 @@ Wrangler 会启动本地开发服务器，模拟 Cloudflare Workers 环境
      - SSE 分帧问题
      - 上游返回的真实事件顺序
      - `usage`、`finish_reason` 等字段的实际出现位置
-   - 该日志与对象存储中的 `response` 不同：
-     - 对象存储里的 `response` 是聚合后的完整响应
+   - 该日志与 `storage_record` 中的 `response` 不同：
+     - `storage_record` 里的 `response` 是聚合后的完整响应
      - `log/stream/<record.id>.log` 是未聚合的原始流
 
 #### 本地目录说明
@@ -217,10 +205,10 @@ log/                      # 或 LOG_DIR 指定的目录
 
 ### 数据库类型
 
-| 环境 | 数据库 | 对象存储 | 说明 |
+| 环境 | 数据库 | 载荷存储 | 说明 |
 |------|--------|----------|------|
-| **本地模式 (Node.js)** | SQLite (`better-sqlite3`) | `storage_record` 表 | 本地文件存储；载荷与元数据同在一个 SQLite |
-| **云端模式 (Cloudflare)** | Cloudflare D1 | Cloudflare R2 (`OBJECT_BUCKET`) | 元数据入 D1，请求/响应载荷入 R2，互不拖累 |
+| **Node.js + SQLite** | SQLite (`better-sqlite3`) | `storage_record` 表 | 载荷与元数据同在一个 SQLite 文件 |
+| **Node.js + MySQL** | MySQL (`mysql2`) | `storage_record` 表 | 载荷与元数据同在一个 MySQL 数据库 |
 
 ### 数据库管理工具
 
@@ -242,8 +230,6 @@ log/                      # 或 LOG_DIR 指定的目录
 | 环境 | 说明 |
 |------|------|
 | `node`（默认） | 本地 Node.js 环境，操作 `local.db` |
-| `worker-local` | Wrangler 本地 D1 模拟器 |
-| `worker-cloud` | Cloudflare D1 云端数据库 |
 
 #### 使用示例
 
@@ -257,9 +243,8 @@ npm run db:status:node
 # 清空数据库
 npm run db:clear:node
 
-# 指定 worker 环境
-npx tsx script/db.ts migrate --env worker-local
-npx tsx script/db.ts migrate --env worker-cloud
+# 测试环境（通常由 Vitest 自动管理）
+npx tsx script/db.ts status --env test
 ```
 
 ### 本地模式数据库路径
@@ -282,17 +267,13 @@ DB_PATH=/path/to/your/custom.db
 
 ## 部署说明
 
-### Cloudflare Workers 部署
-有关如何将后端部署到 Cloudflare Workers 的详细步骤（包括 D1 数据库配置和一键部署），请参考专门的文档：
-👉 **[Cloudflare 自动部署文档](deploy/CloudflareAutoDeploy.md)**
-
 ### Docker 部署
 Docker 部署相关内容已单独整理，包括 Docker Compose 部署和独立运行等。请参考专门的文档：
-👉 **[Docker 部署文档](deploy/DockerDeployment.md)**
+👉 **[Docker 部署文档](../deploy/DockerDeployment.md)**
 
 ### 源码部署
 如果需要在本地物理机或者私有服务器通过 Node.js 原生运行，请参考：
-👉 **[源码部署文档](deploy/SourceCodeDeployment.md)**
+👉 **[源码部署文档](../deploy/SourceCodeDeployment.md)**
 
 ---
 

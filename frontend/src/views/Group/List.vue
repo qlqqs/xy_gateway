@@ -138,7 +138,7 @@ const formRef = ref<FormInstance>();
 const formState = reactive({
     name: '',
     description: '',
-    inboundProtocols: ['openai_responses'] as InboundProtocol[],
+    inboundProtocols: ['openai_chat', 'openai_responses', 'anthropic'] as InboundProtocol[],
     customModels: [] as string[],
     whitelistEnabled: false,
     rateMultiplier: 1,
@@ -189,7 +189,7 @@ function resetForm() {
     editingId.value = null;
     formState.name = '';
     formState.description = '';
-    formState.inboundProtocols = ['openai_responses'];
+    formState.inboundProtocols = ['openai_chat', 'openai_responses', 'anthropic'];
     formState.customModels = [];
     formState.whitelistEnabled = false;
     formState.rateMultiplier = 1;

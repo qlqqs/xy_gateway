@@ -164,6 +164,7 @@ function assertBaseAccess(
     format: ApiFormat,
     modelName: string | null,
     clientIp: string | null,
+    enforceFormat = true,
 ): void {
     const { user, key, group } = context;
     if (user.id < 0) return;
@@ -182,7 +183,7 @@ function assertBaseAccess(
     if (group?.status !== undefined && group.status !== "active") {
         throw new customError.AppError("Group disabled", 403, "authentication_error");
     }
-    if (!isFormatAllowed(group, format)) {
+    if (enforceFormat && !isFormatAllowed(group, format)) {
         throw new customError.AppError("Protocol is not allowed for this key group", 403, "authentication_error");
     }
     if (modelName !== null && !isModelAllowed(key, group, modelName)) {
@@ -201,7 +202,11 @@ function assertModelsAccess(
     // The model catalogue has no single requested model, but all identity,
     // expiry, IP, protocol and quota gates still apply.  Per-model whitelist
     // filtering is performed by visibleModels below.
-    assertBaseAccess(context, format, null, clientIp);
+    // The catalogue is an OpenAI-shaped response even when a key is limited
+    // to another protocol.  Keep authentication and network policy checks
+    // here, while visibleModels() returns an empty list for a disallowed
+    // protocol instead of turning a valid key into an authentication error.
+    assertBaseAccess(context, format, null, clientIp, false);
 }
 
 async function assertLlmAccess(

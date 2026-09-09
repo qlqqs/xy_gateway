@@ -5,7 +5,6 @@ import recordService from "../service/recordService";
 import customError from "../util/customErrorUtil";
 import authContextService from "../service/authContextService";
 import accessPolicyService from "../service/accessPolicyService";
-import ormService from "../service/ormService";
 
 
 function extractLlmToken(c: Context): string {
@@ -58,10 +57,6 @@ function parseLlmRequestBody(body: string): string {
 
 
 function getClientIp(c: Context): string | null {
-    if (ormService.isWorker) {
-        return c.req.header("CF-Connecting-IP")?.trim() || null;
-    }
-
     const env = c.env as {
         server?: { incoming?: { socket?: { remoteAddress?: string } } };
     };

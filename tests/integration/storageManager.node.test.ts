@@ -96,7 +96,7 @@ describe("normalizeBytes", () => {
         expect(normalizeBytes("hi")).toEqual(new Uint8Array([104, 105]));
     });
 
-    it("handles D1 Buffer serialized object", () => {
+    it("handles serialized Buffer object", () => {
         expect(normalizeBytes({ type: "Buffer", data: [1, 2, 3] })).toEqual(new Uint8Array([1, 2, 3]));
     });
 

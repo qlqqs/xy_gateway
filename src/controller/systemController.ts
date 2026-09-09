@@ -1,5 +1,4 @@
 import { Context } from "hono";
-import ormService from "../service/ormService";
 import configService from "../service/configService";
 import userManager from "../manager/userManager";
 import vendorManager from "../manager/vendorManager";
@@ -7,13 +6,12 @@ import modelManager from "../manager/modelManager";
 import recordManager from "../manager/recordManager";
 import hostService from "../service/hostService";
 import versionUtil from "../util/versionUtil";
-import { APP_DISPLAY_NAME, RunMode, ConfigKey } from "../constants";
+import { APP_DISPLAY_NAME, ConfigKey } from "../constants";
 
-// 当前实例的启动时间（延迟初始化，避免 Workers 模块加载时日期异常）
+// 当前实例的启动时间，延迟到首次状态请求时初始化。
 let INSTANCE_START_TIME: Date | null = null;
 
 function getEnvironmentName(): string {
-    if (ormService.mode === RunMode.WORKER) return "Cloudflare Workers";
     if (globalThis.process?.argv?.includes("--desktop-mode")) return "Desktop App";
     return "Node";
 }
@@ -28,36 +26,9 @@ function getInstanceStartTime(): Date {
 
 
 function getApiAddress(c: Context): string {
-    if (ormService.mode === RunMode.WORKER) {
-        return new URL(c.req.url).origin;
-    }
-
     const hostname = hostService.getLocalHost();
     const port = hostService.getLocalPort();
     return `http://${hostname}:${port}`;
-}
-
-
-function getStorageStatus(c: Context) {
-    const objectBucket = (c.env as any)?.OBJECT_BUCKET;
-    if (ormService.mode !== RunMode.WORKER) {
-        return {
-            r2_available: false,
-            r2_unavailable_reason: "当前非 Cloudflare 环境，R2 不可用",
-        };
-    }
-
-    if (!objectBucket) {
-        return {
-            r2_available: false,
-            r2_unavailable_reason: "Cloudflare R2 未配置，R2 不可用",
-        };
-    }
-
-    return {
-        r2_available: true,
-        r2_unavailable_reason: "",
-    };
 }
 
 
@@ -83,12 +54,8 @@ function formatUptime(startTime: Date): string {
 
 /**
  * 当前进程 RSS 内存占用（MB，保留 1 位小数）。
- * 仅 Node 模式有进程概念；Worker 模式返回 null。
  */
 function getMemoryUsage(): string | null {
-    if (ormService.mode === RunMode.WORKER) {
-        return null;
-    }
     const usage = globalThis.process?.memoryUsage?.();
     if (!usage) {
         return null;
@@ -97,23 +64,8 @@ function getMemoryUsage(): string | null {
 }
 
 
-/**
- * 处理当前请求的边缘数据中心（cf.colo，如 "SJC"）。
- * 仅 Worker 模式有意义；Node 模式返回 null。
- */
-function getDataCenter(c: Context): string | null {
-    if (ormService.mode !== RunMode.WORKER) {
-        return null;
-    }
-    const cf = (c.req.raw as any)?.cf;
-    return typeof cf?.colo === "string" ? cf.colo : null;
-}
-
 function welcome(c: Context) {
-    const message =
-        ormService.mode === RunMode.WORKER
-            ? `Hello, welcome to ${APP_DISPLAY_NAME}!`
-            : `Hello, welcome to ${APP_DISPLAY_NAME} (node mode)!`;
+    const message = `Hello, welcome to ${APP_DISPLAY_NAME} (node mode)!`;
     return c.text(message);
 }
 
@@ -132,7 +84,6 @@ async function status(c: Context) {
 
         return c.json({
             status: "ok",
-            mode: ormService.mode,
             user_type: c.get("user_type"),
             statistics: {
                 users: userCount,
@@ -147,14 +98,12 @@ async function status(c: Context) {
                 startTime: startTime.toISOString(),
                 uptime: formatUptime(startTime),
                 memory: getMemoryUsage(),
-                colo: getDataCenter(c),
             },
             modules: {
                 billing: moduleBilling,
                 api_playground: moduleApiPlayground,
                 client_config: moduleClientConfig,
             },
-            storage: getStorageStatus(c),
             timestamp: new Date().toISOString(),
         });
     } catch (error) {

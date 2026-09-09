@@ -7,13 +7,11 @@ import { join } from "path";
  * Frontend Static File Serving Tests
  * Verifies that the backend correctly serves frontend static files
  * and handles SPA routing
- *
- * Works in both node and worker modes
  */
 
 
 /**
- * Helper to get the first available asset file of a given type (node mode only)
+ * Helper to get the first available asset file of a given type.
  */
 function getFirstAsset(type: "js" | "css" | "svg"): string | null {
     const distPath = join(process.cwd(), "frontend", "dist");
@@ -84,7 +82,7 @@ describe("Frontend Static File Serving", () => {
 
     describe("Static Assets", () => {
         it("should serve JavaScript files", async () => {
-            // Discover actual file (works in both modes)
+            // Discover the actual built asset.
             const asset = getFirstAsset("js");
 
             if (!asset) {
@@ -94,13 +92,12 @@ describe("Frontend Static File Serving", () => {
 
             const response = await getRaw(asset);
             expect(response.status).toBe(200);
-            // Worker mode may return different content-type
             expect(response.contentType).toMatch(/javascript|octet-stream/);
         });
 
 
         it("should serve CSS files", async () => {
-            // Discover actual file (works in both modes)
+            // Discover the actual built asset.
             const asset = getFirstAsset("css");
 
             if (!asset) {
@@ -115,7 +112,7 @@ describe("Frontend Static File Serving", () => {
 
 
         it("should serve SVG files", async () => {
-            // Discover actual file (works in both modes)
+            // Discover the actual built asset.
             const asset = getFirstAsset("svg");
 
             if (!asset) {

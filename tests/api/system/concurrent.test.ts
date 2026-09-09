@@ -15,7 +15,7 @@ const ADMIN_TOKEN = userFixtures.ADMIN_TOKEN;
 describe("Concurrent Requests", () => {
     beforeAll(async () => {
         await dbHelper.truncate();
-        // 创建 admin 用户（带重试，worker 模式下可能遇到 ECONNRESET）
+        // 创建 admin 用户；重试可覆盖测试服务器刚启动时的短暂连接失败。
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
                 await requestHelper.post(

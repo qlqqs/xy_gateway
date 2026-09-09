@@ -339,11 +339,7 @@ async function insertPreparedKeys(
     }
 }
 
-/**
- * Prepare and insert the initial key set for a newly-created user.  Kept as a
- * small public helper for Worker callers; Node controllers should prepare
- * first and invoke insertPreparedKeys inside their user transaction.
- */
+/** Prepare and insert the initial key set for a newly-created user. */
 async function createManyForUser(
     userId: number,
     inputs: UserKeyInput[],
@@ -607,13 +603,8 @@ async function replaceForUser(
         await options.beforeCommit?.(db);
     };
 
-    // Node/MySQL use a real transaction.  D1's current adapter has no
-    // transaction callback, so it executes the same deterministic sequence as
-    // a best-effort replacement and leaves the limitation explicit.
     if (options.transaction) {
         await commit(options.transaction);
-    } else if (ormService.isWorker) {
-        await commit(knex);
     } else {
         await knex.transaction(commit);
     }

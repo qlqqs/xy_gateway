@@ -243,6 +243,17 @@ describe("accessPolicyService", () => {
         expect(accessPolicyService.visibleModels(models, root, ApiFormat.ANTHROPIC)).toEqual(models);
     });
 
+    it("keeps model catalogue authentication valid when its protocol is not allowed", () => {
+        const context = makeContext({ group: { inbound_protocols: ["openai_responses"] } });
+
+        expect(() => accessPolicyService.assertModelsAccess(context, ApiFormat.OPENAI, null)).not.toThrow();
+        expect(accessPolicyService.visibleModels(
+            [new SgModel({ name: "m1" })],
+            context,
+            ApiFormat.OPENAI,
+        )).toEqual([]);
+    });
+
     it("applies known per-request balance and quota estimates while allowing unknown token estimates", async () => {
         configMock.isModuleBillingEnabled.mockResolvedValue(true);
         const model = new SgModel({

@@ -1,13 +1,13 @@
 # 后端数据库与 ORM 规范
 
-应用 ORM 使用 Sutando。Node 模式默认使用 SQLite（`better-sqlite3`），也支持 MySQL；Worker 模式使用 Cloudflare D1。`src/service/ormService.ts` 选择 adapter，`src/util/db/` 提供底层 adapter 接口。如果 Sutando 查询或 `DatabaseAdapter` 已能表达需求，业务代码不要依赖某个具体驱动。
+应用 ORM 使用 Sutando。Node.js 模式默认使用 SQLite（`better-sqlite3`），也支持 MySQL。`src/service/ormService.ts` 选择 adapter，`src/util/db/` 提供底层 adapter 接口。如果 Sutando 查询或 `DatabaseAdapter` 已能表达需求，业务代码不要依赖某个具体驱动。
 
 ## Schema 与 migration
 
 - 所有 schema 变更都在 `resource/migrate/` 下新增有序目录，例如 `resource/migrate/migrate_0030/`。
 - 语法有差异时分别提供 `sqlite.sql` 和 `mysql.sql`；两种数据库都能执行时使用 `common.sql`。migration service 在 `_migrations` 记录目录名，Node migration 逐个在事务中执行。
 - 表名和列名使用 snake_case（`user`、`created_at`、`vendor_model_name`）；应用层 model class 使用 `Sg` 前缀（`SgUser`、`SgRecord`）。时间戳和类似外键的 ID 也保持这一命名风格。
-- SQLite/D1 与 MySQL 都必须支持。migration 或 manager 查询不能默认只有 SQLite。
+- SQLite 与 MySQL 都必须支持。migration 或 manager 查询不能默认只有 SQLite。
 - Node 的 MySQL 运行边界为 MySQL 8.0.13+（建议 8.0.34+/8.4）；现有迁移依赖
   `LONGTEXT` 表达式默认值、CTE、窗口函数和 `JSON_TABLE`，MySQL 5.7 与 MariaDB
   不在支持范围内。迁移、状态和清理命令应在执行前拒绝不兼容版本。
@@ -53,7 +53,7 @@
 ### 5. 正确 / 基线 / 错误案例
 
 - 正确：MySQL 8.4 严格模式从空库迁移，旧 token 先导入 `user_key`，再执行 0032。
-- 基线：SQLite/D1 使用各自 SQL 方言；运行时不读取已删除旧列。
+- 基线：SQLite 与 MySQL 使用各自 SQL 方言；运行时不读取已删除旧列。
 - 错误：在 MySQL 5.7 上直接执行历史迁移，或用只依赖列默认值的 INSERT 导入旧 Key。
 
 ### 6. 必要测试
@@ -112,7 +112,7 @@ async function list(options: UserListOptions) {
 ### 1. 范围 / 触发条件
 
 - 适用于 Node/Tauri 的 `billing_mode=token` 请求；实际费用只能在上游 usage 完整后确定。
-- 已向客户端成功交付响应时，不能再用 Key 剩余额度条件回滚实际费用。本节不定义 Worker/D1 的结算实现。
+- 已向客户端成功交付响应时，不能再用 Key 剩余额度条件回滚实际费用。
 
 ### 2. 签名
 
@@ -169,6 +169,6 @@ db("user_key")
 
 ## 原始存储与安全
 
-原始 SQL 和驱动特有操作放在 migration 或 adapter 层（`src/util/db/`）。不要在 controller 中临时拼 SQL。请求/响应 payload 通过 `src/service/objectStorageService.ts` 保存：Node 模式回退到 `storage_record` 表，Worker 模式使用 R2；`record` 表只保存元数据。
+原始 SQL 和驱动特有操作放在 migration 或 adapter 层（`src/util/db/`）。不要在 controller 中临时拼 SQL。请求/响应 payload 通过 `src/service/objectStorageService.ts` 保存到同一数据库的 `storage_record` 表；`record` 表只保存元数据。
 
-注意 Worker D1 与 Node 的事务和连接池行为不同。`src/service/ormService.ts` 会刷新每个请求的 D1 binding，`src/service/userService.ts` 记录了余额更新与充值记录写入有意保持非原子这一现状。不要无提示地引入只能在 SQLite 工作的事务假设。
+注意 SQLite 与 MySQL 的事务、锁和连接池行为不同。`src/service/ormService.ts` 分别配置本地 SQLite 连接和 MySQL 连接池；不要无提示地引入只能在单一驱动工作的事务假设。

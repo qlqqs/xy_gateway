@@ -42,8 +42,7 @@ async function syncByVendorWithConnection(db: any, vendorId: number, modelIds: s
     const desired = new Set(modelIds);
     const existingModelIds = new Set(existing.map((record: any) => String(record.model_id)));
 
-    // 先补齐新增项。Worker/D1 暂无跨语句事务，即使后续删除失败，
-    // 也不会先丢失原有模型；Node/MySQL 则由调用方事务保证整体原子性。
+    // 先补齐新增项，再删除已移除项；调用方在需要时会将整个同步包裹在事务中。
     for (const modelId of modelIds) {
         if (!existingModelIds.has(modelId)) {
             await db("vendor_model").insert({
@@ -69,12 +68,8 @@ async function syncByVendorWithConnection(db: any, vendorId: number, modelIds: s
 async function syncByVendor(vendorId: number, modelIds: string[]): Promise<SgVendorModel[]> {
     const knex = ormService.getKnex();
 
-    if (ormService.isWorker) {
-        await syncByVendorWithConnection(knex, vendorId, modelIds);
-    } else {
-        await knex.transaction((transaction: any) =>
-            syncByVendorWithConnection(transaction, vendorId, modelIds));
-    }
+    await knex.transaction((transaction: any) =>
+        syncByVendorWithConnection(transaction, vendorId, modelIds));
 
     return await listByVendor(vendorId);
 }

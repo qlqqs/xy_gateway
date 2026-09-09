@@ -73,11 +73,8 @@ async function adjustBalance(
     const amountUnits = toUnits(amount);
     await userManager.incrementBalance(userId, amountUnits);
 
-    // 两步写操作（扣/加余额 + 写充值记录）分属 userManager.incrementBalance 与
-    // rechargeRecordManager.create，非原子（见 service_manager_split_design §6 方案 C）：
-    // Worker 模式下 D1 不支持多语句事务（ormService 已绕过连接池），故维持原行为、
-    // 不做事务包裹，仅把查询部分（findById）下沉到 manager。充值记录写入失败时
-    // 余额已更新但不留记录，与拆分前行为一致。
+    // 余额更新与充值记录写入沿用现有 manager 边界；充值记录写入失败时，
+    // 余额可能已经更新，调用方会通过错误日志进行补偿处理。
     // Create recharge record（amount 仍以"元"记录）
     await rechargeRecordManager.create({
         user_id: userId,

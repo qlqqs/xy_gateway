@@ -1,4 +1,3 @@
-import ormService from "../ormService";
 import SgClientConfig from "../../model/sgClientConfig";
 import vendorService from "../vendorService";
 import clientConfigManager from "../../manager/clientConfigManager";
@@ -197,14 +196,6 @@ async function enrichStatus(adapterStatus: AdapterConfigStatus, adapter: ConfigA
 
 
 async function getStatus(): Promise<ClientConfigStatusResponse> {
-    if (ormService.isWorker) {
-        return {
-            available: false,
-            reason: "客户端管理需要读写本机配置文件，请本地安装后使用。",
-            clients: [],
-        };
-    }
-
     const adapters = await getAdapters();
     const clients = await Promise.all(adapters.map(async (adapter) => {
         const adapterStatus = await configAdapterUtils.buildClientStatus(adapter);
@@ -253,10 +244,6 @@ async function resolveConfigApiKey(
 
 
 async function createConfig(params: CreateClientConfigParams): Promise<ClientConfigStatus> {
-    if (ormService.isWorker) {
-        throw new Error("客户端管理需要读写本机配置文件，请本地安装后使用。");
-    }
-
     const resolvedMode = params.connectionMode || ConnectionMode.GATEWAY;
 
     // Skip validation for OFFICIAL mode (no gatewayUrl or apiKey required)
@@ -322,10 +309,6 @@ async function createConfig(params: CreateClientConfigParams): Promise<ClientCon
 
 
 async function createBackup(params: CreateClientConfigBackupParams): Promise<ClientConfigBackupInfo> {
-    if (ormService.isWorker) {
-        throw new Error("客户端管理需要读写本机配置文件，请本地安装后使用。");
-    }
-
     const adapter = await getAdapter(params.client);
     let fields = params.configContent;
     if (!fields) {
@@ -357,10 +340,6 @@ async function createBackup(params: CreateClientConfigBackupParams): Promise<Cli
 
 
 async function renameBackup(params: RenameClientConfigBackupParams): Promise<ClientConfigBackupInfo> {
-    if (ormService.isWorker) {
-        throw new Error("客户端管理需要读写本机配置文件，请本地安装后使用。");
-    }
-
     const name = params.name?.trim();
     if (!name) {
         throw new Error("Backup name is required");
@@ -386,10 +365,6 @@ async function renameBackup(params: RenameClientConfigBackupParams): Promise<Cli
 
 
 async function updateBackupConfig(params: UpdateClientConfigBackupParams): Promise<ClientConfigStatus> {
-    if (ormService.isWorker) {
-        throw new Error("客户端管理需要读写本机配置文件，请本地安装后使用。");
-    }
-
     const resolvedMode = params.connectionMode || ConnectionMode.GATEWAY;
 
     // Skip validation for OFFICIAL mode (no gatewayUrl or apiKey required)
@@ -444,9 +419,6 @@ async function updateBackupConfig(params: UpdateClientConfigBackupParams): Promi
 
 
 async function syncFromLocal(params: { client: ClientName; backupId: number }): Promise<ClientConfigStatus> {
-    if (ormService.isWorker) {
-        throw new Error("客户端管理需要读写本机配置文件，请本地安装后使用。");
-    }
     const adapter = await getAdapter(params.client);
     const backup = await clientConfigManager.findByIdAndClient(params.backupId, params.client);
     if (!backup) {
@@ -461,10 +433,6 @@ async function syncFromLocal(params: { client: ClientName; backupId: number }): 
 
 
 async function deleteBackup(params: DeleteClientConfigBackupParams): Promise<ClientConfigStatus> {
-    if (ormService.isWorker) {
-        throw new Error("客户端管理需要读写本机配置文件，请本地安装后使用。");
-    }
-
     const adapter = await getAdapter(params.client);
     const backup = await clientConfigManager.findByIdAndClient(params.backupId, params.client);
 
@@ -486,9 +454,6 @@ async function enableBackup(client: ClientName, backup: SgClientConfig): Promise
 
 
 async function readLocalConfig(client: ClientName): Promise<ClientConfigContent> {
-    if (ormService.isWorker) {
-        throw new Error("客户端管理需要读写本机配置文件，请本地安装后使用。");
-    }
     const adapter = await getAdapter(client);
     const configContent = await adapter.readConfig();
     const fields = adapter.parseConfigFileContent(configContent) || { version: "v1", connectionMode: ConnectionMode.OFFICIAL, gatewayUrl: "", apiKey: "", model: "" };
@@ -500,10 +465,6 @@ async function readLocalConfig(client: ClientName): Promise<ClientConfigContent>
 
 
 async function applyConfig(params: ApplyClientConfigParams): Promise<ClientConfigStatus> {
-    if (ormService.isWorker) {
-        throw new Error("客户端管理需要读写本机配置文件，请本地安装后使用。");
-    }
-
     const adapter = await getAdapter(params.client);
     const backup = await clientConfigManager.findByIdAndClient(params.backupId, params.client);
 

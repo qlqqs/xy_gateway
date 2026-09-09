@@ -1,32 +1,29 @@
 import { describe, expect, it, vi } from "vitest";
-import { D1Adapter } from "../../../src/util/dbAdapterUtil";
+import { SQLiteAdapter } from "../../../src/util/dbAdapterUtil";
 
-function fakeD1() {
-    const bind = vi.fn().mockReturnValue({ kind: "prepared" });
-    const prepare = vi.fn().mockReturnValue({ bind });
-    const batch = vi.fn().mockResolvedValue([]);
-    return {
-        db: { prepare, batch } as unknown as D1Database,
-        prepare,
-        bind,
-        batch,
-    };
-}
+describe("database adapters", () => {
+    it("delegates SQLite statements to the underlying database", () => {
+        const statement = {
+            all: vi.fn().mockReturnValue([{ id: 1 }]),
+            get: vi.fn().mockReturnValue({ id: 1 }),
+            run: vi.fn().mockReturnValue({ changes: 1 }),
+        };
+        const db = {
+            exec: vi.fn(),
+            prepare: vi.fn().mockReturnValue(statement),
+        };
+        const adapter = new SQLiteAdapter(db);
 
-describe("D1Adapter batch", () => {
-    it("捕获创建执行器时的请求 binding", async () => {
-        const first = fakeD1();
-        const second = fakeD1();
-        const adapter = new D1Adapter(first.db);
-        const execute = adapter.captureBatchExecutor(first.db);
+        adapter.exec("CREATE TABLE example (id INTEGER)");
+        const prepared = adapter.prepare("SELECT * FROM example WHERE id = ?");
 
-        adapter.setDB(second.db);
-        await execute([{ sql: "SELECT ?", bindings: [7] }]);
-
-        expect(first.prepare).toHaveBeenCalledWith("SELECT ?");
-        expect(first.bind).toHaveBeenCalledWith(7);
-        expect(first.batch).toHaveBeenCalledWith([{ kind: "prepared" }]);
-        expect(second.prepare).not.toHaveBeenCalled();
-        expect(second.batch).not.toHaveBeenCalled();
+        expect(db.exec).toHaveBeenCalledWith("CREATE TABLE example (id INTEGER)");
+        expect(db.prepare).toHaveBeenCalledWith("SELECT * FROM example WHERE id = ?");
+        expect(prepared.all()).toEqual([{ id: 1 }]);
+        expect(prepared.first()).toEqual({ id: 1 });
+        expect(prepared.run(1)).toEqual({ changes: 1 });
+        expect(statement.all).toHaveBeenCalledOnce();
+        expect(statement.get).toHaveBeenCalledOnce();
+        expect(statement.run).toHaveBeenCalledWith(1);
     });
 });

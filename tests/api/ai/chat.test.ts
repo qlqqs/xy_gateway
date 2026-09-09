@@ -30,11 +30,8 @@ describe("AI Chat API", () => {
 
         adminToken = await setupAdminUser();
 
-        // Stream logs are only written in node mode; enable the DB config so the
-        // stream-log verification block below can read the log files.
-        if (config.TEST_MODE === "node") {
-            await streamLogHelper.enableStreamLog(adminToken);
-        }
+        // Enable stream logs for the local Node server.
+        await streamLogHelper.enableStreamLog(adminToken);
 
         // Create test user
         const userResponse = await requestHelper.post(
@@ -312,13 +309,10 @@ describe("AI Chat API", () => {
                 "{\"city\":\"San Francisco\",\"unit\":\"celsius\"}",
             );
 
-            // Stream log only written in node mode
-            if (config.TEST_MODE === "node") {
-                const streamLog = await streamLogHelper.readStreamLog(latestRecord.id);
-                expect(streamLog).toContain("\"tool_calls\"");
-                expect(streamLog).toContain("\"get_weather\"");
-                expect(streamLog).toContain("\"finish_reason\":\"tool_calls\"");
-            }
+            const streamLog = await streamLogHelper.readStreamLog(latestRecord.id);
+            expect(streamLog).toContain("\"tool_calls\"");
+            expect(streamLog).toContain("\"get_weather\"");
+            expect(streamLog).toContain("\"finish_reason\":\"tool_calls\"");
         }, 30000);
 
         it("should handle multiple messages in chat request", async () => {
@@ -343,13 +337,10 @@ describe("AI Chat API", () => {
             expect(response.body.choices[0].message.role).toBe("assistant");
         }, 30000);
 
-        it("should forward custom headers and filter Cloudflare headers", async () => {
+        it("should forward custom headers and set upstream authentication", async () => {
             const customHeaders = {
                 "x-custom-header": "custom-value",
                 "x-another-header": "another-value",
-                "cf-ray": "test-cf-ray-123", // Cloudflare header - should be filtered
-                "cf-ipcountry": "US", // Cloudflare header - should be filtered
-                "CF-CONNECTING-IP": "1.2.3.4", // Cloudflare header (uppercase) - should be filtered
             };
 
             const chatRequest = mockHelper.generateOpenAIChatRequest({
@@ -372,11 +363,6 @@ describe("AI Chat API", () => {
             // Verify custom headers were forwarded
             expect(receivedHeaders["x-custom-header"]).toBe("custom-value");
             expect(receivedHeaders["x-another-header"]).toBe("another-value");
-
-            // Verify Cloudflare headers were NOT forwarded
-            expect(receivedHeaders["cf-ray"]).toBeUndefined();
-            expect(receivedHeaders["cf-ipcountry"]).toBeUndefined();
-            expect(receivedHeaders["cf-connecting-ip"]).toBeUndefined();
 
             // Verify authentication headers are set
             expect(receivedHeaders["authorization"] || receivedHeaders["x-api-key"]).toBeTruthy();

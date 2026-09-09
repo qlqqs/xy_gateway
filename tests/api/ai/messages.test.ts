@@ -27,11 +27,8 @@ describe("AI Messages API (Anthropic)", () => {
 
         adminToken = await setupAdminUser();
 
-        // Stream logs are only written in node mode; enable the DB config so the
-        // stream-log verification block below can read the log files.
-        if (config.TEST_MODE === "node") {
-            await streamLogHelper.enableStreamLog(adminToken);
-        }
+        // Enable stream logs for the local Node server.
+        await streamLogHelper.enableStreamLog(adminToken);
 
         // Create test user
         const userResponse = await requestHelper.post(
@@ -283,13 +280,10 @@ describe("AI Messages API (Anthropic)", () => {
                 unit: "celsius",
             });
 
-            // Stream log only written in node mode
-            if (config.TEST_MODE === "node") {
-                const streamLog = await streamLogHelper.readStreamLog(latestRecord.id);
-                expect(streamLog).toContain("\"tool_use\"");
-                expect(streamLog).toContain("\"input_json_delta\"");
-                expect(streamLog).toContain("\"stop_reason\":\"tool_use\"");
-            }
+            const streamLog = await streamLogHelper.readStreamLog(latestRecord.id);
+            expect(streamLog).toContain("\"tool_use\"");
+            expect(streamLog).toContain("\"input_json_delta\"");
+            expect(streamLog).toContain("\"stop_reason\":\"tool_use\"");
         }, 30000);
 
         it("should handle multiple messages in request", async () => {

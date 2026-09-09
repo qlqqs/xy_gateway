@@ -2,14 +2,12 @@ import { createWriteStream, WriteStream } from "fs";
 import fs from "fs/promises";
 import { join } from "path";
 import { getLogDir } from "../util/loggerUtil";
-import ormService from "./ormService";
 import configService from "./configService";
 import { ConfigKey } from "../constants";
 import { SgRecord } from "../model/sgRecord";
 
 export async function prepareStreamLog(record: SgRecord): Promise<WriteStream | null> {
-    const isStreamLogEnabled = ormService.isNode
-        && (await configService.getConfig(ConfigKey.STREAM_LOG_ENABLED)).getBoolean();
+    const isStreamLogEnabled = (await configService.getConfig(ConfigKey.STREAM_LOG_ENABLED)).getBoolean();
 
     if (!isStreamLogEnabled) {
         return null;
@@ -33,8 +31,7 @@ export async function prepareStreamLog(record: SgRecord): Promise<WriteStream | 
 }
 
 export async function writeRequestLog(record: SgRecord, body: string): Promise<void> {
-    const isStreamLogEnabled = ormService.isNode
-        && (await configService.getConfig(ConfigKey.STREAM_LOG_ENABLED)).getBoolean();
+    const isStreamLogEnabled = (await configService.getConfig(ConfigKey.STREAM_LOG_ENABLED)).getBoolean();
     if (!isStreamLogEnabled) return;
 
     const logDir = join(getLogDir(), "stream");

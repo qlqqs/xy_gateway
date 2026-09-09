@@ -5,6 +5,8 @@
  * 展示管理员创建的 Key，同时不让鉴权查询依赖明文。
  */
 
+import type { webcrypto } from "node:crypto";
+
 const ENCRYPTION_VERSION = "v1";
 const IV_LENGTH = 12;
 
@@ -26,7 +28,7 @@ function base64UrlToBytes(value: string): Uint8Array {
 }
 
 interface RuntimeCrypto {
-    subtle?: SubtleCrypto;
+    subtle?: webcrypto.SubtleCrypto;
     getRandomValues<T extends ArrayBufferView>(array: T): T;
     randomUUID?: () => string;
 }
@@ -35,7 +37,7 @@ function runtimeCrypto(): RuntimeCrypto {
     return (globalThis as unknown as { crypto: RuntimeCrypto }).crypto;
 }
 
-function subtleCrypto(): SubtleCrypto {
+function subtleCrypto(): webcrypto.SubtleCrypto {
     const subtle = runtimeCrypto()?.subtle;
     if (!subtle) {
         throw new Error("Web Crypto API is unavailable");
@@ -55,8 +57,7 @@ function generateKey(): string {
     if (uuid) {
         return `sk-${uuid().replace(/-/g, "")}${uuid().replace(/-/g, "").slice(0, 16)}`;
     }
-    // Cloudflare 与新版本 Node 提供 randomUUID；保留 getRandomValues 回退，避免
-    // 引入仅 Node 可用的 `crypto` 模块（该工具也会打包到 Worker）。
+    // 使用运行时提供的随机源，并保留 getRandomValues 回退。
     const bytes = new Uint8Array(32);
     cryptoApi.getRandomValues(bytes);
     return `sk-${bytesToHex(bytes)}`;
@@ -66,7 +67,7 @@ function keyPrefix(value: string): string {
     return value.slice(0, 8);
 }
 
-async function deriveEncryptionKey(secret: string): Promise<CryptoKey> {
+async function deriveEncryptionKey(secret: string): Promise<webcrypto.CryptoKey> {
     if (!secret) {
         throw new Error("KEY_ENCRYPTION_SECRET must be configured");
     }
@@ -106,7 +107,7 @@ function resolveEncryptionSecret(explicitSecret?: string, fallbackSecret?: strin
     if (explicitSecret) return explicitSecret;
     const configured = typeof process !== "undefined" ? process.env.KEY_ENCRYPTION_SECRET : undefined;
     // 必须使用独立的 Key 加密密钥；ROOT_TOKEN 是鉴权凭据，不能静默地充当 AES 密钥。
-    // fallback 是每次请求的 Worker binding（KEY_ENCRYPTION_SECRET），不是 root token；
+    // fallback 是请求环境中的加密密钥，不是 root token；
     // Node 调用方通常直接使用上面的 process.env。
     return configured || fallbackSecret || "";
 }

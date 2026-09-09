@@ -61,14 +61,14 @@ describe("routing strategies", () => {
             freshRoutingContext(),
             42,
         );
-        const r2 = strategy.selectUpstream(
+        const secondSelection = strategy.selectUpstream(
             model(ModelRoutingMode.LOAD_BALANCE, "user"),
             candidates,
             freshRoutingContext(),
             42,
         );
         expect(r1.vendor).not.toBeNull();
-        expect(r1.vendor?.id).toBe(r2.vendor?.id);
+        expect(r1.vendor?.id).toBe(secondSelection.vendor?.id);
     });
 
     it("load_balance (按用户随机) distributes across users (different seeds)", () => {

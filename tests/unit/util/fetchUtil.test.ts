@@ -32,8 +32,8 @@ describe("fetchUtil.getDispatcher", () => {
     });
 
     it("reuses the same Agent instance on multiple calls", async () => {
-        const d1 = await fetchUtil.getDispatcher({ skip_tls_verify: true });
-        const d2 = await fetchUtil.getDispatcher({ skip_tls_verify: true });
-        expect(d1).toBe(d2);
+        const firstDispatcher = await fetchUtil.getDispatcher({ skip_tls_verify: true });
+        const secondDispatcher = await fetchUtil.getDispatcher({ skip_tls_verify: true });
+        expect(firstDispatcher).toBe(secondDispatcher);
     });
 });

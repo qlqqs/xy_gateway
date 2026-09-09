@@ -8,39 +8,15 @@ import { readFileSync, existsSync } from "fs";
 
 const PROJECT_ROOT = process.cwd();
 
-const TEST_MODE = process.env.TEST_MODE || "node";
-
 // Check if real API mode is enabled
 const REAL_API_MODE = process.env.TEST_REAL_API === "true";
 
 /**
- * Node Mode Server Configuration
+ * Test server configuration
  */
-const NODE_SERVER_CONFIG = {
+const SERVER_CONFIG = {
     baseUrl: process.env.TEST_BASE_URL || "http://localhost:9720",
     port: parseInt(process.env.TEST_PORT || "9720", 10),
-};
-
-/**
- * Worker Mode Server Configuration
- */
-const WORKER_SERVER_CONFIG = {
-    baseUrl: "http://localhost:9720",
-    port: 9720,
-};
-
-/**
- * Server Configuration - dynamically selected based on TEST_MODE
- */
-const SERVER_CONFIG =
-    TEST_MODE === "worker" ? WORKER_SERVER_CONFIG : NODE_SERVER_CONFIG;
-
-/**
- * Worker Configuration
- */
-const WORKER_CONFIG = {
-    port: 9720,
-    startupTimeout: 30000, // 30 seconds for wrangler dev startup
 };
 
 /**
@@ -210,8 +186,6 @@ export default {
     UPSTREAM_CONFIG,
     TEST_OPTIONS,
     LOG_CONFIG,
-    WORKER_CONFIG,
-    TEST_MODE,
     isRealMode,
     useMockServer,
     logTest,

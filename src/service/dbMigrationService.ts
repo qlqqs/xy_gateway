@@ -1,6 +1,5 @@
 import { join } from "path";
-import { mkdirSync, readFileSync, writeFileSync, rmSync } from "fs";
-import { execSync } from "child_process";
+import { readFileSync } from "fs";
 import { createInterface } from "readline";
 import {
     DBAdapter,
@@ -15,12 +14,10 @@ import {
 } from "../util/db/dbAdapter";
 import { SQLiteDBAdapter } from "../util/db/sqliteDBAdapter";
 import { MySQLDBAdapter, MySQLConnOptions } from "../util/db/mysqlDBAdapter";
-import { WranglerDBAdapter } from "../util/db/wranglerDBAdapter";
 import customError from "../util/customErrorUtil";
 import userKeyMigrationService from "./userKeyMigrationService";
 
 const LOCAL_DB_PATH = process.env.DB_PATH || join(process.cwd(), "local.db");
-const TMP_DIR = join(process.cwd(), ".tmp");
 
 export interface Migration {
     id?: number;
@@ -80,8 +77,8 @@ export async function ensureSupportedMySqlVersion(adapter: DBAdapter): Promise<v
 }
 
 /**
- * 领域切换包含连接中断后不能安全重放的 DDL（MySQL 可能隐式提交单条
- * ALTER TABLE，D1 也会逐条执行）。因此不能只依赖迁移标记：执行切换前
+ * 领域切换包含连接中断后不能安全重放的 DDL。MySQL 的 ALTER TABLE
+ * 可能隐式提交单条语句，因此不能只依赖迁移标记：执行切换前
  * 先检查 schema，遇到无法判断的半迁移状态就停止，要求从迁移前备份恢复。
  */
 interface SchemaSnapshot {
@@ -148,7 +145,7 @@ async function readSchemaSnapshot(adapter: DBAdapter, dialect: "sqlite" | "mysql
         const name = String(row.name ?? "");
         if (name) tables.add(name.toLowerCase());
     }
-    // PRAGMA 不能使用参数绑定；这里的表名是固定常量，引用方式对 SQLite/D1 均安全。
+    // PRAGMA 不能使用参数绑定；这里的表名是固定常量。
     for (const table of ["user", "model", "vendor", "record", ...DOMAIN031_TABLES]) {
         if (!tables.has(table)) continue;
         const rows = await adapter.query<{ name?: string }>(`PRAGMA table_info("${table}")`);
@@ -258,31 +255,19 @@ export function mysqlConnFromEnv(): MySQLConnOptions {
     };
 }
 
-// 工厂：按 env 与 DB_DRIVER 创建对应的 DBAdapter
-export function createDBAdapter(
-    env: string,
-    options: { configPath?: string; dbName?: string } = {},
-): DBAdapter {
-    if (env === "node" || env === "test") {
-        if (getDialect(env) === "mysql") {
-            return new MySQLDBAdapter(mysqlConnFromEnv());
-        }
-        return new SQLiteDBAdapter(LOCAL_DB_PATH);
-    } else if (env === "worker-local") {
-        return new WranglerDBAdapter("--local", options.configPath || "", options.dbName || "gt_ai_gateway");
-    } else if (env === "worker-cloud") {
-        return new WranglerDBAdapter("--remote", options.configPath || "", options.dbName || "gt_ai_gateway");
-    } else {
-        throw new Error(`Unknown env: ${env}`);
+// 工厂：按 DB_DRIVER 创建对应的迁移适配器。
+export function createDBAdapter(env: "node" | "test" = "node"): DBAdapter {
+    if (getDialect() === "mysql") {
+        return new MySQLDBAdapter(mysqlConnFromEnv());
     }
+    return new SQLiteDBAdapter(LOCAL_DB_PATH);
 }
 
 export async function migrate(
     adapter: DBAdapter,
-    env: string,
-    options: { dbName?: string; configPath?: string } = {},
+    env: "node" | "test" = "node",
 ) {
-    const dialect = getDialect(env);
+    const dialect = getDialect();
     console.log(`${MIGRATION_START_MARKER} env=${env} dialect=${dialect}`);
     let success = false;
 
@@ -333,62 +318,22 @@ export async function migrate(
             return;
         }
 
-        // Worker 模式通常把待处理迁移合并成一个 D1 命令。旧 Key 切换需要在
-        // migrate_0031 与 migrate_0032 之间执行应用层加密导入，因此必须逐个执行，
-        // 不能直接拼接成一个文件。
-        const requiresSequentialWorkerMigrations = pendingMigrations.includes(LEGACY_KEY_CUTOVER_MIGRATION);
-        if (!adapter.execTransaction && !requiresSequentialWorkerMigrations) {
-            console.log(`\n📦 Merging ${pendingMigrations.length} migrations into single file:`);
-            pendingMigrations.forEach((name, i) => console.log(`   ${i + 1}. ${name}`));
+        // 每个迁移单独执行，并与迁移标记放在同一个事务中。
+        for (const name of pendingMigrations) {
+            console.log(`\nApplying migration: ${name}...`);
+            await runPreMigrationHook(name, adapter);
+            const sql = readFileSync(migrationSqlFile(join(MIGRATION_DIR, name), dialect), "utf-8");
+            const insertRecord = `INSERT INTO _migrations (name) VALUES ('${name}')`;
 
-            mkdirSync(TMP_DIR, { recursive: true });
-            const tmpFile = join(TMP_DIR, `migration_${crypto.randomUUID()}.sql`);
-
-            let combinedSql = "";
-            for (const name of pendingMigrations) {
-                const sql = readFileSync(migrationSqlFile(join(MIGRATION_DIR, name), dialect), "utf-8");
-                combinedSql += `${sql}\n`;
-                combinedSql += `INSERT INTO _migrations (name) VALUES ('${name}');\n`;
-            }
-
-            writeFileSync(tmpFile, combinedSql, "utf-8");
-            let cmd = `npx wrangler d1 execute ${options.dbName || "gt_ai_gateway"} ${env === "worker-cloud" ? "--remote" : "--local"}`;
-            if (options.configPath) {
-                cmd += ` --config ${options.configPath}`;
-            }
-            cmd += ` --file="${tmpFile}"`;
-            console.log(`\n🚀 Executing combined migration file...`);
-            execSync(cmd, { stdio: "inherit" });
-            console.log(`✅ Successfully applied ${pendingMigrations.length} migrations in one batch`);
-        } else if (!adapter.execTransaction) {
-            for (const name of pendingMigrations) {
-                console.log(`\nApplying migration: ${name}...`);
-                await runPreMigrationHook(name, adapter);
-                const sql = readFileSync(migrationSqlFile(join(MIGRATION_DIR, name), dialect), "utf-8");
-                try {
-                    await adapter.exec(sql);
-                    await adapter.exec(`INSERT INTO _migrations (name) VALUES ('${name}')`);
-                    console.log(`✅ Successfully applied: ${name}`);
-                } catch (e) {
-                    console.error(`❌ Failed to apply migration ${name}:`, e);
-                    throw e;
+            try {
+                if (!adapter.execTransaction) {
+                    throw new Error("Database adapter does not support transactions");
                 }
-            }
-        } else {
-            // Node/MySQL 模式：每个迁移分别使用一个事务。
-            for (const name of pendingMigrations) {
-                console.log(`\nApplying migration: ${name}...`);
-                await runPreMigrationHook(name, adapter);
-                const sql = readFileSync(migrationSqlFile(join(MIGRATION_DIR, name), dialect), "utf-8");
-                const insertRecord = `INSERT INTO _migrations (name) VALUES ('${name}')`;
-
-                try {
-                    await adapter.execTransaction!([sql, insertRecord]);
-                    console.log(`✅ Successfully applied: ${name}`);
-                } catch (e) {
-                    console.error(`❌ Failed to apply migration ${name}:`, e);
-                    throw e;
-                }
+                await adapter.execTransaction([sql, insertRecord]);
+                console.log(`✅ Successfully applied: ${name}`);
+            } catch (e) {
+                console.error(`❌ Failed to apply migration ${name}:`, e);
+                throw e;
             }
         }
 
@@ -401,7 +346,7 @@ export async function migrate(
 }
 
 export async function status(adapter: DBAdapter, env: string) {
-    const dialect = getDialect(env);
+    const dialect = getDialect();
     if (dialect === "mysql") {
         await ensureSupportedMySqlVersion(adapter);
     }
@@ -450,7 +395,7 @@ export async function status(adapter: DBAdapter, env: string) {
 }
 
 export async function clear(adapter: DBAdapter, env: string) {
-    const dialect = getDialect(env);
+    const dialect = getDialect();
     if (dialect === "mysql") {
         await ensureSupportedMySqlVersion(adapter);
     }
@@ -468,7 +413,7 @@ export async function clear(adapter: DBAdapter, env: string) {
             // `_migrations` 也属于可恢复的应用 schema；如果保留它而删除业务表，
             // 下次 migrate 会把已应用标记与空 schema 判定为半迁移状态。
             ? "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'"
-            : "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name NOT LIKE 'd1_%'";
+            : "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
 
     let tables: any[] = [];
     try {
@@ -506,7 +451,7 @@ export async function clear(adapter: DBAdapter, env: string) {
     }
 
     const disableForeignKeys = dialect === "mysql"
-        || (dialect === "sqlite" && env === "node");
+        || dialect === "sqlite";
     let foreignKeysDisabled = false;
     try {
         if (disableForeignKeys) {
@@ -535,17 +480,12 @@ export async function clear(adapter: DBAdapter, env: string) {
     console.log("\nDatabase cleared.");
 }
 
-export async function init(adapter: DBAdapter, env: string) {
+export async function init(adapter: DBAdapter, env: "node" | "test" = "node") {
     console.log(`\nInitializing database in ${env}...`);
     // The database connection automatically creates the file if it doesn't exist.
     // We just need to execute the migrations.
     await migrate(adapter, env);
     console.log(`\nDatabase initialized successfully.`);
-}
-
-// 清理临时迁移文件（worker 合并路径使用）
-export async function clearTempDir(): Promise<void> {
-    try { rmSync(TMP_DIR, { recursive: true, force: true }); } catch {}
 }
 
 export default {
@@ -556,6 +496,5 @@ export default {
     createDBAdapter,
     mysqlConnFromEnv,
     ensureSupportedMySqlVersion,
-    clearTempDir,
     MIGRATION_DIR,
 };

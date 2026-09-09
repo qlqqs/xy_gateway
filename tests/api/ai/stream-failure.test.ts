@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { fetch } from "undici";
 import requestHelper from "../../helpers/requestHelper";
 import mockHelper from "../../helpers/mockHelper";
 import dbHelper from "../../helpers/dbHelper";
@@ -417,7 +416,7 @@ describe("Stream Failure Handling", () => {
     });
 
 
-    describe.skipIf(config.TEST_MODE === "worker")("Client disconnect — upstream still running", () => {
+    describe("Client disconnect — upstream still running", () => {
         async function abortStreamAfterFirstChunk(
             endpoint: string,
             body: object,

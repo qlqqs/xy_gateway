@@ -32,7 +32,7 @@ export async function testVendor(
     id: number,
     format: string = 'openai',
     model?: string,
-    autoConvert: boolean = false,
+    autoConvert: boolean = true,
 ): Promise<VendorTestResponse> {
     return request.post(`/vendor/${id}/test.json`, { format, model, auto_convert: autoConvert });
 }

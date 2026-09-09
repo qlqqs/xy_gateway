@@ -232,10 +232,6 @@ async function deleteGroup(id: number): Promise<boolean> {
         return true;
     };
 
-    // 当前 D1 adapter 不提供跨语句事务；Node/MySQL 对三次更新使用真实事务。
-    if (ormService.isWorker) {
-        return await clearReferencesAndDelete(knex);
-    }
     return await knex.transaction(clearReferencesAndDelete);
 }
 

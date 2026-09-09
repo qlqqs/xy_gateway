@@ -21,7 +21,6 @@ const CONFIG_DEFAULTS: Record<string, string> = {
     [ConfigKey.AUTO_UPDATE_ENABLED]: "true",
     [ConfigKey.TELEMETRY_DISABLED]: "false",
     [ConfigKey.RECORD_PAYLOAD_ENABLED]: "true",
-    [ConfigKey.RECORD_PAYLOAD_STORAGE]: "auto",
     [ConfigKey.MODULE_BILLING_ENABLED]: "true",
     [ConfigKey.MODULE_API_PLAYGROUND_ENABLED]: "true",
     [ConfigKey.MODULE_CLIENT_CONFIG_ENABLED]: "true",

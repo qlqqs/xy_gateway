@@ -45,8 +45,8 @@ async function resolve(token: string, rootToken?: string): Promise<AuthContext |
     // reference as an authentication miss instead of silently widening the
     // key to the ungrouped vendor pool.
     if (key.group_id != null && !group) return null;
-    // Do not make an authentication request fail solely because this audit
-    // timestamp cannot be written (notably on eventually-consistent D1).
+    // Do not make authentication fail solely because the audit timestamp cannot
+    // be written.
     await userKeyManager.markUsed(Number(key.id)).catch(() => undefined);
     return { user, key, group };
 }

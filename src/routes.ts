@@ -1,5 +1,4 @@
-import { Hono, MiddlewareHandler } from "hono";
-import { HTTPException } from "hono/http-exception";
+import { Hono } from "hono";
 import { ApiFormat, UserType } from "./constants";
 import { SgUser } from "./model/sgUser";
 import { SgModel } from "./model/sgModel";
@@ -18,8 +17,6 @@ import configController from "./controller/configController";
 import clientConfigController from "./controller/clientConfigController";
 import groupController from "./controller/groupController";
 import configService from "./service/configService";
-import ormService from "./service/ormService";
-import objectStorageService from "./service/objectStorageService";
 import authMiddleware from "./middleware/authMiddleware";
 import llmApiMiddleware from "./middleware/llmApiMiddleware";
 import corsMiddleware from "./middleware/corsMiddleware";
@@ -29,11 +26,8 @@ import adminKeyController from "./controller/adminKeyController";
 import adminApiRoutes from "./routes/adminApiRoutes";
 
 export interface Env {
-    DB: D1Database;
     ROOT_TOKEN: string;
     KEY_ENCRYPTION_SECRET?: string;
-    ASSETS?: Fetcher;
-    OBJECT_BUCKET?: R2Bucket;
     server?: {
         incoming?: {
             socket?: {
@@ -52,15 +46,6 @@ export type Variables = {
     requestBody?: string;
 };
 
-const dbMiddleware: MiddlewareHandler<{ Bindings: Env }> = async (c, next) => {
-    await ormService.prepareDBConnection(c.env?.DB);
-    // Inject the per-request R2 bucket binding for object storage (worker mode).
-    // In node mode c.env.OBJECT_BUCKET is absent -> null -> objectStorageService
-    // falls back to the storage_record table.
-    objectStorageService.setR2Bucket(c.env?.OBJECT_BUCKET ?? null);
-    await next();
-};
-
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // CORS 中间件（放行 Tauri WebView 及本地开发请求）
@@ -75,9 +60,6 @@ app.use("*", async (c, next) => {
     await next();
     console.log(`↓ ${method} ${path} ${c.res.status} ${Date.now() - start}ms`);
 });
-
-// 注册数据库中间件（最前面）
-app.use("*", dbMiddleware);
 
 // 注册全局错误处理
 app.onError((err, c) => {
@@ -216,9 +198,7 @@ app.post("/llm/v1/responses", llmApiMiddleware.requireLlmRequestContext(ApiForma
 
 // Test endpoints
 app.delete("/test/cache/clear", async (c) => {
-    // Only allow in test mode
-    const isTestMode = process.env.TEST_MODE || (c.env as any)?.TEST_MODE;
-    if (!isTestMode) {
+    if (process.env.NODE_ENV !== "test") {
         return c.notFound();
     }
     configService.clearCache();

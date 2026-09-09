@@ -31,7 +31,7 @@ export function normalizeBytes(data: unknown): Uint8Array {
         return new TextEncoder().encode(data);
     }
 
-    // 5. D1 可能返回的 Buffer 序列化对象: { type: "Buffer", data: [byte1, byte2, ...] }
+    // 5. 序列化后的 Buffer 对象。
     if (data !== null && typeof data === "object" && "type" in data && "data" in data) {
         const obj = data as { type: string; data: number[] | Uint8Array };
         if (obj.type === "Buffer" && Array.isArray(obj.data)) {
@@ -45,7 +45,7 @@ export function normalizeBytes(data: unknown): Uint8Array {
         return new Uint8Array(typedData.buffer, typedData.byteOffset, typedData.byteLength);
     }
 
-    // 7. 普通 Array（D1 可能返回字节数组）
+    // 7. 普通字节数组。
     if (Array.isArray(data)) {
         return new Uint8Array(data);
     }

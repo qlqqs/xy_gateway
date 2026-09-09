@@ -10,7 +10,7 @@
 
 ## 适用范围与安全提醒
 
-- 当前只支持 Node 模式下的 SQLite 和 MySQL。Worker/D1 不提供这组外部管理入口，收到请求时返回 JSON 404。
+- 外部管理 API 运行在 Node.js 后端，支持 SQLite 和 MySQL。
 - Admin Key 是全局唯一配置值，保存在配置数据库中。它绑定 `id` 最小的、`type=admin` 且 `status=active` 的真实管理员，不会创建虚拟用户。
 - Admin Key 拥有现有管理员路由的权限。请将它当作高权限机器凭证保存，不要写入前端持久化状态、日志、查询参数或错误报告。
 - 生成、轮换和删除属于有副作用的操作；网络超时后先确认结果，再决定是否使用管理员 Bearer 恢复，不要盲目重复执行。
@@ -189,7 +189,7 @@ curl -H "Authorization: Bearer ${ROOT_TOKEN}" \
 - 认证失败返回 JSON `401`；普通用户或 disabled 用户按现有语义返回 `403`；没有 active 管理员可绑定时返回 JSON `503`。
 - 已认证请求访问未知路径、外部误带 `.json` 的路径或不支持的方法，统一返回 JSON `404`，不会返回 SPA HTML。未认证请求仍先经过认证并返回 JSON `401`。
 - Admin Key 只在 `requireAdmin` 管理分支生效。`/v1/*` 和 `/llm/v1/*` 的 LLM 认证链路不读取 `x-api-key`，Admin Key 本身不能直接调用 LLM；项目没有为此修改共享 LLM 解析器。
-- `GET /welcome`、`DELETE /test/cache/clear` 以及其他非管理路径不属于本清单。D1/Workers、部署控制、审计、幂等保证和集合冲突检测也不在本期范围内。
+- `GET /welcome`、`DELETE /test/cache/clear` 以及其他非管理路径不属于本清单。部署控制、审计、幂等保证和集合冲突检测也不在本期范围内。
 
 ## 前端设置页
 

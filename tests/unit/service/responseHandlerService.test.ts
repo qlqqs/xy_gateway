@@ -42,7 +42,7 @@ vi.mock("../../../src/service/upstreamHealthService", () => ({ default: mocks.up
 vi.mock("../../../src/service/concurrencyService", () => ({ default: mocks.concurrencyService }));
 vi.mock("hono/streaming", () => ({ streamSSE: mocks.streamSSE }));
 vi.mock("../../../src/util/runInBackgroundUtil", () => ({
-    runInBackground: (_context: Context, task: () => Promise<void>) => {
+    runInBackground: (task: () => Promise<void>) => {
         mocks.backgroundTasks.push(task().catch(error => { mocks.backgroundErrors.push(error); }));
     },
 }));

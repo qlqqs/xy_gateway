@@ -9,7 +9,7 @@ const seedGroups: GroupRecord[] = [
         id: 1,
         name: '默认分组',
         description: '系统默认访问范围',
-        inboundProtocols: ['openai_responses'],
+        inboundProtocols: ['openai_chat', 'openai_responses', 'anthropic'],
         customModels: [],
         whitelistEnabled: false,
         rateMultiplier: 1,

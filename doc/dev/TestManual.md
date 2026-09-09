@@ -11,7 +11,7 @@
 ### 基本命令
 
 ```bash
-npm run backend:test                      # node 模式运行所有测试
+npm run backend:test                      # 运行所有后端测试
 npm run backend:test -- --run --reporter=verbose  # 详细输出
 npm run backend:test -- --run tests/api/user/user.test.ts  # 特定文件
 npm run backend:test -- --run -t "should create user"       # 特定用例
@@ -26,7 +26,6 @@ npm run backend:test -- --run -t "should create user"       # 特定用例
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `TEST_MODE` | node 或 worker | node |
 | `TEST_VERBOSE` | 显示详细日志 | false |
 | `TEST_CLEANUP` | 测试后清理数据库 | true |
 | `TEST_REAL_API` | 使用真实 API | false |
@@ -53,23 +52,22 @@ ROOT_TOKEN=your-admin-token-here
 **注意事项：**
 
 - `.dev.vars` 文件不要提交到版本控制系统（已在 `.gitignore` 中）
-- 生产环境部署时需要通过 Cloudflare Workers 环境变量配置 `ROOT_TOKEN`
+- 生产环境部署时需要通过 Node.js 进程或容器环境变量配置 `ROOT_TOKEN`
 - `KEY_ENCRYPTION_SECRET` 与 `ROOT_TOKEN` 必须分开配置；领域迁移导入旧用户 Token 时需要该密钥
 
 ### 示例
 
 ```bash
-TEST_MODE=worker npm run backend:test                                # worker 模式
 TEST_VERBOSE=true TEST_CLEANUP=false npm run backend:test           # 调试模式
 TEST_REAL_API=true npm run backend:test                             # 真实 API
 ```
 
 ### MySQL 后端测试
 
-默认测试使用 SQLite。如需以 MySQL 作为后端跑完整的 node 模式测试套件（与 SQLite 并行、相互独立），设置 `DB_DRIVER=mysql` 并配置连接参数即可，测试过程中会自动清空并重建目标库的 schema（必须指向专用测试库，勿指向生产库）：
+默认测试使用 SQLite。如需以 MySQL 作为后端跑完整测试套件，设置 `DB_DRIVER=mysql` 并配置连接参数即可，测试过程中会自动清空并重建目标库的 schema（必须指向专用测试库，勿指向生产库）：
 
 ```bash
-npm run backend:test:node:mysql                                    # 即 TEST_MODE=node DB_DRIVER=mysql vitest --run
+npm run backend:test:node:mysql                                    # 即 DB_DRIVER=mysql vitest --run
 ```
 
 连接参数通过环境变量传入：`DB_HOST`（默认 127.0.0.1）、`DB_PORT`（默认 3306）、`DB_USER`、`DB_PASSWORD`、`DB_NAME`（默认 `test`）。CI 中 `.github/workflows/test.yml` 的 `test-node-mysql` job 使用 `services: mysql:8` 容器运行该套件。
@@ -121,7 +119,7 @@ tests/
 1. **单元测试 (`tests/unit/`)**
    - 只验证单个函数、类或模块的本地逻辑。
    - 不访问真实数据库，不运行 migration，不连接 ORM，不使用 `dbHelper`。
-   - 不依赖测试服务器、HTTP API、Cloudflare D1/R2 binding、文件系统持久化或外部进程。
+   - 不依赖测试服务器、HTTP API、真实数据库、文件系统持久化或外部进程。
    - 如需隔离依赖，应使用 mock/stub/fake，而不是连接真实资源。
 
 2. **集成测试 (`tests/integration/`)**
@@ -133,17 +131,16 @@ tests/
    - 通过 `requestHelper` 调用测试服务器，验证接口状态码、响应结构、鉴权、数据持久化和端到端业务行为。
    - API 测试的数据准备、业务操作和结果验证都应通过 API 完成，不直接访问数据库来插入、修改或判断业务数据。
    - 除统一测试隔离所需的 `dbHelper.truncate()` 外，API 测试不应使用 `dbHelper.execute()`、`dbHelper.query()`、ORM model query 或原始 SQL 直接操作数据库。
-   - Worker 模式下的集成覆盖通常通过 API 请求进入 `wrangler dev` 启动的真实 Worker 服务完成；测试进程本身不直接持有 Worker 的 `DB`、`OBJECT_BUCKET` 等 binding。
 
-4. **Node-only 测试 (`*.node.test.ts`)**
-   - 文件名后缀只表示该测试依赖 Node.js 本地能力，worker 模式测试套件会排除这些用例。
-   - Node-only 不等于单元测试。若测试访问 DB 或 ORM，应放在 `tests/integration/`，例如 `tests/integration/example.node.test.ts`。
+4. **Node 集成测试 (`*.node.test.ts`)**
+   - 后缀表示该测试明确依赖 Node.js 的本地数据库、文件系统或进程能力。
+   - Node 集成测试不等于单元测试。若测试访问 DB 或 ORM，应放在 `tests/integration/`，例如 `tests/integration/example.node.test.ts`。
 
 ### 测试用例
 
 * 测试文件名中不带有 negative 为正向用例，即验证应该成功的情况
 * 带有 negative 的为负向用例，即验证应该失败的情况
-* 带有 `.node.test.ts` 后缀的用例为 Node-only 测试，适用于依赖本地文件系统或 Node 专属运行时能力的场景，worker 模式测试套件会排除这些用例。若该测试访问数据库或 ORM，应按集成测试归档
+* 带有 `.node.test.ts` 后缀的用例适用于依赖本地文件系统、数据库或 Node 专属运行时能力的场景。若该测试访问数据库或 ORM，应按集成测试归档
 
 ---
 

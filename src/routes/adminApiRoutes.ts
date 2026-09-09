@@ -14,7 +14,6 @@ import balanceController from "../controller/balanceController";
 import recordController from "../controller/recordController";
 import recordActivityController from "../controller/recordActivityController";
 import statsController from "../controller/statsController";
-import ormService from "../service/ormService";
 
 type AdminApiEnv = { Bindings: Env; Variables: Variables };
 type AdminApiMethod = "get" | "post" | "put" | "delete";
@@ -35,17 +34,7 @@ function notFound(c: Parameters<MiddlewareHandler<AdminApiEnv>>[0]): Response {
 
 const adminApiRoutes = new Hono<AdminApiEnv>();
 
-// 外部管理入口仅支持 Node。门禁位于子应用内部，避免 Worker/D1 请求进入
-// Admin Key 或普通管理 Controller。
-const nodeOnly: MiddlewareHandler<AdminApiEnv> = async (c, next) => {
-    if (!ormService.isNode) {
-        return c.json({ error: "Not found" }, 404);
-    }
-    await next();
-};
-
 // 所有子应用路径共享认证；未知路径在认证通过后才返回 JSON 404。
-adminApiRoutes.use("*", nodeOnly);
 adminApiRoutes.use("*", authMiddleware.requireAdmin);
 adminApiRoutes.use("*", async (c, next) => {
     if (c.req.path.endsWith(".json")) {

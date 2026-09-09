@@ -217,7 +217,7 @@ describe('Group/List user actions', () => {
 
         expect(mocks.groupStore.create).toHaveBeenCalledWith(expect.objectContaining({
             name: 'Created',
-            inboundProtocols: ['openai_responses'],
+            inboundProtocols: ['openai_chat', 'openai_responses', 'anthropic'],
             status: 'active',
         }));
         expect(mocks.messageSuccess).toHaveBeenCalledWith('分组已创建');

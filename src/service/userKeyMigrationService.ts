@@ -1,5 +1,4 @@
 import type { DBAdapter } from "../util/db/dbAdapter";
-import { WranglerDBAdapter } from "../util/db/wranglerDBAdapter";
 import customError from "../util/customErrorUtil";
 import userKeyUtil from "../util/userKeyUtil";
 
@@ -28,10 +27,6 @@ export interface LegacyKeyImportReport {
 
 const MIGRATED_KEY_NAME = "迁移 API Key";
 
-function sqlString(value: string): string {
-    return `'${value.replace(/'/g, "''")}'`;
-}
-
 async function insertImportedKey(
     adapter: DBAdapter,
     userId: number,
@@ -44,19 +39,6 @@ async function insertImportedKey(
         (user_id, group_id, name, status, key_hash, key_prefix, encrypted_value,
          model_whitelist, ip_whitelist, ip_blacklist, quota, quota_used, concurrency_limit)
         VALUES (?, ?, ?, 'active', ?, ?, ?, '[]', '[]', '[]', 0, 0, 0)`;
-
-    // Wrangler 的 D1 adapter 是轻量 CLI 封装，不提供绑定参数。下面的值是生成的
-    // 摘要/密文字符串（另有固定名称），因此仅在该 adapter 中显式转义；Node/MySQL
-    // 继续使用参数绑定，凭据不会进入 SQL 日志。
-    if (adapter instanceof WranglerDBAdapter) {
-        await adapter.exec(`INSERT INTO user_key
-            (user_id, group_id, name, status, key_hash, key_prefix, encrypted_value,
-             model_whitelist, ip_whitelist, ip_blacklist, quota, quota_used, concurrency_limit)
-            VALUES (${userId}, ${groupId}, ${sqlString(MIGRATED_KEY_NAME)}, 'active',
-                ${sqlString(keyHash)}, ${sqlString(keyPrefix)}, ${sqlString(encryptedValue)},
-                '[]', '[]', '[]', 0, 0, 0)`);
-        return;
-    }
 
     await adapter.run(
         sql,

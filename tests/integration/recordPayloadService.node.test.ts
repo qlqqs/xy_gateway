@@ -1,8 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { SgRecordStatus, RunMode } from "../../src/constants";
+import { SgRecordStatus } from "../../src/constants";
 import { SgRecord } from "../../src/model/sgRecord";
 import objectStorageService from "../../src/service/objectStorageService";
-import ormService from "../../src/service/ormService";
 import recordService from "../../src/service/recordService";
 import dbHelper from "../helpers/dbHelper";
 import ormTestHelper from "../helpers/ormTestHelper";
@@ -14,8 +13,6 @@ describe("record payload service integration", () => {
     });
 
     beforeEach(async () => {
-        ormService.mode = RunMode.NODE;
-        objectStorageService.setR2Bucket(null);
         await dbHelper.truncate();
     });
 
