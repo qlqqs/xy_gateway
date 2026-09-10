@@ -231,7 +231,7 @@ describe("Node Admin API foundation", () => {
         expect(llmNegative.status).toBe(401);
     });
 
-    it("returns 503 when no active real admin can be bound", async () => {
+    it("binds a root-created Admin Key to root even when no admin is active", async () => {
         const generated = await requestHelper.post(
             "/api/v1/admin/settings/admin-api-key/regenerate",
             {},
@@ -248,6 +248,60 @@ describe("Node Admin API foundation", () => {
         );
         expect(disabled.status).toBe(200);
 
+        const viaRootKey = await requestHelper.request("/api/v1/admin/status", {
+            method: "GET",
+            headers: { "x-api-key": key },
+        });
+        expect(viaRootKey.status).toBe(200);
+        expect(viaRootKey.body.user_type).toBe("root");
+
+        const restored = await requestHelper.put(
+            `/user/${adminId}`,
+            { status: "active" },
+            ROOT_TOKEN,
+        );
+        expect(restored.status).toBe(200);
+    });
+
+    it("binds an admin-created Admin Key to that admin and returns 503 if the owner is disabled", async () => {
+        const firstAdminId = await findAdminUserId();
+        expect(firstAdminId).toBeGreaterThan(0);
+
+        const second = await requestHelper.post(
+            "/user/create.json",
+            {
+                name: "Admin Key Owner",
+                type: "admin",
+                keys: [{ value: "admin-key-owner-token" }],
+            },
+            ROOT_TOKEN,
+        );
+        expect(second.status).toBe(200);
+        const secondAdminId = Number(second.body.id);
+        expect(secondAdminId).toBeGreaterThan(firstAdminId);
+
+        const generated = await requestHelper.post(
+            "/api/v1/admin/settings/admin-api-key/regenerate",
+            {},
+            "admin-key-owner-token",
+        );
+        expect(generated.status).toBe(200);
+        const key = generated.body.key as string;
+
+        const bound = await requestHelper.request("/api/v1/admin/status", {
+            method: "GET",
+            headers: { "x-api-key": key },
+        });
+        expect(bound.status).toBe(200);
+        expect(bound.body.user_type).toBe("admin");
+
+        const disabled = await requestHelper.put(
+            `/user/${secondAdminId}`,
+            { status: "disabled" },
+            ROOT_TOKEN,
+        );
+        expect(disabled.status).toBe(200);
+
         const unavailable = await requestHelper.request("/api/v1/admin/status", {
             method: "GET",
             headers: { "x-api-key": key },
@@ -256,7 +310,7 @@ describe("Node Admin API foundation", () => {
         expect(unavailable.body.code).toBe("admin_identity_unavailable");
 
         const restored = await requestHelper.put(
-            `/user/${adminId}`,
+            `/user/${secondAdminId}`,
             { status: "active" },
             ROOT_TOKEN,
         );
@@ -274,6 +328,7 @@ describe("Node Admin API foundation", () => {
         const config = await requestHelper.get("/config.json", ROOT_TOKEN);
         expect(config.status).toBe(200);
         expect(config.body).not.toHaveProperty("admin_api_key");
+        expect(config.body).not.toHaveProperty("admin_api_key_owner_id");
         expect(config.body).not.toHaveProperty("key_encryption_secret");
 
         const rejected = await requestHelper.put(
@@ -281,6 +336,7 @@ describe("Node Admin API foundation", () => {
             {
                 cch_rewrite_enabled: "false",
                 admin_api_key: "attempted-overwrite",
+                admin_api_key_owner_id: "-1",
             },
             ROOT_TOKEN,
         );

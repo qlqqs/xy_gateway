@@ -19,10 +19,8 @@ async function findByName(name: string): Promise<SgUser | null> {
 
 
 /**
- * 返回可承载 Admin API 请求上下文的第一个真实管理员。
- *
- * 机器凭证不能构造虚拟用户，且管理员选择必须稳定：先过滤 active
- * 状态，再按数据库 ID 升序取第一条。
+ * 返回 ID 最小的 active 管理员。Admin Key 不再用它选择身份，
+ * 只在需要列举真实管理员时复用。
  */
 async function findFirstActiveAdmin(): Promise<SgUser | null> {
     return await SgUser.query()

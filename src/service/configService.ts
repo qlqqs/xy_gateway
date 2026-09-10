@@ -5,6 +5,7 @@ import customError from "../util/customErrorUtil";
 
 const RESERVED_CONFIG_KEYS = new Set<string>([
     ConfigKey.ADMIN_API_KEY,
+    ConfigKey.ADMIN_API_KEY_OWNER_ID,
     ConfigKey.KEY_ENCRYPTION_SECRET,
 ]);
 
@@ -15,7 +16,7 @@ function isReservedConfigKey(name: string): boolean {
 
 
 function reservedConfigError(name: string): never {
-    const message = name === ConfigKey.ADMIN_API_KEY
+    const message = name === ConfigKey.ADMIN_API_KEY || name === ConfigKey.ADMIN_API_KEY_OWNER_ID
         ? "admin_api_key must be managed through the Admin API"
         : name === ConfigKey.KEY_ENCRYPTION_SECRET
             ? "key_encryption_secret is managed internally"

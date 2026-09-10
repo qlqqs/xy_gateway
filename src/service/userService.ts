@@ -1,9 +1,10 @@
 import { SgUser } from "../model/sgUser";
-import { ROOT_USER_ID, UserType, BALANCE_SCALE } from "../constants";
+import { ROOT_USER_ID, UserStatus, UserType, BALANCE_SCALE } from "../constants";
 import userManager from "../manager/userManager";
 import userKeyManager from "../manager/userKeyManager";
 import rechargeRecordManager from "../manager/rechargeRecordManager";
 import configService from "./configService";
+import adminKeyService from "./adminKeyService";
 import customError from "../util/customErrorUtil";
 
 // 元 → 整数微元（DB 余额存整数微元，避免浮点）
@@ -37,14 +38,21 @@ async function isRootToken(token: string, rootToken?: string): Promise<boolean> 
     return constantTimeEqualBytes(tokenHash, rootHash);
 }
 
+
+function buildRootUser(): SgUser {
+    const user = new SgUser();
+    user.id = ROOT_USER_ID;
+    user.name = "Root";
+    user.type = UserType.ROOT;
+    user.status = UserStatus.ACTIVE;
+    user.balance = Number.MAX_SAFE_INTEGER;
+    return user;
+}
+
+
 async function getUserByApiKey(apiKey: string, rootToken?: string): Promise<SgUser | null> {
     if (await isRootToken(apiKey, rootToken)) {
-        const user = new SgUser();
-        user.id = ROOT_USER_ID;
-        user.name = "Root";
-        user.type = UserType.ROOT;
-        user.balance = Number.MAX_SAFE_INTEGER; // Root has unlimited balance
-        return user;
+        return buildRootUser();
     }
 
     if (!apiKey) return null;
@@ -112,9 +120,34 @@ async function checkBalance(userId: number, requiredAmount: number): Promise<boo
     return Number(user.balance) >= toUnits(requiredAmount);
 }
 
+
+/**
+ * Admin Key 校验通过后选择请求身份。
+ * 一把 Key 绑定生成它的那个账户：Root 创建则绑定虚拟 Root，
+ * 管理员创建则绑定该管理员。旧 Key 没有所有者记录时按 Root 处理。
+ */
+async function resolveAdminKeyIdentity(): Promise<SgUser | null> {
+    const ownerId = await adminKeyService.getOwnerId();
+    if (ownerId == null || ownerId === ROOT_USER_ID) {
+        return buildRootUser();
+    }
+
+    const user = await userManager.findById(ownerId);
+    if (!user || user.status !== UserStatus.ACTIVE) {
+        return null;
+    }
+    if (user.type !== UserType.ADMIN && user.type !== UserType.ROOT) {
+        return null;
+    }
+    return user;
+}
+
+
 export default {
     isRootToken,
+    buildRootUser,
     getUserByApiKey,
+    resolveAdminKeyIdentity,
     adjustBalance,
     deductBalance,
     checkBalance,

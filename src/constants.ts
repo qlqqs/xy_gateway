@@ -93,6 +93,8 @@ export const ROOT_USER_ID = -1;
 export enum ConfigKey {
     // 机器管理入口专用配置。该值不属于普通配置 API 的读写范围。
     ADMIN_API_KEY = "admin_api_key",
+    // Admin Key 绑定的账户 ID。Root 为 -1，不属于普通配置 API。
+    ADMIN_API_KEY_OWNER_ID = "admin_api_key_owner_id",
     // API Key 回显值加密密钥。由内部服务管理，不属于普通配置 API。
     KEY_ENCRYPTION_SECRET = "key_encryption_secret",
     CCH_REWRITE_ENABLED = "cch_rewrite_enabled",

@@ -1,4 +1,4 @@
-import { ConfigKey, ADMIN_API_KEY_MAX_LENGTH, ADMIN_API_KEY_MIN_LENGTH, ADMIN_API_KEY_PREFIX, ADMIN_API_KEY_RANDOM_BYTES } from "../constants";
+import { ConfigKey, ROOT_USER_ID, UserType, ADMIN_API_KEY_MAX_LENGTH, ADMIN_API_KEY_MIN_LENGTH, ADMIN_API_KEY_PREFIX, ADMIN_API_KEY_RANDOM_BYTES } from "../constants";
 import configManager from "../manager/configManager";
 import customError from "../util/customErrorUtil";
 
@@ -6,6 +6,11 @@ const textEncoder = new TextEncoder();
 
 interface SecureRandomSource {
     getRandomValues(array: Uint8Array): Uint8Array;
+}
+
+interface AdminKeyOwner {
+    id: number;
+    type: string;
 }
 
 
@@ -68,9 +73,39 @@ function generateKeyValue(): string {
 }
 
 
+function ownerIdFromUser(owner: AdminKeyOwner): number {
+    const ownerId = Number(owner.id);
+    if (owner.type === UserType.ROOT || ownerId === ROOT_USER_ID) {
+        return ROOT_USER_ID;
+    }
+    if (owner.type === UserType.ADMIN && Number.isSafeInteger(ownerId) && ownerId > 0) {
+        return ownerId;
+    }
+    throw new customError.AppError(
+        "Admin API key must be bound to an admin or root user",
+        500,
+        "admin_key_owner_invalid",
+    );
+}
+
+
 async function get(): Promise<string | null> {
     const config = await configManager.get(ConfigKey.ADMIN_API_KEY);
     return normalizeValue(config?.value);
+}
+
+
+async function getOwnerId(): Promise<number | null> {
+    const config = await configManager.get(ConfigKey.ADMIN_API_KEY_OWNER_ID);
+    const raw = normalizeValue(config?.value);
+    if (raw == null) {
+        return null;
+    }
+    const ownerId = Number(raw);
+    if (!Number.isSafeInteger(ownerId)) {
+        return null;
+    }
+    return ownerId;
 }
 
 
@@ -96,10 +131,12 @@ async function verify(value: unknown): Promise<boolean> {
 }
 
 
-async function regenerate(): Promise<string> {
+async function regenerate(owner: AdminKeyOwner): Promise<string> {
+    const ownerId = ownerIdFromUser(owner);
     const value = generateKeyValue();
     try {
         await configManager.set(ConfigKey.ADMIN_API_KEY, value);
+        await configManager.set(ConfigKey.ADMIN_API_KEY_OWNER_ID, String(ownerId));
     } catch {
         // 不向调用方暴露数据库细节或生成出的密钥。
         throw new customError.AppError("Failed to save Admin API key", 500, "admin_key_write_failed");
@@ -109,12 +146,15 @@ async function regenerate(): Promise<string> {
 
 
 async function remove(): Promise<boolean> {
-    return await configManager.remove(ConfigKey.ADMIN_API_KEY);
+    const removed = await configManager.remove(ConfigKey.ADMIN_API_KEY);
+    await configManager.remove(ConfigKey.ADMIN_API_KEY_OWNER_ID);
+    return removed;
 }
 
 
 export default {
     get,
+    getOwnerId,
     exists,
     verify,
     regenerate,

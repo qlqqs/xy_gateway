@@ -74,12 +74,14 @@ describe("Node Admin API authentication and domain coverage", () => {
         const generated = await requestHelper.post(
             "/api/v1/admin/settings/admin-api-key/regenerate",
             {},
-            ROOT_TOKEN,
+            userFixtures.ADMIN_TOKEN,
         );
         expect(generated.status).toBe(200);
         adminApiKey = generated.body.key;
 
-        expect((await requestWithAdminKey("/api/v1/admin/status")).status).toBe(200);
+        const viaAdminKey = await requestWithAdminKey("/api/v1/admin/status");
+        expect(viaAdminKey.status).toBe(200);
+        expect(viaAdminKey.body.user_type).toBe("admin");
         expect((await requestHelper.get("/api/v1/admin/status", ROOT_TOKEN)).status).toBe(200);
 
         const invalidWithBearer = await requestHelper.request("/api/v1/admin/status", {

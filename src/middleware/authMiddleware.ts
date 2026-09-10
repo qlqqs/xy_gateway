@@ -2,7 +2,7 @@ import { Context, MiddlewareHandler } from "hono";
 import { UserType, UserStatus } from "../constants";
 import authContextService from "../service/authContextService";
 import adminKeyService from "../service/adminKeyService";
-import userManager from "../manager/userManager";
+import userService from "../service/userService";
 
 const requireAdmin: MiddlewareHandler = async (c, next) => {
     // x-api-key 仅供 Node Admin API 使用。按 Header 是否存在而不是值的
@@ -25,9 +25,9 @@ const requireAdmin: MiddlewareHandler = async (c, next) => {
             return c.json({ error: "Invalid admin API key", code: "invalid_admin_key" }, 401);
         }
 
-        let admin;
+        let identity;
         try {
-            admin = await userManager.findFirstActiveAdmin();
+            identity = await userService.resolveAdminKeyIdentity();
         } catch {
             return c.json(
                 { error: "Admin identity unavailable", code: "admin_identity_unavailable" },
@@ -35,16 +35,16 @@ const requireAdmin: MiddlewareHandler = async (c, next) => {
             );
         }
 
-        if (!admin) {
+        if (!identity) {
             return c.json(
                 { error: "Admin identity unavailable", code: "admin_identity_unavailable" },
                 503,
             );
         }
 
-        c.set("user_type", admin.type);
-        c.set("user", admin);
-        c.set("authContext", { user: admin, key: null, group: null });
+        c.set("user_type", identity.type);
+        c.set("user", identity);
+        c.set("authContext", { user: identity, key: null, group: null });
         await next();
         return;
     }

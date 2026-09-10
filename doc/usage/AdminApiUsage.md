@@ -11,7 +11,7 @@
 ## 适用范围与安全提醒
 
 - 外部管理 API 运行在 Node.js 后端，支持 SQLite 和 MySQL。
-- Admin Key 是全局唯一配置值，保存在配置数据库中。它绑定 `id` 最小的、`type=admin` 且 `status=active` 的真实管理员，不会创建虚拟用户。
+- Admin Key 是全局唯一配置值，保存在配置数据库中。一把 Key 绑定生成或轮换它的那个账户：Root 创建则绑定虚拟 Root（ID `-1`），管理员创建则绑定该管理员。
 - Admin Key 拥有现有管理员路由的权限。请将它当作高权限机器凭证保存，不要写入前端持久化状态、日志、查询参数或错误报告。
 - 生成、轮换和删除属于有副作用的操作；网络超时后先确认结果，再决定是否使用管理员 Bearer 恢复，不要盲目重复执行。
 
@@ -26,7 +26,7 @@ curl -H "x-api-key: ${ADMIN_KEY}" \
   http://127.0.0.1:8720/api/v1/admin/status
 ```
 
-Header 只要存在就优先走 Admin Key 校验，包括空值。值无效时直接返回 `401`，不会回退到同时提供的 Bearer；值有效时请求以绑定的真实管理员身份执行。若没有可绑定的 active 管理员，返回 `503`，错误码为 `admin_identity_unavailable`。
+Header 只要存在就优先走 Admin Key 校验，包括空值。值无效时直接返回 `401`，不会回退到同时提供的 Bearer；值有效时请求以绑定账户的身份执行。绑定的管理员被禁用或删除时返回 `503`，错误码为 `admin_identity_unavailable`。没有所有者记录的旧 Key 按 Root 身份执行。
 
 ### Bearer
 

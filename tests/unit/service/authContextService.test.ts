@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiFormat, UserStatus, UserType } from "../../../src/constants";
 
 const mocks = vi.hoisted(() => ({
-    userService: { isRootToken: vi.fn() },
+    userService: { isRootToken: vi.fn(), buildRootUser: vi.fn() },
     userKeyUtil: { hashKey: vi.fn() },
     userKeyManager: { findByHash: vi.fn(), markUsed: vi.fn() },
     userManager: { findById: vi.fn() },
@@ -29,6 +29,13 @@ describe("authContextService", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.userService.isRootToken.mockResolvedValue(false);
+        mocks.userService.buildRootUser.mockReturnValue({
+            id: -1,
+            name: "Root",
+            type: UserType.ROOT,
+            status: UserStatus.ACTIVE,
+            balance: Number.MAX_SAFE_INTEGER,
+        });
         mocks.userKeyUtil.hashKey.mockResolvedValue("hash");
         mocks.userKeyManager.markUsed.mockResolvedValue(undefined);
         mocks.userGroupManager.findById.mockResolvedValue({ id: 33, status: "active" });

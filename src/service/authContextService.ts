@@ -1,4 +1,4 @@
-import { ApiFormat, UserStatus, UserType } from "../constants";
+import { ApiFormat, UserStatus } from "../constants";
 import { SgUser } from "../model/sgUser";
 import { SgUserGroup } from "../model/sgUserGroup";
 import { SgUserKey } from "../model/sgUserKey";
@@ -25,13 +25,7 @@ export interface LlmRequestContext extends AuthContext {
 async function resolve(token: string, rootToken?: string): Promise<AuthContext | null> {
     if (!token) return null;
     if (await userService.isRootToken(token, rootToken)) {
-        const user = new SgUser();
-        user.id = -1;
-        user.name = "Root";
-        user.type = UserType.ROOT;
-        user.status = UserStatus.ACTIVE;
-        user.balance = Number.MAX_SAFE_INTEGER;
-        return { user, key: null, group: null };
+        return { user: userService.buildRootUser(), key: null, group: null };
     }
 
     const keyHash = await userKeyUtil.hashKey(token);

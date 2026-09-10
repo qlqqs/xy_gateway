@@ -1,5 +1,6 @@
 import { Context } from "hono";
 import adminKeyService from "../service/adminKeyService";
+import customError from "../util/customErrorUtil";
 
 
 async function status(c: Context) {
@@ -8,7 +9,11 @@ async function status(c: Context) {
 
 
 async function regenerate(c: Context) {
-    const key = await adminKeyService.regenerate();
+    const user = c.get("user");
+    if (!user) {
+        throw new customError.AppError("Admin identity unavailable", 503, "admin_identity_unavailable");
+    }
+    const key = await adminKeyService.regenerate(user);
     return c.json({ key });
 }
 
