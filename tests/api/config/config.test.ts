@@ -39,4 +39,26 @@ describe("Config API", () => {
         expect(getResponse.body.cch_rewrite_enabled).toBe("true");
         expect(getResponse.body.responses_prompt_cache_key_enabled).toBe("true");
     });
+
+    it("hides and rejects key_encryption_secret through ordinary config endpoints", async () => {
+        const config = await requestHelper.get("/config.json", ROOT_TOKEN);
+        expect(config.status).toBe(200);
+        expect(config.body).not.toHaveProperty("key_encryption_secret");
+        expect(config.body).not.toHaveProperty("KEY_ENCRYPTION_SECRET");
+
+        const rejected = await requestHelper.put(
+            "/config.json",
+            {
+                cch_rewrite_enabled: "false",
+                key_encryption_secret: "attempted-overwrite",
+            },
+            ROOT_TOKEN,
+        );
+        expect(rejected.status).toBe(400);
+        expect(rejected.body.code).toBe("reserved_config");
+
+        const afterReject = await requestHelper.get("/config.json", ROOT_TOKEN);
+        expect(afterReject.body.cch_rewrite_enabled).toBe("true");
+        expect(afterReject.body).not.toHaveProperty("key_encryption_secret");
+    });
 });

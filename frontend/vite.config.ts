@@ -18,6 +18,13 @@ function normalizeSecurityEntrance(value: string | undefined): string {
     return `/${withoutSlashes}`
 }
 
+function hasAuthCookie(cookieHeader: string | undefined): boolean {
+    return cookieHeader?.split(';').some((item) => {
+        const value = item.trim()
+        return value.startsWith('adminToken=') && value.length > 'adminToken='.length
+    }) ?? false
+}
+
 function readRootDevVars(frontendRoot: string): Record<string, string> {
     const varsPath = resolve(frontendRoot, '../.dev.vars')
     try {
@@ -61,7 +68,16 @@ function secureLoginEntryPlugin() {
                     return
                 }
 
-                const isAllowedPath = pathname === entrance || pathname === `${entrance}/`
+                const isAuthenticated = hasAuthCookie(req.headers.cookie)
+                if (isAuthenticated && (pathname === entrance || pathname === `${entrance}/`)) {
+                    res.statusCode = 302
+                    res.setHeader('Location', '/')
+                    res.end()
+                    return
+                }
+
+                const isAllowedPath = isAuthenticated
+                    || pathname === entrance || pathname === `${entrance}/`
                     || pathname.startsWith('/@')
                     || pathname.startsWith('/src/')
                     || pathname.startsWith('/node_modules/')
@@ -104,6 +120,29 @@ function dataViewerDistOnlyPlugin() {
     }
 }
 
+function frontendVersionPlugin() {
+    const virtualModuleId = 'virtual:frontend-version'
+    const resolvedVirtualModuleId = '\0' + virtualModuleId
+
+    return {
+        name: 'frontend-version',
+        resolveId(id: string) {
+            if (id === virtualModuleId) {
+                return resolvedVirtualModuleId
+            }
+        },
+        load(id: string) {
+            if (id !== resolvedVirtualModuleId) {
+                return
+            }
+
+            const frontendRoot = fileURLToPath(new URL('.', import.meta.url))
+            const packageJson = JSON.parse(readFileSync(resolve(frontendRoot, 'package.json'), 'utf-8'))
+            return `export default ${JSON.stringify(packageJson.version)}`
+        },
+    }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ command }) => ({
     plugins: [
@@ -132,6 +171,7 @@ export default defineConfig(({ command }) => ({
             ],
         }),
         dataViewerDistOnlyPlugin(),
+        frontendVersionPlugin(),
         ...(command === 'serve' ? [secureLoginEntryPlugin()] : []),
     ],
     resolve: {

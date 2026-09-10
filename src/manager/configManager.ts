@@ -31,6 +31,28 @@ async function set(name: string, value: string): Promise<SgConfig> {
     }
 }
 
+
+/**
+ * 仅在记录不存在时插入。并发首次写入时保留已成功插入的值，不覆盖。
+ */
+async function createIfAbsent(name: string, value: string): Promise<SgConfig> {
+    const existing = await get(name);
+    if (existing) {
+        return existing;
+    }
+
+    try {
+        return await SgConfig.query().create({ name, value });
+    } catch (error) {
+        const concurrent = await get(name);
+        if (!concurrent) {
+            throw error;
+        }
+        return concurrent;
+    }
+}
+
+
 async function getAll(): Promise<SgConfig[]> {
     return (await SgConfig.query().get()).all();
 }
@@ -50,6 +72,7 @@ async function remove(name: string): Promise<boolean> {
 export default {
     get,
     set,
+    createIfAbsent,
     getAll,
     remove,
 };

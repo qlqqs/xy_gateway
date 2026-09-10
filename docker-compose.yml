@@ -11,6 +11,7 @@ services:
             - PORT=8787
             - DB_PATH=/app/data/local.db
             - ROOT_TOKEN=${ROOT_TOKEN:-your-secret-root-token-change-this}
+            # 可选覆盖；不设置时首次启动自动生成并写入数据库
             - KEY_ENCRYPTION_SECRET=${KEY_ENCRYPTION_SECRET:-}
             - SECURE_LOGIN_ENTRY=${SECURE_LOGIN_ENTRY:-}
         volumes:

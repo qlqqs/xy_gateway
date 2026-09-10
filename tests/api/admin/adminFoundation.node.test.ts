@@ -274,6 +274,7 @@ describe("Node Admin API foundation", () => {
         const config = await requestHelper.get("/config.json", ROOT_TOKEN);
         expect(config.status).toBe(200);
         expect(config.body).not.toHaveProperty("admin_api_key");
+        expect(config.body).not.toHaveProperty("key_encryption_secret");
 
         const rejected = await requestHelper.put(
             "/config.json",

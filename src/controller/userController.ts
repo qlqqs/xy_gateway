@@ -30,9 +30,7 @@ function encryptionSecret(c: Context): string {
 
 async function toDto(c: Context, user: any): Promise<UserDto> {
     const userKeys = await userKeyManager.listByUser(Number(user.id));
-    // A user without keys can still be listed/edited before the deployment
-    // operator configures KEY_ENCRYPTION_SECRET.  The secret is mandatory as
-    // soon as an encrypted key must be created or returned.
+    // 启动时会确保加密密钥存在。没有 Key 的用户仍可在解密前被列出。
     const secret = userKeys.length > 0 ? encryptionSecret(c) : "";
     return {
         id: Number(user.id),

@@ -6,10 +6,13 @@ import { readFileSync } from "fs";
 import ormService from "./service/ormService";
 import recordService from "./service/recordService";
 import hostService from "./service/hostService";
+import keyEncryptionSecretService from "./service/keyEncryptionSecretService";
 import app, { Env } from "./routes";
 import initLogger, { Logger } from "./util/loggerUtil";
 import maskUtil from "./util/maskUtil";
 import securityEntranceUtil from "./util/securityEntranceUtil";
+import authContextService from "./service/authContextService";
+import { UserStatus, UserType } from "./constants";
 
 // --api-only: 跳过前端静态文件服务，仅提供 API（桌面 sidecar 模式使用）
 export const apiOnly = process.argv.includes("--api-only");
@@ -99,6 +102,8 @@ async function startServer() {
     // 校验数据库表结构
     await ormService.verifySchema();
 
+    await keyEncryptionSecretService.ensure();
+
     // 启动服务器
     const port = parseInt(hostService.getLocalPort(), 10);
 
@@ -153,10 +158,28 @@ async function startServer() {
                 }
             }
 
-            // 配置安全入口后，仅允许入口路径返回前端登录页面。
-            // 静态资源和 API 已在上方单独处理，不受此检查影响。
-            if (!securityEntranceUtil.isSecurityEntrancePath(pathname, SECURITY_ENTRANCE)) {
-                return c.notFound();
+            if (SECURITY_ENTRANCE) {
+                const cookieToken = securityEntranceUtil.getCookieValue(
+                    c.req.header("Cookie"),
+                    securityEntranceUtil.SECURITY_AUTH_COOKIE,
+                );
+                const authContext = cookieToken
+                    ? await authContextService.resolve(cookieToken, c.env.ROOT_TOKEN)
+                    : null;
+                const user = authContext?.user;
+                const isAuthenticated = !!user
+                    && user.status === UserStatus.ACTIVE
+                    && (user.type === UserType.ADMIN || user.type === UserType.ROOT);
+
+                if (isAuthenticated) {
+                    // 已登录用户不再需要暴露安全入口，回到正常的 SPA 根路径。
+                    if (securityEntranceUtil.isSecurityEntrancePath(pathname, SECURITY_ENTRANCE)) {
+                        return c.redirect("/");
+                    }
+                } else if (!securityEntranceUtil.isSecurityEntrancePath(pathname, SECURITY_ENTRANCE)) {
+                    // 未登录用户只能从安全入口加载登录页面。
+                    return c.notFound();
+                }
             }
 
             // Return index.html for SPA routing

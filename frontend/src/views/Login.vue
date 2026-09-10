@@ -66,6 +66,20 @@ const rules = {
     token: [{ required: true, message: '请输入 Token' }],
 };
 
+function navigateAfterLogin(): void {
+    const redirect = router.currentRoute.value.query.redirect as string;
+    const target = redirect || '/dashboard';
+
+    // 安全入口只负责展示登录页，登录后将浏览器路径恢复到站点根路径。
+    // Hash 路由本身不会修改 pathname，直接 router.push 会保留安全入口路径。
+    if (window.location.pathname !== '/') {
+        window.location.replace(`/#${target}`);
+        return;
+    }
+
+    router.push(target);
+}
+
 // 后端就绪后自动尝试登录
 let unlistenBackend: (() => void) | null = null;
 
@@ -75,8 +89,7 @@ async function tryAutoLogin() {
     try {
         const result = await authStore.validateToken();
         if (result.success) {
-            const redirect = router.currentRoute.value.query.redirect as string;
-            router.push(redirect || '/dashboard');
+            navigateAfterLogin();
         }
     } catch (error) {
         console.warn('自动登录失败，等待后端就绪事件:', error);
@@ -112,8 +125,7 @@ async function handleLogin() {
         const result = await authStore.login(formState.token);
         if (result.success) {
             notifySuccess('登录成功');
-            const redirect = router.currentRoute.value.query.redirect as string;
-            router.push(redirect || '/dashboard');
+            navigateAfterLogin();
         } else {
             notifyError(result.message === 'User disabled' ? '该账号已被禁用' : result.message || 'Token 验证失败');
         }

@@ -24,4 +24,17 @@ describe("securityEntranceUtil", () => {
         expect(securityEntranceUtil.isSecurityEntrancePath("/", "")).toBe(true);
         expect(securityEntranceUtil.isSecurityEntrancePath("/login", "")).toBe(true);
     });
+
+    it("reads an encoded authentication token from cookies", () => {
+        expect(securityEntranceUtil.getCookieValue(
+            "theme=dark; adminToken=token%2Bvalue; other=value",
+            securityEntranceUtil.SECURITY_AUTH_COOKIE,
+        )).toBe("token+value");
+    });
+
+    it("does not accept a malformed or missing authentication cookie", () => {
+        expect(securityEntranceUtil.getCookieValue("adminToken=%E0%A4%A", "adminToken")).toBe("");
+        expect(securityEntranceUtil.getCookieValue("theme=dark", "adminToken")).toBe("");
+    });
+
 });

@@ -93,6 +93,8 @@ export const ROOT_USER_ID = -1;
 export enum ConfigKey {
     // 机器管理入口专用配置。该值不属于普通配置 API 的读写范围。
     ADMIN_API_KEY = "admin_api_key",
+    // API Key 回显值加密密钥。由内部服务管理，不属于普通配置 API。
+    KEY_ENCRYPTION_SECRET = "key_encryption_secret",
     CCH_REWRITE_ENABLED = "cch_rewrite_enabled",
     RESPONSES_PROMPT_CACHE_KEY_ENABLED = "responses_prompt_cache_key_enabled",
     CLAUDE_CODE_TRACKING_REWRITE_ENABLED = "claudecode_tracking_rewrite_enabled",
@@ -110,3 +112,5 @@ export const ADMIN_API_KEY_PREFIX = "xg_admin_";
 export const ADMIN_API_KEY_RANDOM_BYTES = 32;
 export const ADMIN_API_KEY_MIN_LENGTH = 32;
 export const ADMIN_API_KEY_MAX_LENGTH = 512;
+
+export const KEY_ENCRYPTION_SECRET_BYTES = 32;

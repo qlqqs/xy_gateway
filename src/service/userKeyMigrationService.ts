@@ -1,6 +1,7 @@
 import type { DBAdapter } from "../util/db/dbAdapter";
 import customError from "../util/customErrorUtil";
 import userKeyUtil from "../util/userKeyUtil";
+import keyEncryptionSecretService from "./keyEncryptionSecretService";
 
 /**
  * 一次性导入领域重构前的 `user.token` 值。
@@ -77,10 +78,11 @@ async function importLegacyUserKeys(
         return { imported: 0, skipped: 0 };
     }
 
-    const secret = userKeyUtil.resolveEncryptionSecret(explicitSecret);
+    const explicit = typeof explicitSecret === "string" ? explicitSecret.trim() : "";
+    const secret = explicit || await keyEncryptionSecretService.ensureForAdapter(adapter);
     if (!secret) {
         throw new customError.AppError(
-            "KEY_ENCRYPTION_SECRET is required to migrate existing API keys",
+            "Failed to resolve key encryption secret for legacy API key import",
             500,
             "key_encryption_secret_required",
         );

@@ -46,7 +46,7 @@
 | 条件 | 结果 |
 |------|------|
 | 版本低于 8.0.13、版本无法解析或 MariaDB | 抛出 `mysql_version_unsupported`（查询失败为 `mysql_version_check_failed`），不建迁移表 |
-| `KEY_ENCRYPTION_SECRET` 缺失且存在旧 token | 抛出 `key_encryption_secret_required`，不删除旧列 |
+| 存在旧 token 且无法读取或生成加密密钥 | 抛出 `key_encryption_secret_required` / `key_encryption_secret_generation_failed` / `key_encryption_secret_write_failed`，不删除旧列 |
 | 领域表/列只有部分存在或 marker 与 schema 不一致 | 拒绝继续，要求从迁移前备份恢复 |
 | 已导入相同用户/摘要的 Key | 跳过并保持幂等；同摘要属于不同用户时抛出 `legacy_key_conflict` |
 
@@ -64,6 +64,8 @@
 - 分组 API：断言 `{ list, total }`、数值 `id`、聚合 `channelCount` 和 JSON 404。
 - MySQL `db:clear`：断言带外键的父子表全部删除、`_migrations` 不残留，且清理后
   不影响后续连接的外键检查状态。
+- Key 加密密钥：环境变量优先；缺失时自动生成并写入保留配置 `key_encryption_secret`，
+  且不得通过 `/config.json` 读写。
 
 ### 7. 错误与正确对照
 

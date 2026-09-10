@@ -26,4 +26,13 @@ describe("configManager (node, real db)", () => {
         const values = Object.fromEntries(all.map(c => [c.name, c.value]));
         expect(values["test_key"]).toBe("value2");
     });
+
+    it("createIfAbsent keeps the first value", async () => {
+        const created = await configManager.createIfAbsent("once_key", "first");
+        expect(created.value).toBe("first");
+
+        const skipped = await configManager.createIfAbsent("once_key", "second");
+        expect(skipped.value).toBe("first");
+        expect((await configManager.get("once_key"))?.value).toBe("first");
+    });
 });

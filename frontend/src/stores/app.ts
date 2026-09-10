@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { status } from '@/api/system';
-import packageJson from '../../package.json';
+import frontendVersion from 'virtual:frontend-version';
 
-const FALLBACK_VERSION = packageJson.version;
+const FALLBACK_VERSION = frontendVersion;
 
 export const useAppStore = defineStore('app', () => {
     const sidebarCollapsed = ref(false);

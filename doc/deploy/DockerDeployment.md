@@ -22,14 +22,11 @@ docker run -d \
     -p 8787:8787 \
     -v $(pwd)/data:/app/data \
     -e ROOT_TOKEN=your-secret-root-token \
-    -e KEY_ENCRYPTION_SECRET=your-long-random-encryption-secret \
     -e SECURE_LOGIN_ENTRY=fdsafhdvd \
     ghcr.io/qlqqs/xy_gateway:latest
 ```
 
-> **注意**：`ROOT_TOKEN` 是系统最高权限 Token，`KEY_ENCRYPTION_SECRET` 用于 API Key
-> 加密。请使用两个不同的高熵随机值，并持久化保存 `KEY_ENCRYPTION_SECRET`；丢失后无法
-> 回显已有 Key。
+> **注意**：`ROOT_TOKEN` 是系统最高权限 Token，请使用高熵随机值。API Key 回显加密密钥会在首次启动时自动生成并写入数据库，一般无需配置 `KEY_ENCRYPTION_SECRET`。若手动设置该环境变量，则始终以环境变量为准。从旧版本升级时，请先带着原来的 `KEY_ENCRYPTION_SECRET` 启动一次，服务会把它写入数据库，之后可以不再配置；直接丢掉旧值会导致已有 Key 无法回显。备份或迁移时请一并保留数据目录或数据库。
 
 服务启动后，访问 `http://localhost:8787/fdsafhdvd` 即可打开登录页。
 

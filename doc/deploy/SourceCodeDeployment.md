@@ -42,8 +42,8 @@ cp .dev.vars.template .dev.vars
 # 超级管理员的登录密码，建议修改为您的专属密码
 ROOT_TOKEN=your-secret-root-token
 
-# API Key 回显值的加密密钥；必须与 ROOT_TOKEN 使用不同的随机值
-KEY_ENCRYPTION_SECRET=your-long-random-encryption-secret
+# 可选：API Key 回显加密密钥。不设置时首次启动自动生成并写入数据库
+# KEY_ENCRYPTION_SECRET=
 
 # 服务运行端口，默认 8720
 PORT=8720
@@ -56,8 +56,9 @@ SECURE_LOGIN_ENTRY=fdsafhdvd
 ```
 
 升级已有数据库时，请先备份 `DB_PATH` 指向的 SQLite 文件。启动时会自动执行一次性
-领域迁移：把旧用户 Token 加密导入 `user_key`，随后删除旧认证/路由列；缺少
-`KEY_ENCRYPTION_SECRET` 时迁移会中止，不会继续删除旧列。
+领域迁移：把旧用户 Token 加密导入 `user_key`，随后删除旧认证/路由列。加密密钥会
+优先使用 `KEY_ENCRYPTION_SECRET`；未配置时自动生成并写入 `config` 表。若旧实例已经
+配置过该环境变量，请先带着原值启动一次，写入数据库后再移除。
 
 ---
 

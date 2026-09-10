@@ -30,7 +30,7 @@ npm run backend:test -- --run -t "should create user"       # 特定用例
 | `TEST_CLEANUP` | 测试后清理数据库 | true |
 | `TEST_REAL_API` | 使用真实 API | false |
 | `TEST_TIMEOUT` | 超时时间（毫秒） | 30000 |
-| `KEY_ENCRYPTION_SECRET` | 测试 API Key 的加密密钥 | `test-key-encryption-secret`（Node 测试服务器自动设置） |
+| `KEY_ENCRYPTION_SECRET` | 测试 API Key 的加密密钥 | `test-key-encryption-secret`（Node 测试服务器为了结果稳定仍会设置；生产可省略并由服务自动生成） |
 
 ### ROOT_TOKEN 配置
 
@@ -53,7 +53,7 @@ ROOT_TOKEN=your-admin-token-here
 
 - `.dev.vars` 文件不要提交到版本控制系统（已在 `.gitignore` 中）
 - 生产环境部署时需要通过 Node.js 进程或容器环境变量配置 `ROOT_TOKEN`
-- `KEY_ENCRYPTION_SECRET` 与 `ROOT_TOKEN` 必须分开配置；领域迁移导入旧用户 Token 时需要该密钥
+- 测试服务器仍会设置独立的 `KEY_ENCRYPTION_SECRET`，不要把它配成 `ROOT_TOKEN`。生产环境可不设，由服务自动生成并写入数据库
 
 ### 示例
 

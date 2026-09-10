@@ -55,8 +55,8 @@ npm install
 ```bash
 # .dev.vars
 ROOT_TOKEN=root-token-123
-# API Key 加密密钥（不要与 ROOT_TOKEN 相同）
-KEY_ENCRYPTION_SECRET=local-development-encryption-secret
+# 可选：不设置时首次启动自动生成 API Key 回显加密密钥
+# KEY_ENCRYPTION_SECRET=local-development-encryption-secret
 PORT=8720
 RECORD_LOG_ENABLED=false
 ```
@@ -73,7 +73,7 @@ RECORD_LOG_ENABLED=false
 | `DB_PASSWORD` | - | `DB_DRIVER=mysql` 时：密码 |
 | `DB_NAME` | - | `DB_DRIVER=mysql` 时：库名（必填） |
 | `DB_URL` | - | `DB_DRIVER=mysql` 时：可选连接串 `mysql://user:pass@host:port/db`，设置后优先于离散变量 |
-| `KEY_ENCRYPTION_SECRET` | - | API Key 可回显值的 AES-GCM 密钥；生产环境必填，不能使用 `ROOT_TOKEN` |
+| `KEY_ENCRYPTION_SECRET` | 首次启动自动生成 | API Key 可回显值的 AES-GCM 密钥；可选覆盖。不设置时写入 `config.key_encryption_secret`，不能使用 `ROOT_TOKEN` |
 
 设置 `DB_DRIVER=mysql` 并配置连接参数后，Node 模式会通过 `mysql2` 连接 MySQL，启动时自动建表并执行与 SQLite 等价的迁移。不设置或为 `sqlite` 时行为与旧版完全一致。示例：
 

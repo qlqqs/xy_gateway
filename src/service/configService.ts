@@ -3,11 +3,24 @@ import { ConfigKey } from "../constants";
 import configManager from "../manager/configManager";
 import customError from "../util/customErrorUtil";
 
-const RESERVED_CONFIG_KEYS = new Set<string>([ConfigKey.ADMIN_API_KEY]);
+const RESERVED_CONFIG_KEYS = new Set<string>([
+    ConfigKey.ADMIN_API_KEY,
+    ConfigKey.KEY_ENCRYPTION_SECRET,
+]);
 
 
 function isReservedConfigKey(name: string): boolean {
     return RESERVED_CONFIG_KEYS.has(name);
+}
+
+
+function reservedConfigError(name: string): never {
+    const message = name === ConfigKey.ADMIN_API_KEY
+        ? "admin_api_key must be managed through the Admin API"
+        : name === ConfigKey.KEY_ENCRYPTION_SECRET
+            ? "key_encryption_secret is managed internally"
+            : "this configuration key is reserved";
+    throw new customError.AppError(message, 400, "reserved_config");
 }
 
 // 各配置项的默认值集中在此维护，调用方无需再传默认值。
@@ -58,8 +71,7 @@ async function getConfig(name: ConfigKey | string): Promise<ConfigItem> {
     const key = name as string;
     const defaultValue = getDefault(key);
 
-    // Admin API Key 由独立且不缓存的生命周期 Service 管理；这里返回空项，
-    // 防止普通配置代码意外读取该保留字段。
+    // 保留配置由独立生命周期管理；这里返回空项，避免普通配置 API 读到密钥。
     if (isReservedConfigKey(key)) {
         return new ConfigItem(undefined, "");
     }
@@ -86,11 +98,7 @@ async function isModuleBillingEnabled(): Promise<boolean> {
 async function setValue(name: ConfigKey | string, value: string): Promise<SgConfig> {
     const key = name as string;
     if (isReservedConfigKey(key)) {
-        throw new customError.AppError(
-            "admin_api_key must be managed through the Admin API",
-            400,
-            "reserved_config",
-        );
+        reservedConfigError(key);
     }
     const strValue = String(value);
 
@@ -131,11 +139,7 @@ async function updateAll(data: Record<string, string>): Promise<Record<string, s
     const entries = Object.entries(data);
     const reserved = entries.find(([name]) => isReservedConfigKey(name));
     if (reserved) {
-        throw new customError.AppError(
-            "admin_api_key must be managed through the Admin API",
-            400,
-            "reserved_config",
-        );
+        reservedConfigError(reserved[0]);
     }
 
     for (const [name, value] of entries) {

@@ -1499,7 +1499,7 @@ GitHub 查询失败时 `success=false`，并带 `error_message`；该接口通�
 
 兼容：`GET /user/list.json`
 
-查询：`type`、`keyword`、分页参数。响应 `{list: UserDto[], total}`。每个用户 DTO 会包含其全部 Key；有 Key 时必须配置 `KEY_ENCRYPTION_SECRET`，否则返回 500。
+查询：`type`、`keyword`、分页参数。响应 `{list: UserDto[], total}`。每个用户 DTO 会包含其全部 Key。服务会自动准备 Key 回显加密密钥；若显式配置了 `KEY_ENCRYPTION_SECRET` 则以环境变量为准。
 
 #### POST `/users`
 
@@ -1581,7 +1581,7 @@ Key 字段约束：
 - `quota` 为非负数字，单位元；`0` 表示不限制。内部 `quota_used` 不在 DTO 中返回。
 - `rateLimit` 为非负整数，`0` 表示不限制并发。
 - `expiresAt` 为可解析日期或 null；null 表示永不过期。
-- API 响应会返回明文 Key，因此所有用户/Key 管理响应都应按敏感数据处理。Key 加密依赖 `KEY_ENCRYPTION_SECRET`，该值丢失后无法解密已有 Key。
+- API 响应会返回明文 Key，因此所有用户/Key 管理响应都应按敏感数据处理。Key 回显加密密钥默认保存在数据库保留配置中；若使用环境变量覆盖，丢失或更换后无法解密已有 Key。
 
 #### GET `/users/:id/api-keys`
 
@@ -1894,7 +1894,7 @@ Key 字段约束：
 ## 10. 安全与运维建议
 
 1. 使用 HTTPS，并把 `ROOT_TOKEN`、Admin Key、用户 Key、供应商 Token 存放在密钥管理系统；不要写入查询参数、前端持久化存储或普通日志。
-2. `KEY_ENCRYPTION_SECRET` 是解密管理端用户 Key 的长期密钥，必须与 `ROOT_TOKEN` 使用不同的高熵值；丢失后无法解密已有 Key。
+2. Key 回显加密密钥由服务自动生成并写入数据库保留配置；可选的 `KEY_ENCRYPTION_SECRET` 环境变量会覆盖该值，且必须与 `ROOT_TOKEN` 不同。更换或丢失覆盖值后无法解密已有 Key。
 3. 供应商 Token 会由管理 DTO 原样返回，调用方应对响应做访问控制和脱敏；连通性测试虽会脱敏 Header，仍可能返回上游正文。
 4. 轮换 Admin Key 后旧值立即失效；轮换请求超时不要盲目重复，先用 Root/管理员 Bearer 查询 `exists` 或验证新值。
 5. 生产环境谨慎启用 `skip_tls_verify`；代理 URL、上游 URL 和 `channel_code` 应经过配置审查。
